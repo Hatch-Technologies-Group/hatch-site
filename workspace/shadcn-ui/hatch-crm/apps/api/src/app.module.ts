@@ -1,6 +1,9 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ExecutionContext, Module, OnModuleInit } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { BullModule } from '@nestjs/bullmq';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 import { PlatformModule } from './platform/platform.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
@@ -31,18 +34,27 @@ import { PipelinesModule } from './modules/pipelines/pipelines.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { SessionModule } from './modules/session/session.module';
 import { ConsumerModule } from './modules/consumer/consumer.module';
+import { ConsumerPortalModule } from './modules/consumer-portal/consumer-portal.module';
 import { DraftsModule } from './modules/drafts/drafts.module';
 import { OpportunitiesModule } from './modules/opportunities/opportunities.module';
 import { FilesModule } from './modules/files/files.module';
 import { OffersModule } from './modules/re/offers/offers.module';
 import { TransactionsModule } from './modules/re/transactions/transactions.module';
+import { DealsModule } from './modules/deals/deals.module';
 import { ReListingsModule } from './modules/re/listings/listings.module';
 import { bootstrapObjectRegistry } from './platform/security/object-registry.bootstrap';
 import { CasesModule } from './modules/cases/cases.module';
 import { RulesModule } from './modules/rules/rules.module';
 import { SearchModule } from './modules/search/search.module';
 import { LayoutsModule } from './modules/layouts/layouts.module';
+import { ViewsModule } from './modules/views/views.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { ReadModelsModule } from './modules/read-models/read-models.module';
+import { AiModule } from './modules/ai/ai.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { OutreachModule } from './modules/outreach/outreach.module';
+import { InsightsModule } from './modules/insights/insights.module';
+import { JwtStrategy } from './auth/jwt.strategy';
 
 @Module({
   imports: [
@@ -80,6 +92,26 @@ import { AuditModule } from './modules/audit/audit.module';
       })]
     }),
     EventEmitterModule.forRoot(),
+    BullModule.forRoot({
+      connection: process.env.REDIS_URL
+        ? { url: process.env.REDIS_URL }
+        : {
+            host: process.env.REDIS_HOST ?? '127.0.0.1',
+            port: Number(process.env.REDIS_PORT ?? 6379)
+          }
+    }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 30,
+        generateKey: (context: ExecutionContext, suffix?: string) => {
+          const request = context.switchToHttp().getRequest();
+          const tenant = (request?.headers?.['x-tenant-id'] as string | undefined) ?? 'no-tenant';
+          const user = (request?.headers?.['x-user-id'] as string | undefined) ?? 'anon';
+          return `throttle:${tenant}:${user}:${suffix ?? 'global'}`;
+        }
+      }
+    ]),
     PlatformModule,
     PrismaModule,
     FeatureFlagsModule,
@@ -88,6 +120,7 @@ import { AuditModule } from './modules/audit/audit.module';
     ContactsModule,
     ConsentsModule,
     MessagesModule,
+    OutreachModule,
     ToursModule,
     AgreementsModule,
     RoutingModule,
@@ -109,20 +142,33 @@ import { AuditModule } from './modules/audit/audit.module';
     FilesModule,
     OffersModule,
     TransactionsModule,
+    DealsModule,
     ReListingsModule,
     PipelinesModule,
     LeadsModule,
     SessionModule,
     ConsumerModule,
+    ConsumerPortalModule,
     DraftsModule,
     CasesModule,
     RulesModule,
     SearchModule,
     LayoutsModule,
-    AuditModule
+    ViewsModule,
+    AuditModule,
+    ReadModelsModule,
+    AiModule,
+    AnalyticsModule,
+    InsightsModule
   ],
   controllers: [],
-  providers: []
+  providers: [
+    JwtStrategy,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard
+    }
+  ]
 })
 export class AppModule implements OnModuleInit {
   onModuleInit() {

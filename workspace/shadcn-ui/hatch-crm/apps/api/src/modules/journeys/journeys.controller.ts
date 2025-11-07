@@ -3,7 +3,8 @@ import { ApiBody, ApiOkResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
 import { JourneysService } from './journeys.service';
-import { ApiModule, ApiStandardErrors, Permit, resolveRequestContext } from '../common';
+import { ApiModule, ApiStandardErrors, resolveRequestContext } from '../common';
+import { Permit } from '../../platform/security/permit.decorator';
 import {
   JourneyListResponseDto,
   JourneySimulationResponseDto
