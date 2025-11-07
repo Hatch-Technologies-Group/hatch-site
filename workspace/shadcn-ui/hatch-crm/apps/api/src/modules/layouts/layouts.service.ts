@@ -9,6 +9,7 @@ import { FlsService } from '../../platform/security/fls.service';
 import type { LayoutManifestDto, ResolveLayoutQueryDto, UpsertLayoutDto } from './dto';
 
 const DEFAULT_PROFILE_KEYS = new Set(['admin', 'manager', 'agent', 'viewer']);
+const DEFAULT_PROFILE_ID = 'default';
 
 @Injectable()
 export class LayoutsService {
@@ -31,53 +32,62 @@ export class LayoutsService {
 
     const normalized = this.normalizeFields(dto.object, dto.fields);
 
-    await this.prisma.objectLayout.upsert({
+    const profileKey = dto.profile ?? DEFAULT_PROFILE_ID;
+
+    const existing = await this.prisma.objectLayout.findFirst({
       where: {
-        orgId_object_kind_recordTypeId_profile: {
-          orgId: ctx.orgId,
-          object: dto.object,
-          kind: dto.kind,
-          recordTypeId,
-          profile: dto.profile ?? null
-        }
-      },
-      update: {
-        active: true,
-        fields: {
-          deleteMany: {},
-          create: normalized.map((field, index) => ({
-            field: field.field,
-            label: field.label ?? null,
-            visible: field.visible,
-            order: index,
-            width: field.width ?? null
-          }))
-        }
-      },
-      create: {
         orgId: ctx.orgId,
         object: dto.object,
         kind: dto.kind,
         recordTypeId,
-        profile: dto.profile ?? null,
-        active: true,
-        fields: {
-          create: normalized.map((field, index) => ({
-            field: field.field,
-            label: field.label ?? null,
-            visible: field.visible,
-            order: index,
-            width: field.width ?? null
-          }))
-        }
+        profile: profileKey
       }
     });
+
+    if (existing) {
+      await this.prisma.objectLayout.update({
+        where: { id: existing.id },
+        data: {
+          active: true,
+          fields: {
+            deleteMany: {},
+            create: normalized.map((field, index) => ({
+              field: field.field,
+              label: field.label ?? null,
+              visible: field.visible,
+              order: index,
+              width: field.width ?? null
+            }))
+          }
+        }
+      });
+    } else {
+      await this.prisma.objectLayout.create({
+        data: {
+          orgId: ctx.orgId,
+          object: dto.object,
+          kind: dto.kind,
+          recordTypeId,
+          profile: profileKey,
+          active: true,
+          fields: {
+            create: normalized.map((field, index) => ({
+              field: field.field,
+              label: field.label ?? null,
+              visible: field.visible,
+              order: index,
+              width: field.width ?? null
+            }))
+          }
+        }
+      });
+    }
 
     return this.resolve(ctx, {
       object: dto.object,
       kind: dto.kind,
       recordTypeId: recordTypeId ?? undefined,
-      profile: dto.profile ?? undefined
+      profile: profileKey
     });
   }
 
@@ -109,7 +119,7 @@ export class LayoutsService {
   ): Promise<(Prisma.ObjectLayoutGetPayload<{ include: { fields: true } }> | null)[]> {
     const combos: Array<{ recordTypeId: string | null; profile: string | null }> = [];
     const recordTypeId = q.recordTypeId ?? null;
-    const profile = q.profile ?? null;
+    const profile = q.profile ?? DEFAULT_PROFILE_ID;
 
     combos.push({ recordTypeId, profile });
     combos.push({ recordTypeId, profile: null });

@@ -21,8 +21,6 @@ export type MetricKey = (typeof METRIC_KEYS)[number];
 
 const METRIC_KEY_SET = new Set<string>(METRIC_KEYS);
 
-const toISODate = (value?: string) => (value ? new Date(value).toISOString() : undefined);
-
 export class GetMetricsQueryDto {
   @ApiProperty({ enum: METRIC_KEYS, description: 'Metric key to fetch' })
   @IsString()

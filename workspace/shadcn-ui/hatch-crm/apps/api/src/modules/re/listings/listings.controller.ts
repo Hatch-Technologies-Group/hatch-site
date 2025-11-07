@@ -8,6 +8,9 @@ import { ApiModule, ApiStandardErrors, resolveRequestContext } from '../../commo
 import { ListingsService } from './listings.service';
 import { ListingResponseDto, UpdateListingStatusDto } from './dto';
 
+type ListingResult = Awaited<ReturnType<ListingsService['get']>>;
+type ListingUpdateResult = Awaited<ReturnType<ListingsService['updateStatus']>>;
+
 @ApiModule('RE Listings')
 @ApiStandardErrors()
 @Controller('re/listings')
@@ -19,7 +22,7 @@ export class ListingsController {
   @Permit('re_listings', 'read')
   @ApiParam({ name: 'id', description: 'Listing identifier' })
   @ApiOkResponse({ type: ListingResponseDto })
-  async get(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async get(@Req() req: FastifyRequest, @Param('id') id: string): Promise<ListingResult> {
     const ctx = resolveRequestContext(req);
     return this.listings.get(ctx, id);
   }
@@ -33,7 +36,7 @@ export class ListingsController {
     @Req() req: FastifyRequest,
     @Param('id') id: string,
     @Body() dto: UpdateListingStatusDto
-  ) {
+  ): Promise<ListingUpdateResult> {
     const ctx = resolveRequestContext(req);
     return this.listings.updateStatus(ctx, id, dto.status);
   }

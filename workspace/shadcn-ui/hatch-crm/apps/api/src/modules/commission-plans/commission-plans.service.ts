@@ -4,6 +4,7 @@ import { Prisma } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import type { RequestContext } from '../common/request-context';
+import { toNullableJson } from '../common';
 import { FlsService } from '../../platform/security/fls.service';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../common/dto/cursor-pagination-query.dto';
 import {
@@ -73,9 +74,10 @@ export class CommissionPlansService {
         name: writable.name ?? dto.name,
         brokerSplit: writable.brokerSplit ?? dto.brokerSplit ?? DEFAULT_BROKER_SPLIT,
         agentSplit: writable.agentSplit ?? dto.agentSplit ?? DEFAULT_AGENT_SPLIT,
-        tiers: writable.tiers !== undefined
-          ? ((writable.tiers ?? null) as unknown as Prisma.InputJsonValue | null)
-          : ((dto.tiers ?? null) as unknown as Prisma.InputJsonValue | null)
+        tiers:
+          writable.tiers !== undefined
+            ? toNullableJson(writable.tiers)
+            : toNullableJson(dto.tiers)
       }
     });
 
@@ -103,7 +105,7 @@ export class CommissionPlansService {
       updateData.agentSplit = writable.agentSplit;
     }
     if (writable.tiers !== undefined) {
-      updateData.tiers = (writable.tiers ?? null) as unknown as Prisma.InputJsonValue | null;
+      updateData.tiers = toNullableJson(writable.tiers);
     }
 
     if (Object.keys(updateData).length === 0) {

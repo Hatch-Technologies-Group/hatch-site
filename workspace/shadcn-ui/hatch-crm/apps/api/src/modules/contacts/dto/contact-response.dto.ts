@@ -1,6 +1,74 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+export class ContactConsentDto {
+  @ApiProperty()
+  sms!: boolean;
+
+  @ApiProperty()
+  email!: boolean;
+
+  @ApiProperty()
+  call!: boolean;
+}
+
+export class ContactListItemDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiPropertyOptional()
+  name?: string | null;
+
+  @ApiPropertyOptional()
+  email?: string | null;
+
+  @ApiPropertyOptional()
+  phone?: string | null;
+
+  @ApiProperty()
+  status!: string;
+
+  @ApiPropertyOptional()
+  ownerId?: string | null;
+
+  @ApiPropertyOptional()
+  teamId?: string | null;
+
+  @ApiPropertyOptional()
+  companyId?: string | null;
+
+  @ApiPropertyOptional()
+  companyName?: string | null;
+
+  @ApiPropertyOptional()
+  householdId?: string | null;
+
+  @ApiPropertyOptional()
+  householdName?: string | null;
+
+  @ApiPropertyOptional({ type: Number, nullable: true })
+  score?: number | null;
+
+  @ApiPropertyOptional()
+  source?: string | null;
+
+  @ApiProperty()
+  updatedAt!: string;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastActivityAt?: string | null;
+
+  @ApiProperty()
+  openTasks!: number;
+
+  @ApiProperty({ type: ContactConsentDto })
+  consent!: ContactConsentDto;
+
+  @ApiProperty()
+  dnc!: boolean;
+}
 
 export class ContactOwnerDto {
   @ApiProperty()
@@ -64,6 +132,9 @@ export class SavedViewDto {
   @ApiPropertyOptional({ type: Object })
   filters?: Record<string, unknown> | null;
 
+  @ApiPropertyOptional({ type: Object })
+  query?: Record<string, unknown> | null;
+
   @ApiPropertyOptional()
   isDefault?: boolean | null;
 
@@ -74,9 +145,12 @@ export class SavedViewDto {
   updatedAt!: string;
 }
 
-export class ContactListResponseDto extends PaginatedResponseDto<ContactSummaryDto> {
-  @ApiProperty({ type: ContactSummaryDto, isArray: true })
-  declare items: ContactSummaryDto[];
+export class ContactListResponseDto {
+  @ApiProperty({ type: ContactListItemDto, isArray: true })
+  rows!: ContactListItemDto[];
+
+  @ApiPropertyOptional({ description: 'Opaque cursor to retrieve the next page', nullable: true })
+  nextCursor?: string | null;
 
   @ApiPropertyOptional({ type: SavedViewDto, nullable: true })
   savedView?: SavedViewDto | null;

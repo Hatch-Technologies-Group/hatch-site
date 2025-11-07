@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
+import { CalendarClock, NotebookPen, ShieldCheck, Target } from 'lucide-react';
 
 import { ErrorBanner } from '@/components/error-banner';
 import { useApiError } from '@/hooks/use-api-error';
@@ -56,6 +57,10 @@ export default function ContactActions({ lead, pipelines }: LeadActionsProps) {
       }))
     );
   }, [pipelines]);
+
+  const currentStageLabel = useMemo(() => {
+    return stageOptions.find((option) => option.value === stageValue)?.label ?? 'Select a stage';
+  }, [stageOptions, stageValue]);
 
   const handleStageChange = (value: string) => {
     if (value === stageValue) return;
@@ -134,102 +139,130 @@ export default function ContactActions({ lead, pipelines }: LeadActionsProps) {
   const smsConsent = lead.consents.find((consent) => consent.channel === 'SMS');
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {banner && <ErrorBanner {...banner} onDismiss={clearError} />}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-700">Pipeline controls</h2>
-        <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Move to stage
-          <select
-            value={stageValue}
-            onChange={(event) => handleStageChange(event.target.value)}
-            disabled={isPending}
-            className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-          >
-            {stageOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
+      <div className="rounded-xl border border-slate-200/60 bg-white px-4 py-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Target className="h-4 w-4 text-brand-500" />
+              Move stage
+            </p>
+            <p className="text-xs text-slate-500">Align this lead with the next best milestone.</p>
+          </div>
+          <span className="inline-flex items-center rounded-full border border-slate-200/60 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+            {currentStageLabel}
+          </span>
+        </div>
+        <select
+          value={stageValue}
+          onChange={(event) => handleStageChange(event.target.value)}
+          disabled={isPending}
+          className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {stageOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-700">Capture consent</h2>
-        <div className="mt-3 space-y-2 text-sm text-slate-600">
+      <div className="rounded-xl border border-slate-200/60 bg-white px-4 py-4">
+        <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          Communication consent
+        </p>
+        <p className="mt-1 text-xs text-slate-500">Capture opt-in before sending campaigns.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
           <ConsentToggle
-            label="Email consent"
+            label="Email"
             checked={emailConsent?.status === 'GRANTED'}
             onChange={(checked) => handleConsentToggle('EMAIL', checked)}
             loading={isPending}
           />
           <ConsentToggle
-            label="SMS consent"
+            label="SMS"
             checked={smsConsent?.status === 'GRANTED'}
             onChange={(checked) => handleConsentToggle('SMS', checked)}
             loading={isPending}
           />
         </div>
-      </section>
+      </div>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-700">Add note</h2>
-        <textarea
-          rows={4}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Document the latest conversation or coaching note."
-          className="mt-2 w-full rounded border border-slate-300 p-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-        />
-        <button
-          type="button"
-          onClick={handleAddNote}
-          disabled={isPending || !note.trim()}
-          className="mt-2 w-full rounded bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow disabled:opacity-60"
-        >
-          Log note
-        </button>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-700">Create task</h2>
-        <input
-          type="text"
-          value={taskTitle}
-          onChange={(event) => setTaskTitle(event.target.value)}
-          placeholder="Follow-up action"
-          className="mt-2 w-full rounded border border-slate-300 p-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-        />
-        <label className="mt-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Due
-          <input
-            type="datetime-local"
-            value={taskDueAt}
-            onChange={(event) => setTaskDueAt(event.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 p-2 text-sm text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-200/60 bg-white px-4 py-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <NotebookPen className="h-4 w-4 text-brand-500" />
+            Add note
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Document the latest coaching insight or conversation snippet.
+          </p>
+          <textarea
+            rows={4}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Summarize your touchpoint..."
+            className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
           />
-        </label>
-        <button
-          type="button"
-          onClick={handleCreateTask}
-          disabled={isPending || !taskTitle.trim()}
-          className="mt-2 w-full rounded bg-slate-800 px-3 py-2 text-sm font-semibold text-white shadow disabled:opacity-60"
-        >
-          Create task
-        </button>
-      </section>
+          <button
+            type="button"
+            onClick={handleAddNote}
+            disabled={isPending || !note.trim()}
+            className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-brand-600/90 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Log note
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-slate-200/60 bg-white px-4 py-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <CalendarClock className="h-4 w-4 text-brand-500" />
+            Create task
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Queue the next outreach or follow-up reminder.
+          </p>
+          <input
+            type="text"
+            value={taskTitle}
+            onChange={(event) => setTaskTitle(event.target.value)}
+            placeholder="Follow-up action"
+            className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
+          <label className="mt-3 block text-xs font-medium uppercase tracking-wide text-slate-500">
+            Due by
+            <input
+              type="datetime-local"
+              value={taskDueAt}
+              onChange={(event) => setTaskDueAt(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleCreateTask}
+            disabled={isPending || !taskTitle.trim()}
+            className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Create task
+          </button>
+        </div>
+      </div>
 
       {message && (
-        <p className="text-xs text-slate-500">{message}</p>
+        <div className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-700">
+          {message}
+        </div>
       )}
 
       <Link
         href="/deal-desk"
-        className="block rounded border border-brand-200 bg-brand-50 px-3 py-2 text-center text-sm font-semibold text-brand-700 shadow-sm hover:bg-brand-100"
+        className="inline-flex w-full items-center justify-center rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
       >
-        Create Offer
+        Create offer in Deal Desk
       </Link>
     </div>
   );
@@ -244,20 +277,23 @@ interface ConsentToggleProps {
 
 function ConsentToggle({ label, checked, loading, onChange }: ConsentToggleProps) {
   return (
-    <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+    <button
+      type="button"
+      disabled={loading}
+      onClick={() => onChange(!checked)}
+      className={clsx(
+        'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition',
+        checked
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-slate-200 bg-slate-100 text-slate-500 hover:border-brand-200 hover:text-brand-600',
+        loading && 'opacity-60'
+      )}
+    >
+      <span className={clsx('h-2 w-2 rounded-full', checked ? 'bg-emerald-500' : 'bg-slate-300')} />
       <span>{label}</span>
-      <button
-        type="button"
-        disabled={loading}
-        onClick={() => onChange(!checked)}
-        className={clsx(
-          'inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold transition',
-          checked ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600',
-          loading && 'opacity-60'
-        )}
-      >
-        {checked ? 'Granted' : 'Revoked'}
-      </button>
-    </label>
+      <span className="text-[11px] font-medium text-slate-500">
+        {checked ? 'Opted in' : 'Opt-in needed'}
+      </span>
+    </button>
   );
 }

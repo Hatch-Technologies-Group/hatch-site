@@ -5,6 +5,7 @@ import type { Prisma } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../common/dto/cursor-pagination-query.dto';
+import { assertJsonSafe, toJsonValue } from '../common';
 import { evaluateExpression } from './expression';
 import { RuleQueryDto, RuleRecordDto } from './dto';
 
@@ -217,13 +218,14 @@ export class RulesService {
   }) {
     this.assertSupportedObject(input.object);
     const definition = this.normaliseValidationDefinition(input.object, input.dsl);
+    assertJsonSafe(definition, 'validationRule.dsl');
     const created = await this.prisma.validationRule.create({
       data: {
         orgId: input.orgId,
         object: input.object,
         name: input.name,
         active: input.active,
-        dsl: definition as unknown as JsonValue
+        dsl: toJsonValue(definition)
       }
     });
     return this.toRuleRecord(created);
@@ -245,9 +247,11 @@ export class RulesService {
     const nextObject = patch.object ?? existing.object;
     this.assertSupportedObject(nextObject);
 
-    let nextDsl: JsonValue | undefined;
+    let nextDsl: Prisma.InputJsonValue | undefined;
     if (patch.dsl) {
-      nextDsl = this.normaliseValidationDefinition(nextObject, patch.dsl) as JsonValue;
+      const normalized = this.normaliseValidationDefinition(nextObject, patch.dsl);
+      assertJsonSafe(normalized, 'validationRule.dsl');
+      nextDsl = toJsonValue(normalized);
     }
 
     const updated = await this.prisma.validationRule.update({
@@ -256,7 +260,7 @@ export class RulesService {
         ...(patch.object ? { object: patch.object } : {}),
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
-        ...(nextDsl ? { dsl: nextDsl } : {})
+        ...(nextDsl !== undefined ? { dsl: nextDsl } : {})
       }
     });
     return this.toRuleRecord(updated);
@@ -280,13 +284,14 @@ export class RulesService {
   }) {
     this.assertSupportedObject(input.object);
     const definition = this.normaliseAssignmentDefinition(input.object, input.dsl);
+    assertJsonSafe(definition, 'assignmentRule.dsl');
     const created = await this.prisma.assignmentRule.create({
       data: {
         orgId: input.orgId,
         object: input.object,
         name: input.name,
         active: input.active,
-        dsl: definition as unknown as JsonValue
+        dsl: toJsonValue(definition)
       }
     });
     return this.toRuleRecord(created);
@@ -308,9 +313,11 @@ export class RulesService {
     const nextObject = patch.object ?? existing.object;
     this.assertSupportedObject(nextObject);
 
-    let nextDsl: JsonValue | undefined;
+    let nextDsl: Prisma.InputJsonValue | undefined;
     if (patch.dsl) {
-      nextDsl = this.normaliseAssignmentDefinition(nextObject, patch.dsl) as unknown as JsonValue;
+      const normalized = this.normaliseAssignmentDefinition(nextObject, patch.dsl);
+      assertJsonSafe(normalized, 'assignmentRule.dsl');
+      nextDsl = toJsonValue(normalized);
     }
 
     const updated = await this.prisma.assignmentRule.update({
@@ -319,7 +326,7 @@ export class RulesService {
         ...(patch.object ? { object: patch.object } : {}),
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
-        ...(nextDsl ? { dsl: nextDsl } : {})
+        ...(nextDsl !== undefined ? { dsl: nextDsl } : {})
       }
     });
     return this.toRuleRecord(updated);
@@ -686,8 +693,8 @@ export class RulesService {
           return null;
         }
         const basis =
-          (typeof after.id === 'string' && after.id) ??
-          (typeof after.name === 'string' && after.name) ??
+          (typeof after.id === 'string' ? after.id : undefined) ??
+          (typeof after.name === 'string' ? after.name : undefined) ??
           JSON.stringify(after);
         const hash = createHash('sha256').update(basis).digest();
         const index = hash.readUInt32BE(0) % assign.pool.length;

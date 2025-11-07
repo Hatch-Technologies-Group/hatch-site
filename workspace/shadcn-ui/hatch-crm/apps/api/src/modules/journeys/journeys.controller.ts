@@ -1,13 +1,15 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBody, ApiOkResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import type { FastifyRequest } from 'fastify';
 
 import { JourneysService } from './journeys.service';
-import { ApiModule, ApiStandardErrors } from '../common';
+import { ApiModule, ApiStandardErrors, Permit, resolveRequestContext } from '../common';
 import {
   JourneyListResponseDto,
   JourneySimulationResponseDto
 } from './dto/journey-response.dto';
 import { MAX_PAGE_SIZE } from '../common/dto/cursor-pagination-query.dto';
+import { StartJourneyDto } from './dto/start-journey.dto';
 
 @ApiModule('Journeys')
 @ApiStandardErrors()
@@ -75,5 +77,26 @@ export class JourneysController {
   ): Promise<JourneySimulationResponseDto> {
     const outcome = await this.journeys.simulate(id, tenantId, context ?? {});
     return { outcome };
+  }
+
+  @Post('start')
+  @Permit('journeys', 'create')
+  @ApiBody({ type: StartJourneyDto })
+  @ApiOkResponse({ schema: { type: 'object', properties: { ok: { type: 'boolean' } } } })
+  async start(@Body() dto: StartJourneyDto, @Req() req: FastifyRequest) {
+    const ctx = resolveRequestContext(req);
+    const tenantId = ctx.tenantId;
+    if (!tenantId) {
+      throw new BadRequestException('x-tenant-id header is required');
+    }
+
+    await this.journeys.startForLead({
+      tenantId,
+      leadId: dto.leadId,
+      templateId: dto.templateId,
+      actorId: ctx.userId,
+      source: dto.source ?? 'insights'
+    });
+    return { ok: true };
   }
 }

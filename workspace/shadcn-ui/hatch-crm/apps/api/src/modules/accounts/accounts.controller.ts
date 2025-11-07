@@ -20,6 +20,11 @@ import type { RequestContext } from '../common/request-context';
 import { AccountsService } from './accounts.service';
 import { AccountResponseDto, CreateAccountDto, UpdateAccountDto } from './dto';
 
+type AccountsListResult = Awaited<ReturnType<AccountsService['list']>>;
+type AccountResult = Awaited<ReturnType<AccountsService['get']>>;
+type AccountCreateResult = Awaited<ReturnType<AccountsService['create']>>;
+type AccountUpdateResult = Awaited<ReturnType<AccountsService['update']>>;
+type AccountDeleteResult = Awaited<ReturnType<AccountsService['softDelete']>>;
 const parseLimit = (value?: string) => {
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed <= 0) {
@@ -51,7 +56,7 @@ export class AccountsController {
     @Query('q') q?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string
-  ) {
+  ): Promise<AccountsListResult> {
     const ctx = resolveRequestContext(req);
     return this.service.list(ctx, {
       q,
@@ -64,7 +69,7 @@ export class AccountsController {
   @Permit('accounts', 'read')
   @ApiParam({ name: 'id', description: 'Account identifier' })
   @ApiOkResponse({ type: AccountResponseDto })
-  async get(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async get(@Req() req: FastifyRequest, @Param('id') id: string): Promise<AccountResult> {
     const ctx = resolveRequestContext(req);
     return this.service.get(ctx, id);
   }
@@ -73,7 +78,7 @@ export class AccountsController {
   @Permit('accounts', 'create')
   @ApiBody({ type: CreateAccountDto })
   @ApiOkResponse({ type: AccountResponseDto })
-  async create(@Req() req: FastifyRequest, @Body() dto: CreateAccountDto) {
+  async create(@Req() req: FastifyRequest, @Body() dto: CreateAccountDto): Promise<AccountCreateResult> {
     const ctx = resolveRequestContext(req);
     return this.service.create(ctx, dto as unknown as Record<string, unknown>);
   }
@@ -87,7 +92,7 @@ export class AccountsController {
     @Req() req: FastifyRequest,
     @Param('id') id: string,
     @Body() dto: UpdateAccountDto
-  ) {
+  ): Promise<AccountUpdateResult> {
     const ctx = resolveRequestContext(req);
     return this.service.update(ctx, id, dto as unknown as Record<string, unknown>);
   }
@@ -101,7 +106,7 @@ export class AccountsController {
       properties: { id: { type: 'string', description: 'Deleted account identifier' } }
     }
   })
-  async remove(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async remove(@Req() req: FastifyRequest, @Param('id') id: string): Promise<AccountDeleteResult> {
     const ctx: RequestContext = resolveRequestContext(req);
     return this.service.softDelete(ctx, id);
   }

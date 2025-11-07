@@ -6,6 +6,10 @@ import { ComplianceService } from './compliance.service';
 import { CreateOverrideDto } from './dto/create-override.dto';
 import { GetComplianceStatusDto } from './dto/get-status.dto';
 
+type ComplianceStatusResult = Awaited<ReturnType<ComplianceService['getStatus']>>;
+type ComplianceOverridesResult = Awaited<ReturnType<ComplianceService['getOverrides']>>;
+type ComplianceOverrideRecord = Awaited<ReturnType<ComplianceService['createOverride']>>;
+
 @Controller('compliance')
 export class ComplianceController {
   constructor(private readonly compliance: ComplianceService) {}
@@ -20,7 +24,7 @@ export class ComplianceController {
   }
 
   @Get('status')
-  async status(@Query() query: GetComplianceStatusDto, @Req() req: FastifyRequest) {
+  async status(@Query() query: GetComplianceStatusDto, @Req() req: FastifyRequest): Promise<ComplianceStatusResult> {
     const tenantId = this.resolveTenantId(query, req);
     return this.compliance.getStatus(tenantId, query);
   }
@@ -54,13 +58,13 @@ export class ComplianceController {
     @Query() query: GetComplianceStatusDto,
     @Req() req: FastifyRequest,
     @Query('context') context?: string
-  ) {
+  ): Promise<ComplianceOverridesResult> {
     const tenantId = this.resolveTenantId(query, req);
     return this.compliance.getOverrides(tenantId, context);
   }
 
   @Post('overrides')
-  async createOverride(@Body() body: CreateOverrideDto) {
+  async createOverride(@Body() body: CreateOverrideDto): Promise<ComplianceOverrideRecord> {
     return this.compliance.createOverride(body);
   }
 

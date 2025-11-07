@@ -42,7 +42,6 @@ type AstNode =
   | { type: 'Array'; items: AstNode[] };
 
 const BINARY_OPERATORS: BinaryOperator[] = ['==', '!=', '>', '>=', '<', '<=', 'in', 'contains'];
-const LOGICAL_OPERATORS: LogicalOperator[] = ['and', 'or'];
 
 const isAlpha = (char: string) => /[a-zA-Z_]/.test(char);
 const isNumeric = (char: string) => /[0-9]/.test(char);

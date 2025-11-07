@@ -1449,7 +1449,7 @@ export class ConversationsService {
     let decoded: { payload: string; signature: string };
     try {
       decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Invalid attachment token');
     }
 
@@ -1461,7 +1461,7 @@ export class ConversationsService {
     let payload: AttachmentTokenPayload;
     try {
       payload = JSON.parse(decoded.payload) as AttachmentTokenPayload;
-    } catch (error) {
+    } catch {
       throw new BadRequestException('Invalid attachment payload');
     }
 

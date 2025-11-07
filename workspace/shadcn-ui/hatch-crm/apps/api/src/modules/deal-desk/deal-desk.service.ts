@@ -48,7 +48,10 @@ export class DealDeskService {
       data: {
         orgId: ctx.orgId,
         requesterId: ctx.userId,
-        ...writable
+        opportunityId: writable.opportunityId ?? payload.opportunityId ?? opportunity.id,
+        amount: writable.amount ?? amount,
+        discountPct: writable.discountPct ?? payload.discountPct ?? null,
+        reason: writable.reason ?? payload.reason ?? null
       }
     });
 

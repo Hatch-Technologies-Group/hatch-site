@@ -8,6 +8,10 @@ class RoutingQueryBaseDto extends IntersectionType(CursorPaginationQueryDto, Sea
 
 export class RoutingRulesQueryDto extends RoutingQueryBaseDto {
   @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase() : value))
   @IsString()
   mode?: string;

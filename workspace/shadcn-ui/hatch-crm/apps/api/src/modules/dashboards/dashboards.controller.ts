@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiQuery } from '@nestjs/swagger';
 
-import { DashboardsService, type BrokerDashboardSummary } from './dashboards.service';
+import { DashboardsService } from './dashboards.service';
 import { ApiModule, ApiStandardErrors } from '../common';
 import { BrokerDashboardSummaryDto } from './dto/broker-dashboard.dto';
 

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { SimulationResult, simulateJourney } from '@hatch/shared';
+import { LeadHistoryEventType, Prisma } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -32,6 +33,82 @@ export class JourneysService {
       trigger: journey.trigger as any,
       context
     });
+  }
+
+  async startForLead(params: {
+    tenantId: string;
+    leadId: string;
+    templateId: string;
+    actorId?: string | null;
+    source?: string;
+  }) {
+    const journey = await this.prisma.journey.findFirst({
+      where: {
+        id: params.templateId,
+        tenantId: params.tenantId,
+        isActive: true
+      }
+    });
+
+    if (!journey) {
+      throw new NotFoundException('Journey template not found');
+    }
+
+    const lead = await this.prisma.person.findUnique({
+      where: { id: params.leadId },
+      select: { tenantId: true }
+    });
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+    if (lead.tenantId !== params.tenantId) {
+      throw new ForbiddenException('You cannot modify leads from another tenant');
+    }
+
+    const existing = await this.prisma.journeySimulation.findUnique({
+      where: {
+        tenantId_leadId_journeyId: {
+          tenantId: params.tenantId,
+          leadId: params.leadId,
+          journeyId: params.templateId
+        }
+      }
+    });
+    if (existing) {
+      return { status: 'skipped' } as const;
+    }
+
+    await this.prisma.journeySimulation.create({
+      data: {
+        tenantId: params.tenantId,
+        leadId: params.leadId,
+        journeyId: params.templateId,
+        input: {
+          tenantId: params.tenantId,
+          leadId: params.leadId,
+          source: params.source ?? 'insights',
+          actorId: params.actorId ?? null
+        } satisfies Prisma.InputJsonValue,
+        result: {
+          status: 'QUEUED'
+        }
+      }
+    });
+
+    await this.prisma.leadHistory.create({
+      data: {
+        tenantId: params.tenantId,
+        personId: params.leadId,
+        actorId: params.actorId ?? null,
+        eventType: LeadHistoryEventType.JOURNEY_STARTED,
+        payload: {
+          templateId: params.templateId,
+          source: params.source ?? 'insights'
+        } satisfies Prisma.InputJsonValue
+      }
+    });
+
+    return { status: 'queued' } as const;
   }
 
   async list(

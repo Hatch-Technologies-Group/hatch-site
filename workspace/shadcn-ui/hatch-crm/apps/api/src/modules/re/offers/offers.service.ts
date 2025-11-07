@@ -5,12 +5,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { FlsService } from '../../../platform/security/fls.service';
 import { OutboxService } from '../../outbox/outbox.service';
 import type { RequestContext } from '../../common/request-context';
+import { assertJsonSafe, toJsonValue } from '../../common';
 import { TransactionsService } from '../transactions/transactions.service';
 
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../../common/dto/cursor-pagination-query.dto';
 import { CreateOfferDto, DecideOfferDto, ListOffersQueryDto } from './dto';
 
-type OfferWithListing = Prisma.OfferGetPayload<{
+type OfferRecord = Prisma.OfferGetPayload<{
   include: {
     listing: {
       select: {
@@ -78,17 +79,19 @@ export class OffersService {
       }
     );
 
-    const terms =
-      (writable.terms as Prisma.InputJsonValue | undefined) ?? {
-        amount: dto.amount,
-        contingencies: dto.contingencies ?? []
-      };
+    const baseTerms = {
+      amount: dto.amount,
+      contingencies: dto.contingencies ?? []
+    };
+    const baseMetadata = {
+      contingencies: dto.contingencies ?? [],
+      createdBy: ctx.userId
+    };
 
-    const metadata =
-      (writable.metadata as Prisma.InputJsonValue | undefined) ?? {
-        contingencies: dto.contingencies ?? [],
-        createdBy: ctx.userId
-      };
+    const termsPayload = (writable.terms ?? baseTerms) as unknown;
+    assertJsonSafe(termsPayload, 're_offers.terms');
+    const metadataPayload = (writable.metadata ?? baseMetadata) as unknown;
+    assertJsonSafe(metadataPayload, 're_offers.metadata');
 
     const created = await this.prisma.offer.create({
       data: {
@@ -96,8 +99,8 @@ export class OffersService {
         listingId: dto.listingId,
         personId: buyer.id,
         status: OfferStatus.SUBMITTED,
-        terms,
-        metadata
+        terms: toJsonValue(termsPayload),
+        metadata: toJsonValue(metadataPayload)
       }
     });
 
@@ -114,7 +117,7 @@ export class OffersService {
       }
     });
 
-    return this.toOfferView(ctx, created);
+    return this.toOfferView(ctx, { id: created.id });
   }
 
   async list(ctx: RequestContext, query?: ListOffersQueryDto) {
@@ -135,7 +138,23 @@ export class OffersService {
       },
       orderBy: { createdAt: 'desc' },
       take: take + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {})
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: {
+        listing: {
+          select: {
+            id: true,
+            status: true,
+            opportunityId: true,
+            price: true
+          }
+        },
+        deal: {
+          select: {
+            id: true,
+            stage: true
+          }
+        }
+      }
     });
 
     let nextCursor: string | null = null;
@@ -204,20 +223,23 @@ export class OffersService {
         }
       }
 
+      const nextMetadata = mergeMetadata(current.metadata, {
+        decisionNote: dto.decisionNote ?? null,
+        decidedBy: ctx.userId
+      });
+      assertJsonSafe(nextMetadata, 're_offers.metadata');
+
       const updated = await tx.offer.update({
         where: { id: current.id },
         data: {
           status: targetStatus,
-          metadata: mergeMetadata(current.metadata, {
-            decisionNote: dto.decisionNote ?? null,
-            decidedBy: ctx.userId
-          }) as Prisma.InputJsonValue
+          metadata: toJsonValue(nextMetadata)
         }
       });
 
       if (targetStatus !== OfferStatus.ACCEPTED) {
         return {
-          offer: { ...updated, listing: current.listing },
+          offer: updated,
           transactionId: current.deal?.id ?? null,
           listingId: current.listingId,
           opportunityId: current.listing?.opportunityId ?? null,
@@ -228,7 +250,7 @@ export class OffersService {
       const transaction = await this.transactions.ensureForAcceptedOffer(ctx, updated, current.listing, tx);
 
       return {
-        offer: { ...updated, listing: current.listing, deal: { id: transaction.id, stage: transaction.stage } },
+        offer: updated,
         transactionId: transaction.id,
         listingId: current.listingId,
         opportunityId: transaction.opportunityId ?? current.listing?.opportunityId ?? null,
@@ -251,18 +273,20 @@ export class OffersService {
       });
     }
 
+    const offerView = await this.toOfferView(ctx, { id: offer.id });
+
     return {
-      offer: await this.toOfferView(ctx, offer),
+      offer: offerView,
       transaction: transactionId ? await this.transactions.toTransactionView(ctx, transactionId) : null
     };
   }
 
-  private async toOfferView(ctx: RequestContext, offer: Prisma.OfferUncheckedCreateInput | OfferWithListing) {
+  private async toOfferView(ctx: RequestContext, offer: OfferRecord | { id: string }) {
     const record =
       'listing' in offer
-        ? offer
+        ? (offer as OfferRecord)
         : await this.prisma.offer.findUnique({
-            where: { id: (offer as any).id },
+            where: { id: offer.id },
             include: {
               listing: {
                 select: {
@@ -277,6 +301,10 @@ export class OffersService {
               }
             }
           });
+
+    if (!record) {
+      throw new NotFoundException('Offer not found');
+    }
 
     const filtered = await this.fls.filterRead(ctx, 're_offers', record);
     const amount = extractAmount(record);
@@ -302,7 +330,7 @@ export class OffersService {
   }
 }
 
-function extractAmount(offer: { terms?: Prisma.JsonValue | null; listing?: { price: Prisma.Decimal | null } | null }) {
+function extractAmount(offer: OfferRecord) {
   if (offer?.terms && typeof offer.terms === 'object') {
     const amount = (offer.terms as Record<string, unknown>).amount;
     if (typeof amount === 'number') {
@@ -321,7 +349,7 @@ function extractAmount(offer: { terms?: Prisma.JsonValue | null; listing?: { pri
   return null;
 }
 
-function extractContingencies(offer: { terms?: Prisma.JsonValue | null }) {
+function extractContingencies(offer: OfferRecord) {
   if (offer?.terms && typeof offer.terms === 'object') {
     const contingencies = (offer.terms as Record<string, unknown>).contingencies;
     if (Array.isArray(contingencies)) {

@@ -7,33 +7,33 @@ import {
   MessageChannel,
   Prisma,
   RoutingMode,
-  User,
   UserRole
 } from '@hatch/db';
 import {
+  evaluateLeadRoutingConditions,
+  leadRoutingConditionsSchema,
+  leadRoutingFallbackSchema,
+  leadRoutingRuleConfigSchema,
+  leadRoutingTargetSchema,
+  routeLead,
+  routingConfigSchema,
+  scoreAgent
+} from '@hatch/shared';
+import type {
   AgentScore,
   AgentSnapshot,
-  evaluateLeadRoutingConditions,
-  LeadRoutingConditions,
   LeadRoutingContext,
   LeadRoutingEvaluationResult,
   LeadRoutingFallback,
   LeadRoutingListingContext,
-  leadRoutingConditionsSchema,
-  leadRoutingFallbackSchema,
   LeadRoutingRuleConfig,
-  leadRoutingRuleConfigSchema,
-  LeadRoutingTarget,
-  leadRoutingTargetSchema,
-  routeLead,
-  RoutingResult,
-  routingConfigSchema,
-  scoreAgent
+  RoutingResult
 } from '@hatch/shared';
 
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../common/dto/cursor-pagination-query.dto';
+import { assertJsonSafe, toJsonValue, toNullableJson } from '../common';
 import { RoutingRulesQueryDto } from './dto/routing-query.dto';
 
 type AssignPayload = {
@@ -102,11 +102,6 @@ type CandidateSnapshot = {
 
 const MINUTES = 60 * 1000;
 
-const defaultRoutingWeights = {
-  geographyImportance: 0.3,
-  priceBandImportance: 0.2
-};
-
 const defaultScoreConfig = routingConfigSchema.parse({});
 
 const consentStateFromConsents = (consents: Consent[]) => {
@@ -146,8 +141,6 @@ const toListingContext = (payload: AssignPayload): LeadRoutingListingContext | u
 };
 
 const minutesFromNow = (minutes: number, now: Date) => new Date(now.getTime() + minutes * MINUTES);
-
-const toJson = (value: unknown): Prisma.JsonValue => value as Prisma.JsonValue;
 
 @Injectable()
 export class RoutingService {
@@ -328,6 +321,9 @@ export class RoutingService {
     }
   ) {
     const parsed = this.parseRuleConfig(input.conditions, input.targets, input.fallback);
+    assertJsonSafe(parsed.conditions, 'routingRule.conditions');
+    assertJsonSafe(parsed.targets, 'routingRule.targets');
+    assertJsonSafe(parsed.fallback, 'routingRule.fallback');
     const rule = await this.prisma.routingRule.create({
       data: {
         tenantId,
@@ -335,9 +331,9 @@ export class RoutingService {
         priority: input.priority,
         mode: input.mode,
         enabled: input.enabled ?? true,
-        conditions: parsed.conditions as Prisma.JsonObject,
-        targets: parsed.targets as Prisma.JsonArray,
-        fallback: parsed.fallback as Prisma.JsonObject | null,
+        conditions: toJsonValue(parsed.conditions),
+        targets: toJsonValue(parsed.targets),
+        fallback: toNullableJson(parsed.fallback),
         slaFirstTouchMinutes: input.slaFirstTouchMinutes ?? null,
         slaKeptAppointmentMinutes: input.slaKeptAppointmentMinutes ?? null,
         createdById: userId
@@ -374,6 +370,9 @@ export class RoutingService {
       input.targets ?? rule.targets,
       input.fallback ?? rule.fallback
     );
+    assertJsonSafe(parsed.conditions, 'routingRule.conditions');
+    assertJsonSafe(parsed.targets, 'routingRule.targets');
+    assertJsonSafe(parsed.fallback, 'routingRule.fallback');
 
     const updated = await this.prisma.routingRule.update({
       where: { id },
@@ -382,9 +381,9 @@ export class RoutingService {
         priority: input.priority ?? rule.priority,
         mode: input.mode ?? rule.mode,
         enabled: input.enabled ?? rule.enabled,
-        conditions: parsed.conditions as Prisma.JsonObject,
-        targets: parsed.targets as Prisma.JsonArray,
-        fallback: parsed.fallback as Prisma.JsonObject | null,
+        conditions: toJsonValue(parsed.conditions),
+        targets: toJsonValue(parsed.targets),
+        fallback: toNullableJson(parsed.fallback),
         slaFirstTouchMinutes:
           input.slaFirstTouchMinutes !== undefined ? input.slaFirstTouchMinutes : rule.slaFirstTouchMinutes,
         slaKeptAppointmentMinutes:
@@ -951,6 +950,10 @@ export class RoutingService {
       teamIds: candidate.teamIds
     }));
 
+    assertJsonSafe(eventPayload, 'leadRouteEvent.payload');
+    assertJsonSafe(eventCandidates, 'leadRouteEvent.candidates');
+    assertJsonSafe(outcome.reasonCodes, 'leadRouteEvent.reasonCodes');
+
     const slaDueAt = timersToCreate.firstTouch?.dueAt ?? null;
 
     const event = await this.prisma.$transaction(async (tx) => {
@@ -1006,16 +1009,18 @@ export class RoutingService {
           personId: payload.person.id,
           matchedRuleId: rule.id,
           mode: rule.mode,
-          payload: toJson(eventPayload),
-          candidates: toJson(eventCandidates),
+          payload: toJsonValue(eventPayload),
+          candidates: toJsonValue(eventCandidates),
           assignedAgentId: outcome.assignedAgentId ?? null,
           fallbackUsed: outcome.usedFallback,
-          reasonCodes: toJson(outcome.reasonCodes),
+          reasonCodes: toJsonValue(outcome.reasonCodes),
           slaDueAt,
           actorUserId: payload.actorUserId ?? null
         }
       });
     });
+
+    const fallbackTeamId = outcome.fallbackTeamId ?? undefined;
 
     await this.outbox.enqueue({
       tenantId: payload.tenantId,
@@ -1028,7 +1033,7 @@ export class RoutingService {
       data: {
         ruleId: rule.id,
         assignedAgentId: outcome.assignedAgentId,
-        fallbackTeamId: outcome.fallbackTeamId,
+        fallbackTeamId,
         reasonCodes: outcome.reasonCodes
       }
     });
@@ -1039,7 +1044,7 @@ export class RoutingService {
       leadId: payload.person.id,
       tenantId: payload.tenantId,
       selectedAgents,
-      fallbackTeamId: outcome.fallbackTeamId,
+      fallbackTeamId,
       usedFallback: outcome.usedFallback,
       quietHours,
       ruleId: rule.id,
@@ -1101,6 +1106,19 @@ export class RoutingService {
     now: Date;
     reasonCodes: string[];
   }): Promise<RouteAssignmentResult> {
+    const payload = {
+      context: {
+        source: params.context.person.source,
+        buyerRepStatus: params.context.person.buyerRepStatus,
+        listing: params.context.listing,
+        quietHours: params.quietHours
+      },
+      evaluation: null
+    };
+
+    assertJsonSafe(payload, 'leadRouteEvent.payload');
+    assertJsonSafe(params.reasonCodes, 'leadRouteEvent.reasonCodes');
+
     const event = await this.prisma.leadRouteEvent.create({
       data: {
         tenantId: params.payload.tenantId,
@@ -1108,19 +1126,11 @@ export class RoutingService {
         personId: params.payload.person.id,
         matchedRuleId: null,
         mode: RoutingMode.FIRST_MATCH,
-        payload: toJson({
-          context: {
-            source: params.context.person.source,
-            buyerRepStatus: params.context.person.buyerRepStatus,
-            listing: params.context.listing,
-            quietHours: params.quietHours
-          },
-          evaluation: null
-        }),
-        candidates: toJson([]),
+        payload: toJsonValue(payload),
+        candidates: toJsonValue([]),
         assignedAgentId: null,
         fallbackUsed: true,
-        reasonCodes: toJson(params.reasonCodes),
+        reasonCodes: toJsonValue(params.reasonCodes),
         actorUserId: params.payload.actorUserId ?? null
       }
     });
@@ -1129,10 +1139,10 @@ export class RoutingService {
       leadId: params.payload.person.id,
       tenantId: params.payload.tenantId,
       selectedAgents: [],
-      fallbackTeamId: null,
+      fallbackTeamId: undefined,
       usedFallback: true,
       quietHours: params.quietHours,
-      ruleId: null,
+      ruleId: undefined,
       ruleName: undefined,
       eventId: event.id,
       candidates: [],
@@ -1185,7 +1195,6 @@ export class RoutingService {
     quietHours: boolean;
     now: Date;
   }) {
-    const defaultWeights = defaultRoutingWeights;
     if (params.rule.mode === RoutingMode.FIRST_MATCH) {
       return this.applyFirstMatchRule({
         rule: params.rule,
@@ -1221,7 +1230,7 @@ export class RoutingService {
 
     let assigned: CandidateSnapshot | undefined;
     let selectedScore: AgentScore | null = null;
-    let fallbackTeamId = params.fallback?.teamId ?? null;
+    let fallbackTeamId = params.fallback?.teamId ?? undefined;
     let usedFallback = false;
 
     for (const target of targets) {
@@ -1346,7 +1355,7 @@ export class RoutingService {
     return {
       selectedAgent: selectedAgent ?? undefined,
       assignedAgentId: selectedAgent?.userId,
-      fallbackTeamId: result.fallbackTeamId ?? params.fallback?.teamId ?? null,
+      fallbackTeamId: result.fallbackTeamId ?? params.fallback?.teamId ?? undefined,
       usedFallback,
       candidates,
       candidateSnapshots: Array.from(considered.values()),

@@ -15,6 +15,10 @@ import {
   OfferResponseDto
 } from './dto';
 
+type OfferCreateResult = Awaited<ReturnType<OffersService['create']>>;
+type OfferListResult = Awaited<ReturnType<OffersService['list']>>;
+type OfferDecisionResult = Awaited<ReturnType<OffersService['decide']>>;
+
 @ApiModule('RE Offers')
 @ApiStandardErrors()
 @Controller('re/offers')
@@ -26,7 +30,7 @@ export class OffersController {
   @Permit('re_offers', 'create')
   @ApiBody({ type: CreateOfferDto })
   @ApiOkResponse({ type: OfferResponseDto })
-  async create(@Req() req: FastifyRequest, @Body() dto: CreateOfferDto) {
+  async create(@Req() req: FastifyRequest, @Body() dto: CreateOfferDto): Promise<OfferCreateResult> {
     const ctx = resolveRequestContext(req);
     return this.offers.create(ctx, dto);
   }
@@ -47,7 +51,7 @@ export class OffersController {
   })
   @ApiQuery({ name: 'cursor', required: false, description: 'Opaque pagination cursor from a prior response' })
   @ApiOkResponse({ type: OfferListResponseDto })
-  async list(@Req() req: FastifyRequest, @Query() query: ListOffersQueryDto) {
+  async list(@Req() req: FastifyRequest, @Query() query: ListOffersQueryDto): Promise<OfferListResult> {
     const ctx = resolveRequestContext(req);
     return this.offers.list(ctx, query);
   }
@@ -57,7 +61,11 @@ export class OffersController {
   @ApiParam({ name: 'id', description: 'Offer identifier' })
   @ApiBody({ type: DecideOfferDto })
   @ApiOkResponse({ type: OfferDecisionResponseDto })
-  async decide(@Req() req: FastifyRequest, @Param('id') id: string, @Body() dto: DecideOfferDto) {
+  async decide(
+    @Req() req: FastifyRequest,
+    @Param('id') id: string,
+    @Body() dto: DecideOfferDto
+  ): Promise<OfferDecisionResult> {
     const ctx = resolveRequestContext(req);
     return this.offers.decide(ctx, id, dto);
   }

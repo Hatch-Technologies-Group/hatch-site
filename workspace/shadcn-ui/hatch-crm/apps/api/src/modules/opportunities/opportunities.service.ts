@@ -86,7 +86,7 @@ export class OpportunitiesService {
     }
 
     const filteredRaw = await this.fls.filterRead(ctx, 'opportunities', record);
-    const { transactions, ...filtered } = (filteredRaw ?? {}) as Record<string, unknown>;
+    const filtered = (filteredRaw ?? {}) as Record<string, unknown>;
     const transaction = record.transactions?.[0] ?? null;
     return {
       id: record.id,

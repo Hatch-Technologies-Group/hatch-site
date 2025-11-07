@@ -7,6 +7,7 @@ import { CommissionPlansService } from '../../commission-plans/commission-plans.
 import { PayoutsService } from '../../payouts/payouts.service';
 import { OutboxService } from '../../outbox/outbox.service';
 import type { RequestContext } from '../../common/request-context';
+import { assertJsonSafe, toJsonValue, toNullableJson } from '../../common';
 import { UpdateMilestoneDto } from './dto';
 
 type TxClient = Prisma.TransactionClient;
@@ -110,7 +111,7 @@ export class TransactionsService {
           opportunityId: resolvedOpportunity,
           stage: DealStage.UNDER_CONTRACT,
           milestoneChecklist: DEFAULT_CHECKLIST,
-          commissionSnapshot: null,
+          commissionSnapshot: toNullableJson(null),
           splitPlanRef: null,
           expectedNet: null,
           forecastGci: amount ? new Prisma.Decimal(amount) : null
@@ -152,10 +153,11 @@ export class TransactionsService {
       const previousSnapshot = transaction.commissionSnapshot ? JSON.stringify(transaction.commissionSnapshot) : null;
       const nextSnapshot = JSON.stringify(preview);
       if (nextSnapshot !== previousSnapshot) {
+        assertJsonSafe(preview, 'deal.commissionSnapshot');
         transaction = await client.deal.update({
           where: { id: transaction.id },
           data: {
-            commissionSnapshot: preview as unknown as Prisma.InputJsonValue,
+            commissionSnapshot: toJsonValue(preview),
             splitPlanRef: preview.planId ?? transaction.splitPlanRef ?? null
           }
         });

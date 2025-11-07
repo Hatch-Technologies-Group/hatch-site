@@ -36,7 +36,7 @@ import { LeadsService } from './leads.service';
 
 @ApiModule('Leads')
 @ApiStandardErrors()
-@Controller('v1/leads')
+@Controller('leads')
 @UseInterceptors(AuditInterceptor)
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}

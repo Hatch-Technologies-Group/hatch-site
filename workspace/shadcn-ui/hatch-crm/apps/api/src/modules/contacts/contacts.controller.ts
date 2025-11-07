@@ -27,7 +27,7 @@ import {
   type CreateContactResult
 } from './contacts.service';
 import { CreateContactDto } from './dto/create-contact.dto';
-import { ListContactsQueryDto } from './dto/list-contacts.dto';
+import { ContactListQueryDto } from './dto/contact-list-query.dto';
 import { SaveViewDto } from './dto/save-view.dto';
 import { AssignOwnerDto } from './dto/assign-owner.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -46,50 +46,11 @@ export class ContactsController {
 
   @Get()
   @Permit('contacts', 'read')
+  @ApiQuery({ name: 'q', required: false, description: 'Full-text search across name, email, and phone' })
+  @ApiQuery({ name: 'ownerId', required: false, description: 'Filter by owner id' })
+  @ApiQuery({ name: 'teamId', required: false, description: 'Filter by team id' })
   @ApiQuery({
-    name: 'tenantId',
-    required: false,
-    description: 'Tenant context; defaults from request headers when omitted'
-  })
-  @ApiQuery({
-    name: 'q',
-    required: false,
-    description: 'Free text search across name, email, phone, and address'
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    schema: { type: 'integer', minimum: 1, maximum: 100 },
-    description: 'Page size (default 25, maximum 100)'
-  })
-  @ApiQuery({
-    name: 'cursor',
-    required: false,
-    description: 'Opaque pagination cursor from a prior response'
-  })
-  @ApiQuery({
-    name: 'stage',
-    required: false,
-    style: 'form',
-    explode: false,
-    schema: { type: 'array', items: { type: 'string' } }
-  })
-  @ApiQuery({
-    name: 'ownerId',
-    required: false,
-    style: 'form',
-    explode: false,
-    schema: { type: 'array', items: { type: 'string' } }
-  })
-  @ApiQuery({
-    name: 'teamId',
-    required: false,
-    style: 'form',
-    explode: false,
-    schema: { type: 'array', items: { type: 'string' } }
-  })
-  @ApiQuery({
-    name: 'tags',
+    name: 'status',
     required: false,
     style: 'form',
     explode: false,
@@ -102,34 +63,27 @@ export class ContactsController {
     explode: false,
     schema: { type: 'array', items: { type: 'string' } }
   })
-  @ApiQuery({ name: 'createdFrom', required: false })
-  @ApiQuery({ name: 'createdTo', required: false })
-  @ApiQuery({ name: 'lastActivityFrom', required: false })
-  @ApiQuery({ name: 'lastActivityTo', required: false })
   @ApiQuery({
-    name: 'emailConsent',
+    name: 'consent',
     required: false,
     style: 'form',
     explode: false,
-    schema: { type: 'array', items: { type: 'string', enum: ['GRANTED', 'REVOKED', 'UNKNOWN'] } }
+    schema: { type: 'array', items: { type: 'string', enum: ['sms', 'email', 'call'] } }
   })
+  @ApiQuery({ name: 'dncBlocked', required: false, schema: { type: 'boolean' } })
+  @ApiQuery({ name: 'minScore', required: false, schema: { type: 'number' } })
+  @ApiQuery({ name: 'maxAgeDays', required: false, schema: { type: 'number' } })
   @ApiQuery({
-    name: 'smsConsent',
+    name: 'sort',
     required: false,
-    style: 'form',
-    explode: false,
-    schema: { type: 'array', items: { type: 'string', enum: ['GRANTED', 'REVOKED', 'UNKNOWN'] } }
+    schema: { type: 'string', enum: ['updatedAt:desc', 'updatedAt:asc', 'score:desc', 'score:asc'] }
   })
-  @ApiQuery({ name: 'buyerRepStatus', required: false })
-  @ApiQuery({ name: 'hasOpenDeal', required: false, schema: { type: 'boolean' } })
-  @ApiQuery({ name: 'doNotContact', required: false, schema: { type: 'boolean' } })
-  @ApiQuery({ name: 'includeDeleted', required: false, schema: { type: 'boolean' } })
-  @ApiQuery({ name: 'sortBy', required: false })
-  @ApiQuery({ name: 'sortDirection', required: false, schema: { type: 'string', enum: ['asc', 'desc'] } })
-  @ApiQuery({ name: 'savedViewId', required: false })
+  @ApiQuery({ name: 'limit', required: false, schema: { type: 'integer', minimum: 1, maximum: 200 } })
+  @ApiQuery({ name: 'cursor', required: false, description: 'Opaque pagination cursor' })
+  @ApiQuery({ name: 'savedViewId', required: false, description: 'Apply saved view filters' })
   @ApiOkResponse({ type: ContactListResponseDto })
   async listContacts(
-    @Query() query: ListContactsQueryDto,
+    @Query() query: ContactListQueryDto,
     @Req() req: FastifyRequest
   ): Promise<ContactListResponse> {
     const ctx = resolveRequestContext(req);
@@ -172,7 +126,7 @@ export class ContactsController {
     if (dto.filters) {
       try {
         filters = JSON.parse(dto.filters);
-      } catch (error) {
+      } catch {
         throw new BadRequestException('filters must be valid JSON');
       }
     }

@@ -106,7 +106,7 @@ export class ComplianceService {
   }
 
   private async computeIdxMetrics(tenantId: string, windowStart: Date, filters: { mlsIds?: string[] }) {
-    const where: Parameters<typeof this.prisma.marketingEvent.count>[0]['where'] = {
+    const where: Prisma.MarketingEventWhereInput = {
       tenantId,
       eventType: 'IDX_PREFLIGHT',
       occurredAt: { gte: windowStart }
@@ -181,7 +181,7 @@ export class ComplianceService {
       teamIds: query.teamIds ?? []
     });
 
-    const tourWhere: Parameters<typeof this.prisma.tour.findMany>[0]['where'] = {
+    const tourWhere: Prisma.TourWhereInput = {
       tenantId,
       status: TourStatus.KEPT,
       startAt: { gte: start, lte: end }
@@ -520,7 +520,7 @@ export class ComplianceService {
     };
   }
 
-  async getConsents(tenantId: string, query: GetComplianceStatusDto) {
+  async getConsents(tenantId: string, _query: GetComplianceStatusDto) {
     const now = new Date();
     const windowStart = subDays(now, 30);
     const baselineWindow = subDays(now, 7);

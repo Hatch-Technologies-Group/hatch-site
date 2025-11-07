@@ -4,8 +4,18 @@ import { buildCanonicalDraft } from '@hatch/shared';
 import { createHash } from 'crypto';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import pdfParseModule from 'pdf-parse';
 
-const pdfParseModule: any = require('pdf-parse');
+type PdfParseFn = (dataBuffer: Buffer, options?: Record<string, unknown>) => Promise<{
+  text: string;
+}>;
+type PdfParseLegacyCtor = new (input: { data: Buffer }) => {
+  getText: () => Promise<{ text: string }>;
+};
+
+const pdfParseFn = pdfParseModule as unknown as PdfParseFn;
+const PdfParseCtor =
+  (pdfParseModule as unknown as { PDFParse?: PdfParseLegacyCtor }).PDFParse ?? undefined;
 
 type ExtractedPdfImage = {
   ref: string;
@@ -57,11 +67,11 @@ export class DraftsService {
 
   async ingestPdf(buffer: Buffer, options: DraftIngestOptions): Promise<DraftIngestResult> {
     let parsedText = '';
-    if (typeof pdfParseModule === 'function') {
-      const parsed = await pdfParseModule(buffer);
+    if (typeof pdfParseFn === 'function') {
+      const parsed = await pdfParseFn(buffer);
       parsedText = parsed?.text ?? '';
-    } else if (typeof pdfParseModule?.PDFParse === 'function') {
-      const parser = new pdfParseModule.PDFParse({ data: buffer });
+    } else if (typeof PdfParseCtor === 'function') {
+      const parser = new PdfParseCtor({ data: buffer });
       const result = await parser.getText();
       parsedText = result?.text ?? '';
     } else {

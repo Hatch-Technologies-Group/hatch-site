@@ -24,6 +24,9 @@
       "@/components/*": [
         "./components/*"
       ],
+      "@hatch/ui/*": [
+        "../../src/components/*"
+      ],
       "@/hooks/*": [
         "./hooks/*"
       ],

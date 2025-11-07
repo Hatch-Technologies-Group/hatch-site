@@ -1,4 +1,4 @@
-import { StorageAdapter, CreateUploadUrlInput, CreateUploadUrlResult } from './storage.adapter';
+import type { StorageAdapter, CreateUploadUrlInput, CreateUploadUrlResult } from './storage.adapter';
 
 export class S3StorageAdapter implements StorageAdapter {
   async createUploadUrl(input: CreateUploadUrlInput): Promise<CreateUploadUrlResult> {

@@ -1,51 +1,68 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Req
-} from '@nestjs/common';
-import type { FastifyRequest } from 'fastify';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 
-import { resolveRequestContext } from '../common/request-context';
 import { PipelinesService } from './pipelines.service';
-import { ReorderStagesDto } from './dto/reorder-stages.dto';
-import { UpdateStageDto } from './dto/update-stage.dto';
+import { CreatePipelineDto } from './dto/create-pipeline.dto';
+import { UpdatePipelineDto } from './dto/update-pipeline.dto';
+import { StageDto } from './dto/stage.dto';
+import { FieldSetDto } from './dto/fieldset.dto';
+import { AutomationDto } from './dto/automation.dto';
+import { PublishDto } from './dto/publish.dto';
+import { MigrationDto } from './dto/migrate.dto';
+import { RolesGuard } from '@/auth/roles.guard';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 
-@Controller('v1/pipelines')
+@Controller('pipelines')
 export class PipelinesController {
-  constructor(private readonly pipelines: PipelinesService) {}
+  constructor(private readonly svc: PipelinesService) {}
+
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  createDraft(@Body() dto: CreatePipelineDto): Promise<unknown> {
+    return this.svc.createDraft(dto);
+  }
+
+  @Put(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  updateDraft(@Param('id') id: string, @Body() dto: UpdatePipelineDto): Promise<unknown> {
+    return this.svc.updateDraft(id, dto);
+  }
+
+  @Post(':id/stages')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  upsertStages(@Param('id') id: string, @Body() stages: StageDto[]): Promise<unknown> {
+    return this.svc.upsertStages(id, stages);
+  }
+
+  @Post(':id/field-sets')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  upsertFieldSets(@Param('id') id: string, @Body() sets: FieldSetDto[]): Promise<unknown> {
+    return this.svc.upsertFieldSets(id, sets);
+  }
+
+  @Post(':id/automations')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  upsertAutomations(@Param('id') id: string, @Body() autos: AutomationDto[]): Promise<unknown> {
+    return this.svc.upsertAutomations(id, autos);
+  }
+
+  @Post(':id/publish')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  publish(@Param('id') id: string, @Body() dto: PublishDto): Promise<unknown> {
+    return this.svc.publish(id, dto);
+  }
+
+  @Post(':id/migrate')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  migrate(
+    @Param('id') id: string,
+    @Body() dto: MigrationDto,
+    @Query('preview') preview?: string
+  ): Promise<unknown> {
+    return this.svc.enqueueMigration(id, { ...dto, previewOnly: preview === '1' || dto.previewOnly });
+  }
 
   @Get()
-  async listPipelines(@Req() req: FastifyRequest) {
-    const ctx = resolveRequestContext(req);
-    return this.pipelines.list(ctx.tenantId);
-  }
-
-  @Post(':pipelineId/stages/reorder')
-  async reorderStages(
-    @Param('pipelineId') pipelineId: string,
-    @Body() dto: ReorderStagesDto,
-    @Req() req: FastifyRequest
-  ) {
-    if (!dto.stageIds?.length) {
-      throw new BadRequestException('stageIds is required');
-    }
-    const ctx = resolveRequestContext(req);
-    return this.pipelines.reorderStages(ctx.tenantId, pipelineId, dto.stageIds);
-  }
-
-  @Patch('stages/:stageId')
-  async updateStage(
-    @Param('stageId') stageId: string,
-    @Body() dto: UpdateStageDto,
-    @Req() req: FastifyRequest
-  ) {
-    const ctx = resolveRequestContext(req);
-    return this.pipelines.updateStage(ctx.tenantId, stageId, dto);
+  list(@Query('brokerageId') brokerageId: string): Promise<unknown> {
+    return this.svc.list(brokerageId);
   }
 }
-

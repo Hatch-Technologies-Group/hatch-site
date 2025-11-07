@@ -27,7 +27,7 @@ const parseJson = (value: unknown) => {
     }
     try {
       return JSON.parse(value);
-    } catch (error) {
+    } catch {
       throw new Error('dsl must be valid JSON');
     }
   }

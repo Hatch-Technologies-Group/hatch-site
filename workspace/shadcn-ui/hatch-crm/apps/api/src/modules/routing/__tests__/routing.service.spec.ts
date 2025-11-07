@@ -1,7 +1,9 @@
-import { LeadSlaType, RoutingMode } from '@hatch/db';
-
-import { OutboxService } from '../../outbox/outbox.service';
+import type { OutboxService } from '../../outbox/outbox.service';
 import { RoutingService } from '../routing.service';
+
+const ROUTING_MODE_SCORE_AND_ASSIGN = 'SCORE_AND_ASSIGN';
+const SLA_FIRST_TOUCH = 'FIRST_TOUCH';
+const SLA_KEPT_APPOINTMENT = 'KEPT_APPOINTMENT';
 
 const createMockPrisma = () => {
   const prisma: any = {
@@ -42,7 +44,7 @@ describe('RoutingService', () => {
         tenantId: 'tenant',
         name: 'Score Assign',
         priority: 1,
-        mode: RoutingMode.SCORE_AND_ASSIGN,
+        mode: ROUTING_MODE_SCORE_AND_ASSIGN,
         enabled: true,
         conditions: {},
         targets: [{ type: 'AGENT', id: 'agent-a' }, { type: 'AGENT', id: 'agent-b' }],
@@ -121,8 +123,8 @@ describe('RoutingService', () => {
     expect(prisma.leadSlaTimer.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.arrayContaining([
-          expect.objectContaining({ type: LeadSlaType.FIRST_TOUCH }),
-          expect.objectContaining({ type: LeadSlaType.KEPT_APPOINTMENT }),
+          expect.objectContaining({ type: SLA_FIRST_TOUCH }),
+          expect.objectContaining({ type: SLA_KEPT_APPOINTMENT }),
         ]),
       }),
     );
@@ -139,7 +141,7 @@ describe('RoutingService', () => {
         tenantId: 'tenant',
         leadId: 'lead-1',
         ruleId: 'rule-1',
-        type: LeadSlaType.FIRST_TOUCH,
+        type: SLA_FIRST_TOUCH,
         status: 'PENDING',
         dueAt: new Date(Date.now() - 60_000),
         assignedAgentId: 'agent-a',

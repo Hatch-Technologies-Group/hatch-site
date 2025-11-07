@@ -24,6 +24,11 @@ import {
   UpdateMilestoneDto
 } from './dto';
 
+type TransactionResult = Awaited<ReturnType<TransactionsService['get']>>;
+type UpdateMilestoneResult = Awaited<ReturnType<TransactionsService['updateMilestone']>>;
+type CommissionResult = Awaited<ReturnType<TransactionsService['computeCommission']>>;
+type PayoutGenerationResult = Awaited<ReturnType<TransactionsService['generatePayouts']>>;
+
 @ApiModule('RE Transactions')
 @ApiStandardErrors()
 @Controller('re/transactions')
@@ -35,7 +40,7 @@ export class TransactionsController {
   @Permit('re_transactions', 'read')
   @ApiParam({ name: 'id', description: 'Transaction identifier' })
   @ApiOkResponse({ type: TransactionResponseDto })
-  async get(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async get(@Req() req: FastifyRequest, @Param('id') id: string): Promise<TransactionResult> {
     const ctx = resolveRequestContext(req);
     return this.transactions.get(ctx, id);
   }
@@ -49,7 +54,7 @@ export class TransactionsController {
     @Req() req: FastifyRequest,
     @Param('id') id: string,
     @Body() dto: UpdateMilestoneDto
-  ) {
+  ): Promise<UpdateMilestoneResult> {
     const ctx = resolveRequestContext(req);
     return this.transactions.updateMilestone(ctx, id, dto);
   }
@@ -58,7 +63,7 @@ export class TransactionsController {
   @Permit('re_transactions', 'read')
   @ApiParam({ name: 'id', description: 'Transaction identifier' })
   @ApiOkResponse({ type: CommissionPreviewDto })
-  async commission(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async commission(@Req() req: FastifyRequest, @Param('id') id: string): Promise<CommissionResult> {
     const ctx = resolveRequestContext(req);
     return this.transactions.computeCommission(ctx, id);
   }
@@ -68,7 +73,7 @@ export class TransactionsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiParam({ name: 'id', description: 'Transaction identifier' })
   @ApiOkResponse({ type: PayoutResponseDto, isArray: true })
-  async generatePayouts(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async generatePayouts(@Req() req: FastifyRequest, @Param('id') id: string): Promise<PayoutGenerationResult> {
     const ctx = resolveRequestContext(req);
     return this.transactions.generatePayouts(ctx, id);
   }

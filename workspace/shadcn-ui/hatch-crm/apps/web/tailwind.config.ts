@@ -7,6 +7,15 @@ const config: Config = {
     './lib/**/*.{ts,tsx}'
   ],
   theme: {
+    fontSize: {
+      xs: ['0.75rem', '1.15rem'],
+      sm: ['0.875rem', '1.35rem'],
+      base: ['0.95rem', '1.5rem'],
+      lg: ['1.125rem', '1.65rem'],
+      xl: ['1.25rem', '1.75rem'],
+      '2xl': ['1.5rem', '1.9rem'],
+      '3xl': ['1.875rem', '2.2rem']
+    },
     extend: {
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
@@ -36,12 +45,13 @@ const config: Config = {
           success: '#00c853',
           warning: '#ffb300',
           danger: '#ff3b30',
-          neutral: '#e5e7eb'
+          neutral: '#e5e7eb',
+          gradient: 'linear-gradient(90deg, #1F5FFF 0%, #396CFF 50%, #2A47FF 100%)'
         }
       },
       backgroundImage: {
         'hatch-glass':
-          'linear-gradient(135deg, rgba(31,95,255,0.92) 0%, rgba(0,120,255,0.85) 100%)'
+          'linear-gradient(135deg, rgba(31,95,255,0.82) 0%, rgba(57,108,255,0.68) 100%)'
       },
       boxShadow: {
         'hatch-card': '0 12px 24px -12px rgba(15,52,119,0.25)'

@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   LeadScoreTier,
   LeadTaskStatus,
@@ -42,55 +43,6 @@ type LeadListPayload = Prisma.PersonGetPayload<{
     pipelineStage: true;
     leadFit: true;
     activityRollup: true;
-  };
-}>;
-
-type LeadDetailPayload = Prisma.PersonGetPayload<{
-  include: {
-    owner: {
-      select: {
-        id: true;
-        firstName: true;
-        lastName: true;
-        email: true;
-        role: true;
-      };
-    };
-    pipeline: true;
-    pipelineStage: true;
-    leadFit: true;
-    activityRollup: true;
-    leadNotes: {
-      orderBy: { createdAt: 'desc' };
-      include: {
-        author: {
-          select: {
-            id: true;
-            firstName: true;
-            lastName: true;
-            email: true;
-          };
-        };
-      };
-    };
-    leadTasks: {
-      orderBy: { createdAt: 'desc' };
-      include: {
-        assignee: {
-          select: {
-            id: true;
-            firstName: true;
-            lastName: true;
-            email: true;
-          };
-        };
-      };
-    };
-    siteEvents: {
-      orderBy: { timestamp: 'desc' };
-      take: 50;
-    };
-    deals: true;
   };
 }>;
 
@@ -227,7 +179,8 @@ const LIST_INCLUDE = {
 export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pipelines: PipelinesService
+    private readonly pipelines: PipelinesService,
+    private readonly events: EventEmitter2
   ) {}
 
   async list(query: ListLeadsQueryDto, ctx: RequestContext): Promise<LeadListResponse> {
@@ -480,8 +433,8 @@ export class LeadsService {
         tenantId: ctx.tenantId,
         organizationId: tenant.organizationId,
         ownerId: dto.ownerId ?? ctx.userId,
-        firstName: dto.firstName ?? null,
-        lastName: dto.lastName ?? null,
+        firstName: dto.firstName ?? '',
+        lastName: dto.lastName ?? '',
         primaryEmail: dto.email ?? null,
         primaryPhone: dto.phone ?? null,
         source: dto.source ?? null,
@@ -546,12 +499,17 @@ export class LeadsService {
     }
     if (dto.doNotContact !== undefined) updateData.doNotContact = dto.doNotContact;
 
+    let stageChanged = false;
+    let nextStageId = existing.stageId ?? null;
+
     if (dto.stageId || dto.pipelineId) {
       const { pipelineId, stage } = await this.resolveStageForMutation(
         ctx.tenantId,
         dto.pipelineId,
         dto.stageId
       );
+      nextStageId = stage?.id ?? null;
+      stageChanged = (stage?.id ?? null) !== (existing.stageId ?? null);
       updateData.pipeline = pipelineId
         ? { connect: { id: pipelineId } }
         : { disconnect: true };
@@ -564,6 +522,15 @@ export class LeadsService {
       where: { id },
       data: updateData
     });
+
+    if (stageChanged) {
+      this.events.emit('lead.moved', {
+        tenantId: ctx.tenantId,
+        leadId: id,
+        fromStageId: existing.stageId ?? null,
+        toStageId: nextStageId
+      });
+    }
 
     if (dto.fit !== undefined) {
       if (dto.fit === null) {
@@ -782,6 +749,10 @@ export class LeadsService {
     }
 
     const leadSummary = this.toLeadListItem(refreshed);
+    this.events.emit('touchpoint.created', {
+      tenantId: ctx.tenantId,
+      leadId
+    });
 
     return {
       touchpoint: this.toTouchpointView(touchpoint, leadSummary.owner),
@@ -1072,12 +1043,16 @@ export class LeadsService {
       return { pipelineId: pipeline.id, stage };
     }
 
-    const pipelines = await this.pipelines.list(tenantId);
+    const pipelines = (await this.pipelines.list(tenantId)) as unknown as Array<{
+      id: string;
+      type?: string | null;
+      stages: Stage[];
+    }>;
     const buyer = pipelines.find((p) => p.type === 'buyer') ?? pipelines[0];
     if (!buyer) {
       throw new NotFoundException('No pipeline configured');
     }
-    const stage = buyer.stages[0] ?? null;
+    const stage = (buyer.stages[0] as Stage | undefined) ?? null;
     return { pipelineId: buyer.id, stage };
   }
 

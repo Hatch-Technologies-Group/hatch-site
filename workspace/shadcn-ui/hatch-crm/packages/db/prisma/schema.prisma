@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  previewFeatures = ["postgresqlExtensions", "views"]
 }
 
 datasource db {
@@ -108,6 +108,25 @@ enum MessageStatus {
   READ
 }
 
+enum OutreachChannel {
+  EMAIL
+  SMS
+}
+
+enum CampaignEnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum OutreachEventStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum ConversationType {
   EXTERNAL
   INTERNAL
@@ -117,6 +136,12 @@ enum ConversationParticipantRole {
   OWNER
   MEMBER
   VIEWER
+}
+
+enum PipelineStatus {
+  DRAFT    @map("draft")
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
 }
 
 enum MessageReceiptStatus {
@@ -172,6 +197,23 @@ enum OutboxStatus {
   DELIVERING
   SUCCESS
   FAILED
+}
+
+enum LeadHistoryEventType {
+  STAGE_MOVED
+  OWNER_ASSIGNED
+  OWNER_UNASSIGNED
+  TOUCHPOINT_LOGGED
+  NOTE_ADDED
+  FILE_ATTACHED
+  FIELD_UPDATED
+  JOURNEY_STARTED
+}
+
+enum QueueVisibility {
+  PRIVATE
+  TEAM
+  ORGANIZATION
 }
 
 enum ContactSource {
@@ -342,28 +384,33 @@ enum SequenceStepStatus {
 }
 
 model Organization {
-  id                String              @id @default(cuid())
-  name              String
-  plan              String?             @default("standard")
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  tenants           Tenant[]
-  users             User[]
-  people            Person[]
-  teamMembers       TeamMember[]
-  teams             Team[]
-  orgMemberships    UserOrgMembership[]
-  roles             Role[]
-  profiles          Profile[]
-  permissionSets    PermissionSet[]
-  objectPermissions ObjectPermission[]
-  fieldPermissions  FieldPermission[]
-  recordShares      RecordShare[]
-  companies         Company[]
-  households        Household[]
-  customFields      CustomField[]
-  sequences         Sequence[]
-  auditEvents       AuditEvent[]
+  id                  String               @id @default(cuid())
+  name                String
+  plan                String?              @default("standard")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  tenants             Tenant[]
+  users               User[]
+  people              Person[]
+  queues              Queue[]
+  teamMembers         TeamMember[]
+  teams               Team[]
+  orgMemberships      UserOrgMembership[]
+  roles               Role[]
+  profiles            Profile[]
+  permissionSets      PermissionSet[]
+  objectPermissions   ObjectPermission[]
+  fieldPermissions    FieldPermission[]
+  recordShares        RecordShare[]
+  companies           Company[]
+  households          Household[]
+  customFields        CustomField[]
+  sequences           Sequence[]
+  messageTemplates    MessageTemplate[]
+  campaigns           Campaign[]
+  campaignEnrollments CampaignEnrollment[]
+  outreachEvents      OutreachEvent[]
+  auditEvents         AuditEvent[]
 }
 
 model Tenant {
@@ -408,8 +455,14 @@ model Tenant {
   consentBlocks         CommunicationBlock[]
   teamMembers           TeamMember[]
   savedViews            SavedView[]
+  viewPresets           ViewPreset[]
+  consumerPortalConfigs ConsumerPortalConfig[]
   sequences             Sequence[]
   sequenceEnrollments   SequenceEnrollment[]
+  messageTemplates      MessageTemplate[]
+  campaigns             Campaign[]
+  campaignEnrollments   CampaignEnrollment[]
+  outreachEvents        OutreachEvent[]
   sequenceStepLogs      SequenceStepLog[]
   mergeProposals        ContactMergeProposal[]
   disclaimerPolicies    DisclaimerPolicy[]
@@ -425,15 +478,23 @@ model Tenant {
   planSnapshots         PlanSnapshot[]
   pipelines             Pipeline[]
   stages                Stage[]
+  fieldSets             FieldSet[]
+  pipelineAutomations   PipelineAutomation[]
   leadFits              LeadFit[]
   events                Event[]
   leadActivityRollups   LeadActivityRollup[]
   leadNotes             LeadNote[]
   leadTasks             LeadTask[]
   leadTouchpoints       LeadTouchpoint[]
+  leadHistories         LeadHistory[]
+  consentEvents         ConsentEvent[]
+  touchpoints           Touchpoint[]
+  queues                Queue[]
+  queueAssignments      QueueAssignment[]
   customFields          CustomField[]
   customFieldValues     CustomFieldValue[]
   customFieldLayouts    CustomFieldLayout[]
+  JourneySimulation     JourneySimulation[]
 }
 
 model User {
@@ -480,6 +541,10 @@ model User {
   leadNotesAuthored         LeadNote[]                @relation("LeadNoteAuthor")
   leadTasksAssigned         LeadTask[]                @relation("LeadTaskAssignee")
   leadTouchpoints           LeadTouchpoint[]
+  leadHistoriesAuthored     LeadHistory[]             @relation("LeadHistoryActor")
+  consentEventsActor        ConsentEvent[]            @relation("ConsentEventActor")
+  queueAssignments          QueueAssignment[]         @relation("QueueAssignmentAssignee")
+  touchpointsAuthored       Touchpoint[]              @relation("TouchpointActor")
   auditEvents               AuditEvent[]
   companiesOwned            Company[]                 @relation("CompanyOwner")
   householdsOwned           Household[]               @relation("HouseholdOwner")
@@ -613,10 +678,16 @@ model Person {
   leadTasks               LeadTask[]
   siteEvents              Event[]
   touchpoints             LeadTouchpoint[]
+  timeline                LeadHistory[]
+  consentEvents           ConsentEvent[]
+  messageTouchpoints      Touchpoint[]              @relation("TouchpointPerson")
   cases                   Case[]                    @relation("CaseContact")
   primaryForCompanies     Company[]                 @relation("CompanyPrimaryContact")
   sequenceEnrollments     SequenceEnrollment[]
+  campaignEnrollments     CampaignEnrollment[]
+  queueAssignments        QueueAssignment[]         @relation("QueueAssignmentPerson")
   customFieldValues       CustomFieldValue[]
+  JourneySimulation       JourneySimulation[]
 
   @@unique([tenantId, primaryEmail])
   @@unique([tenantId, primaryPhone])
@@ -679,38 +750,91 @@ model Household {
   @@index([tenantId, ownerId])
 }
 
+/// contact_list_view is managed via migrations as a materialized view
+
 model Pipeline {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  type      String
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  stages    Stage[]
-  leads     Person[] @relation("PipelinePersons")
+  id          String               @id @default(cuid())
+  tenantId    String
+  brokerageId String?
+  familyId    String               @default(cuid())
+  name        String
+  type        String
+  useCase     String?
+  isDefault   Boolean              @default(false)
+  status      PipelineStatus       @default(DRAFT)
+  version     Int                  @default(1)
+  order       Int                  @default(0)
+  publishedAt DateTime?
+  archivedAt  DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  tenant      Tenant               @relation(fields: [tenantId], references: [id])
+  stages      Stage[]
+  fieldSets   FieldSet[]
+  automations PipelineAutomation[]
+  leads       Person[]             @relation("PipelinePersons")
 
   @@unique([tenantId, name])
+  @@unique([tenantId, familyId, version])
   @@index([tenantId])
+  @@index([tenantId, isDefault])
 }
 
 model Stage {
-  id         String   @id @default(cuid())
-  tenantId   String
-  pipelineId String
-  name       String
-  order      Int
-  slaMinutes Int?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  pipeline   Pipeline @relation(fields: [pipelineId], references: [id])
-  leads      Person[] @relation("StagePersons")
+  id          String   @id @default(cuid())
+  tenantId    String
+  pipelineId  String
+  name        String
+  order       Int
+  probWin     Int?
+  slaMinutes  Int?
+  slaHours    Int?
+  exitReasons Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  pipeline    Pipeline @relation(fields: [pipelineId], references: [id])
+  leads       Person[] @relation("StagePersons")
 
   @@unique([tenantId, pipelineId, name])
   @@index([tenantId])
   @@index([tenantId, pipelineId])
+  @@index([tenantId, pipelineId, order])
+}
+
+model FieldSet {
+  id         String   @id @default(cuid())
+  tenantId   String
+  pipelineId String
+  target     String
+  schema     Json
+  uiSchema   Json?
+  visibility Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, pipelineId])
+}
+
+model PipelineAutomation {
+  id         String   @id @default(cuid())
+  tenantId   String
+  pipelineId String
+  name       String?
+  trigger    Json
+  actions    Json
+  isEnabled  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, pipelineId])
+  @@index([tenantId, isEnabled])
 }
 
 model LeadFit {
@@ -816,6 +940,109 @@ model LeadTask {
   @@index([tenantId, personId])
 }
 
+model LeadHistory {
+  id         String               @id @default(cuid())
+  tenantId   String
+  personId   String
+  eventType  LeadHistoryEventType
+  actorId    String?
+  payload    Json?
+  occurredAt DateTime             @default(now())
+  createdAt  DateTime             @default(now())
+  tenant     Tenant               @relation(fields: [tenantId], references: [id])
+  person     Person               @relation(fields: [personId], references: [id])
+  actor      User?                @relation("LeadHistoryActor", fields: [actorId], references: [id])
+
+  @@index([tenantId, personId, occurredAt])
+  @@index([tenantId, actorId])
+}
+
+view LeadAnalyticsView {
+  tenantId           String
+  organizationId     String
+  personId           String
+  ownerId            String?
+  stageId            String?
+  pipelineId         String?
+  scoreTier          LeadScoreTier?
+  stageEnteredAt     DateTime?
+  lastActivityAt     DateTime?
+  touchpoints1d      Int?
+  touchpoints7d      Int?
+  touchpoints14d     Int?
+  touchpoints30d     Int?
+  touchpoints60d     Int?
+  firstTouchpointAt  DateTime?
+  lastTouchpointAt   DateTime?
+  stageMovesTotal    Int?
+  stageMovesForward  Int?
+  avgStageDurationMs Decimal?       @db.Decimal(18, 4)
+  lastStageMoveAt    DateTime?
+  lastFromStageId    String?
+  lastToStageId      String?
+  lastFromStageName  String?
+  lastToStageName    String?
+  slaBreaches        Int?
+  avgResponseMs      Decimal?       @db.Decimal(18, 4)
+  bucketStart        DateTime?
+  bucketEnd          DateTime?
+  stageKey           String?
+
+  @@unique([tenantId, personId])
+  @@map("LeadAnalyticsView")
+}
+
+model ConsentEvent {
+  id         String         @id @default(cuid())
+  tenantId   String
+  personId   String
+  channel    ConsentChannel
+  status     ConsentStatus
+  source     String?
+  reason     String?
+  blocked    Boolean        @default(false)
+  metadata   Json?
+  actorId    String?
+  occurredAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  tenant     Tenant         @relation(fields: [tenantId], references: [id])
+  person     Person         @relation(fields: [personId], references: [id])
+  actor      User?          @relation("ConsentEventActor", fields: [actorId], references: [id])
+
+  @@index([tenantId, personId, channel, occurredAt])
+  @@index([tenantId, actorId])
+}
+
+model Touchpoint {
+  id             String           @id @default(cuid())
+  tenantId       String
+  personId       String
+  conversationId String?
+  actorId        String?
+  direction      MessageDirection
+  channel        MessageChannel
+  status         MessageStatus    @default(QUEUED)
+  subject        String?
+  preview        String?
+  body           String?
+  providerId     String?
+  providerMeta   Json?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  person         Person           @relation("TouchpointPerson", fields: [personId], references: [id])
+  conversation   Conversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  actor          User?            @relation("TouchpointActor", fields: [actorId], references: [id])
+
+  @@index([tenantId, personId, createdAt])
+  @@index([tenantId, conversationId])
+  @@index([tenantId, status])
+  @@index([tenantId, actorId])
+}
+
 model SavedView {
   id          String         @id @default(cuid())
   tenantId    String
@@ -827,6 +1054,7 @@ model SavedView {
   columns     Json?
   sort        Json?
   filters     Json
+  query       Json?          @map("query")
   isDefault   Boolean        @default(false)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -838,6 +1066,58 @@ model SavedView {
   @@unique([userId, name])
   @@index([tenantId, scope])
   @@index([tenantId, teamId])
+}
+
+model ViewPreset {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  brokerageId     String?
+  name            String
+  scope           String
+  layout          Json
+  filters         Json?
+  sort            Json?
+  roles           String[]               @default([])
+  isDefault       Boolean                @default(false)
+  description     String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id])
+  shareTokens     ViewPresetShareToken[]
+  consumerConfigs ConsumerPortalConfig[]
+
+  @@index([tenantId])
+  @@index([tenantId, scope])
+  @@index([tenantId, isDefault])
+}
+
+model ViewPresetShareToken {
+  id           String     @id @default(cuid())
+  viewPresetId String
+  token        String     @unique
+  expiresAt    DateTime?
+  createdAt    DateTime   @default(now())
+  viewPreset   ViewPreset @relation(fields: [viewPresetId], references: [id], onDelete: Cascade)
+
+  @@index([viewPresetId])
+}
+
+model ConsumerPortalConfig {
+  id           String      @id @default(cuid())
+  tenantId     String
+  brokerageId  String?
+  modules      Json
+  fields       Json?
+  viewPresetId String?
+  permissions  Json?
+  branding     Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tenant       Tenant      @relation(fields: [tenantId], references: [id])
+  viewPreset   ViewPreset? @relation(fields: [viewPresetId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId])
+  @@index([tenantId, viewPresetId])
 }
 
 model Sequence {
@@ -922,6 +1202,104 @@ model SequenceStepLog {
 
   @@index([tenantId, sequenceId])
   @@index([tenantId, enrollmentId])
+  @@index([tenantId, status])
+}
+
+model MessageTemplate {
+  id             String          @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  channel        OutreachChannel
+  subject        String?
+  body           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  steps          CampaignStep[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, organizationId])
+}
+
+model Campaign {
+  id             String               @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  tenant         Tenant               @relation(fields: [tenantId], references: [id])
+  organization   Organization         @relation(fields: [organizationId], references: [id])
+  steps          CampaignStep[]
+  enrollments    CampaignEnrollment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+model CampaignStep {
+  id         String          @id @default(cuid())
+  campaignId String
+  order      Int
+  delayHours Int
+  templateId String
+  channel    OutreachChannel
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  campaign   Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  template   MessageTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([campaignId, order])
+  @@index([campaignId, templateId])
+}
+
+model CampaignEnrollment {
+  id             String                   @id @default(cuid())
+  tenantId       String
+  organizationId String
+  campaignId     String
+  leadId         String
+  status         CampaignEnrollmentStatus @default(ACTIVE)
+  startedAt      DateTime                 @default(now())
+  lastStepSent   Int?
+  nextRunAt      DateTime
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id])
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+  campaign       Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead           Person                   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  events         OutreachEvent[]
+
+  @@unique([campaignId, leadId])
+  @@index([tenantId, status])
+  @@index([tenantId, nextRunAt])
+  @@index([tenantId, campaignId])
+}
+
+model OutreachEvent {
+  id             String              @id @default(cuid())
+  tenantId       String
+  organizationId String
+  enrollmentId   String
+  stepOrder      Int
+  channel        OutreachChannel
+  status         OutreachEventStatus @default(QUEUED)
+  error          String?
+  sentAt         DateTime?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  tenant         Tenant              @relation(fields: [tenantId], references: [id])
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  enrollment     CampaignEnrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId])
+  @@index([tenantId, organizationId])
   @@index([tenantId, status])
 }
 
@@ -1441,6 +1819,52 @@ model LeadRouteEvent {
   @@index([tenantId, leadId])
 }
 
+model Queue {
+  id             String            @id @default(cuid())
+  tenantId       String
+  organizationId String
+  name           String
+  description    String?
+  routingMode    RoutingMode       @default(FIRST_MATCH)
+  visibility     QueueVisibility   @default(ORGANIZATION)
+  isActive       Boolean           @default(true)
+  slaMinutes     Int?
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  assignments    QueueAssignment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, routingMode, isActive])
+}
+
+model QueueAssignment {
+  id           String    @id @default(cuid())
+  tenantId     String
+  queueId      String
+  personId     String
+  assigneeId   String?
+  claimedAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  releasedAt   DateTime?
+  breachedAt   DateTime?
+  breachReason String?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  queue        Queue     @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  person       Person    @relation("QueueAssignmentPerson", fields: [personId], references: [id])
+  assignee     User?     @relation("QueueAssignmentAssignee", fields: [assigneeId], references: [id])
+
+  @@index([tenantId, queueId])
+  @@index([tenantId, personId])
+  @@index([tenantId, assigneeId])
+  @@index([tenantId, expiresAt])
+}
+
 model LeadSlaTimer {
   id              String       @id @default(cuid())
   tenantId        String
@@ -1505,6 +1929,7 @@ model Conversation {
   createdBy    User                      @relation("ConversationCreatedBy", fields: [createdById], references: [id])
   participants ConversationParticipant[]
   messages     Message[]
+  touchpoints  Touchpoint[]
 
   @@index([tenantId, type])
   @@index([tenantId, personId])
@@ -1639,10 +2064,16 @@ model Journey {
 model JourneySimulation {
   id        String   @id @default(cuid())
   journeyId String
+  tenantId  String
+  leadId    String
   input     Json
   result    Json
   createdAt DateTime @default(now())
   journey   Journey  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  lead      Person   @relation(fields: [leadId], references: [id])
+
+  @@unique([tenantId, leadId, journeyId])
 }
 
 model CommunicationBlock {

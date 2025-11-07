@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   Phone,
   ShieldCheck,
+  Search,
   Sparkles,
   UserRound,
   XCircle
@@ -38,7 +39,7 @@ import { ErrorBanner } from '@/components/error-banner';
 import { LoadMoreButton } from '@/components/load-more-button';
 import { LeadDrawer } from '@/components/leads/lead-drawer';
 import { useApiError } from '@/hooks/use-api-error';
-import { getLeads, LeadSummary, Pipeline, PipelineStage, updateLead } from '@/lib/api';
+import { getLeads, LeadSummary, ListLeadsParams, Pipeline, PipelineStage, updateLead } from '@/lib/api';
 import { resolveLayout } from '@/lib/api/admin.layouts';
 import { applyLayout } from '@/lib/layouts/applyLayout';
 
@@ -64,30 +65,18 @@ export default function PipelineBoard({
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [activityFilter, setActivityFilter] = useState<string>('all');
   const [preapprovedOnly, setPreapprovedOnly] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [compactMode, setCompactMode] = useState<boolean>(false);
   const [guidedMode, setGuidedMode] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
   const snapshotRef = useRef<LeadSummary[] | null>(null);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+  const hasHydratedFiltersRef = useRef<boolean>(false);
   const { banner, showError, clearError } = useApiError();
   const [cardLayoutFields, setCardLayoutFields] = useState<Array<{ field: string; label?: string; order?: number; width?: number }> | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
-  const loadMore = useCallback(async () => {
-    if (!nextCursor || isLoadingMore) {
-      return;
-    }
-    setIsLoadingMore(true);
-    try {
-      const response = await getLeads({ cursor: nextCursor, limit: pageSize });
-      setLeads((prev) => mergeLeadPages(prev, response.items));
-      setNextCursor(response.nextCursor ?? null);
-      clearError();
-    } catch (err) {
-      showError(err);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [nextCursor, isLoadingMore, pageSize, showError, clearError]);
 
   const stageLookup = useMemo(() => {
     const map = new Map<
@@ -109,6 +98,19 @@ export default function PipelineBoard({
   );
 
   const baseline = useMemo(() => FIELD_MAP.leads ?? [], []);
+  const trimmedSearch = searchQuery.trim();
+  const hasSearch = trimmedSearch.length > 0;
+  const [debouncedQuery, setDebouncedQuery] = useState<string>(trimmedSearch);
+  const debouncedNormalized = debouncedQuery.toLowerCase();
+  const debouncedNumeric = debouncedQuery.replace(/\D/g, '');
+  const debouncedHasSearch = debouncedQuery.length > 0;
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(trimmedSearch);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [trimmedSearch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,6 +139,43 @@ export default function PipelineBoard({
     return pipelines.find((pipeline) => pipeline.id === selectedPipelineId) ?? pipelines[0];
   }, [pipelines, selectedPipelineId]);
 
+  const buildLeadParams = useCallback(
+    (overrides: Partial<ListLeadsParams> = {}) => {
+      const params: ListLeadsParams = {
+        limit: pageSize
+      };
+      if (selectedPipelineId) {
+        params.pipelineId = selectedPipelineId;
+      }
+      if (ownerFilter !== 'all') {
+        params.ownerId = ownerFilter;
+      }
+      if (tierFilter !== 'all') {
+        params.scoreTier = [tierFilter];
+      }
+      if (activityFilter !== 'all') {
+        params.lastActivityDays = Number(activityFilter);
+      }
+      if (preapprovedOnly) {
+        params.preapproved = true;
+      }
+      if (debouncedHasSearch) {
+        params.q = debouncedQuery;
+      }
+      return { ...params, ...overrides };
+    },
+    [
+      pageSize,
+      selectedPipelineId,
+      ownerFilter,
+      tierFilter,
+      activityFilter,
+      preapprovedOnly,
+      debouncedHasSearch,
+      debouncedQuery
+    ]
+  );
+
   const owners = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     leads.forEach((lead) => {
@@ -150,10 +189,82 @@ export default function PipelineBoard({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [leads]);
 
+  useEffect(() => {
+    if (!pipelines.length) {
+      return;
+    }
+
+    const skipInitialFetch =
+      !hasHydratedFiltersRef.current &&
+      !debouncedHasSearch &&
+      ownerFilter === 'all' &&
+      tierFilter === 'all' &&
+      activityFilter === 'all' &&
+      !preapprovedOnly;
+
+    hasHydratedFiltersRef.current = true;
+    if (skipInitialFetch) {
+      return;
+    }
+
+    const controller = new AbortController();
+    refreshControllerRef.current?.abort();
+    refreshControllerRef.current = controller;
+    setIsRefreshing(true);
+    setIsLoadingMore(false);
+    const params = buildLeadParams();
+
+    getLeads({ ...params, signal: controller.signal })
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setLeads(response.items);
+        setNextCursor(response.nextCursor ?? null);
+        clearError();
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        showError(err);
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        setIsRefreshing(false);
+      });
+
+    return () => controller.abort();
+  }, [
+    pipelines.length,
+    buildLeadParams,
+    clearError,
+    showError,
+    debouncedHasSearch,
+    ownerFilter,
+    tierFilter,
+    activityFilter,
+    preapprovedOnly
+  ]);
+
   const activeLead = useMemo(
     () => (activeLeadId ? leads.find((lead) => lead.id === activeLeadId) ?? null : null),
     [leads, activeLeadId]
   );
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || isLoadingMore || isRefreshing) {
+      return;
+    }
+    setIsLoadingMore(true);
+    try {
+      const params = buildLeadParams({ cursor: nextCursor });
+      const response = await getLeads(params);
+      setLeads((prev) => mergeLeadPages(prev, response.items));
+      setNextCursor(response.nextCursor ?? null);
+      clearError();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [nextCursor, isLoadingMore, isRefreshing, buildLeadParams, showError, clearError]);
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -180,9 +291,33 @@ export default function PipelineBoard({
           return false;
         }
       }
+      if (debouncedNormalized) {
+        const name = [lead.firstName, lead.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        const email = (lead.email ?? '').toLowerCase();
+        const phoneDigits = (lead.phone ?? '').replace(/\D/g, '');
+        const matchesName = name.length > 0 && name.includes(debouncedNormalized);
+        const matchesEmail = email.length > 0 && email.includes(debouncedNormalized);
+        const matchesPhone =
+          debouncedNumeric.length >= 3 && phoneDigits.length > 0 && phoneDigits.includes(debouncedNumeric);
+        if (!matchesName && !matchesEmail && !matchesPhone) {
+          return false;
+        }
+      }
       return true;
     });
-  }, [leads, ownerFilter, tierFilter, activityFilter, preapprovedOnly, selectedPipeline]);
+  }, [
+    leads,
+    ownerFilter,
+    tierFilter,
+    activityFilter,
+    preapprovedOnly,
+    selectedPipeline,
+    debouncedNormalized,
+    debouncedNumeric
+  ]);
 
   const columns = useMemo(() => {
     const map = new Map<string, LeadSummary[]>();
@@ -214,8 +349,34 @@ export default function PipelineBoard({
     return map;
   }, [filteredLeads, selectedPipeline]);
 
+  const matchingStageIds = useMemo(() => {
+    if (!debouncedHasSearch) {
+      return null;
+    }
+    const ids = new Set<string>();
+    filteredLeads.forEach((lead) => {
+      const stageId = lead.stage?.id ?? lead.stageId;
+      if (stageId) {
+        ids.add(stageId);
+      }
+    });
+    return ids;
+  }, [filteredLeads, debouncedHasSearch]);
+
+  const visibleStages = useMemo(() => {
+    if (!selectedPipeline) {
+      return [];
+    }
+    if (!debouncedHasSearch || !matchingStageIds) {
+      return selectedPipeline.stages;
+    }
+    return selectedPipeline.stages.filter((stage) => matchingStageIds.has(stage.id));
+  }, [selectedPipeline, debouncedHasSearch, matchingStageIds]);
+
   const totalLeads = filteredLeads.length;
   const stageCount = selectedPipeline?.stages.length ?? 0;
+  const visibleStageCount = visibleStages.length;
+  const gridStageCount = debouncedHasSearch ? Math.max(visibleStageCount, 1) : stageCount;
 
   const heroMetrics = useMemo(() => {
     if (!selectedPipeline || filteredLeads.length === 0) {
@@ -276,8 +437,13 @@ export default function PipelineBoard({
   const closeDrawer = useCallback(() => setActiveLeadId(null), []);
 
   const filtersApplied = useMemo(
-    () => ownerFilter !== 'all' || tierFilter !== 'all' || activityFilter !== 'all' || preapprovedOnly,
-    [ownerFilter, tierFilter, activityFilter, preapprovedOnly]
+    () =>
+      ownerFilter !== 'all' ||
+      tierFilter !== 'all' ||
+      activityFilter !== 'all' ||
+      preapprovedOnly ||
+      hasSearch,
+    [ownerFilter, tierFilter, activityFilter, preapprovedOnly, hasSearch]
   );
 
   const resetFilters = useCallback(() => {
@@ -285,6 +451,7 @@ export default function PipelineBoard({
     setTierFilter('all');
     setActivityFilter('all');
     setPreapprovedOnly(false);
+    setSearchQuery('');
   }, []);
 
   const toggleCompactMode = useCallback(() => {
@@ -425,6 +592,7 @@ export default function PipelineBoard({
                 { value: '30', label: 'Last 30 days' }
               ]}
             />
+            <PipelineSearchInput value={searchQuery} onChange={setSearchQuery} />
             <PillCheckbox
               icon={ShieldCheck}
               label="Preapproved"
@@ -502,31 +670,54 @@ export default function PipelineBoard({
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="overflow-x-auto pb-2">
-          <div
-            className={clsx(
-              'grid min-w-[72rem] auto-rows-[1fr] gap-6',
-              'md:grid-cols-2',
-              stageCount >= 3 ? 'xl:grid-cols-3' : 'xl:grid-cols-2',
-              stageCount >= 4 && '2xl:grid-cols-4'
-            )}
-            aria-busy={isPending}
-          >
-            {selectedPipeline.stages.map((stage, index) => (
-              <StageColumn
-                key={stage.id}
-                stage={stage}
-                stageIndex={index}
-                stageCount={stageCount}
-                leads={columns.get(stage.id) ?? []}
-                cardFields={cardFields}
-                onSelectLead={handleLeadCardClick}
-                activeLeadId={activeLeadId}
-                isCompact={compactMode}
-                guidedMode={guidedMode}
-                onRequestAddLead={requestAddLead}
-              />
-            ))}
-          </div>
+          {!isRefreshing && debouncedHasSearch && visibleStageCount === 0 ? (
+            <div className="flex min-h-[18rem] flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-[#E2E8F0] bg-[#F8FAFC] px-6 py-10 text-center text-sm text-slate-500">
+              <Search className="h-6 w-6 text-slate-400" aria-hidden />
+              <p className="text-base font-semibold text-slate-700">No matches found</p>
+              <p>
+                No leads in this pipeline match “{trimmedSearch}”. Try another search or clear your filters.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="rounded-full border border-transparent bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-brand-600"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <div
+              className={clsx(
+                'grid min-w-[72rem] auto-rows-[1fr] gap-6',
+                'md:grid-cols-2',
+                gridStageCount >= 3 ? 'xl:grid-cols-3' : 'xl:grid-cols-2',
+                gridStageCount >= 4 && '2xl:grid-cols-4'
+              )}
+              aria-busy={isPending || isRefreshing}
+            >
+              {visibleStages.map((stage) => {
+                const originalIndex = selectedPipeline.stages.findIndex(
+                  (candidate) => candidate.id === stage.id
+                );
+                const stageIndex = originalIndex === -1 ? 0 : originalIndex;
+                return (
+                  <StageColumn
+                    key={stage.id}
+                    stage={stage}
+                    stageIndex={stageIndex}
+                    stageCount={stageCount}
+                    leads={columns.get(stage.id) ?? []}
+                    cardFields={cardFields}
+                    onSelectLead={handleLeadCardClick}
+                    activeLeadId={activeLeadId}
+                    isCompact={compactMode}
+                    guidedMode={guidedMode}
+                    onRequestAddLead={requestAddLead}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </DndContext>
 
@@ -573,7 +764,7 @@ export default function PipelineBoard({
 
       <LoadMoreButton
         hasNext={Boolean(nextCursor)}
-        isLoading={isLoadingMore}
+        isLoading={isLoadingMore || isRefreshing}
         onClick={loadMore}
         className="ml-auto rounded-full border border-transparent bg-gradient-to-r from-[#1F5FFF] to-[#00C6A2] px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(31,95,255,0.35)]"
       />
@@ -653,6 +844,31 @@ function PillCheckbox({ label, checked, onToggle, icon: Icon }: PillCheckboxProp
         {checked ? 'On' : 'All'}
       </span>
     </button>
+  );
+}
+
+interface PipelineSearchInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+function PipelineSearchInput({ value, onChange, placeholder }: PipelineSearchInputProps) {
+  return (
+    <label className="group relative flex items-center gap-2 rounded-full border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm transition hover:border-brand-200 focus-within:border-brand-300">
+      <Search className="h-4 w-4 text-slate-500" aria-hidden />
+      <span className="hidden text-xs font-medium text-slate-500 md:block">Search</span>
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder ?? 'Find a client'}
+        className="w-40 bg-transparent text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none md:w-56"
+        autoComplete="off"
+        spellCheck={false}
+        aria-label="Search clients"
+      />
+    </label>
   );
 }
 

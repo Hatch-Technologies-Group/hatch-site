@@ -23,6 +23,12 @@ import {
   UpdateOpportunityDto
 } from './dto';
 
+type OpportunitiesListResult = Awaited<ReturnType<OpportunitiesService['list']>>;
+type OpportunityResult = Awaited<ReturnType<OpportunitiesService['get']>>;
+type OpportunityCreateResult = Awaited<ReturnType<OpportunitiesService['create']>>;
+type OpportunityUpdateResult = Awaited<ReturnType<OpportunitiesService['update']>>;
+type OpportunityDeleteResult = Awaited<ReturnType<OpportunitiesService['softDelete']>>;
+
 const parseLimit = (value?: string) => {
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed <= 0) {
@@ -67,7 +73,7 @@ export class OpportunitiesController {
     @Query('accountId') accountId?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string
-  ) {
+  ): Promise<OpportunitiesListResult> {
     const ctx = resolveRequestContext(req);
     return this.service.list(ctx, {
       q,
@@ -82,7 +88,7 @@ export class OpportunitiesController {
   @Permit('opportunities', 'read')
   @ApiParam({ name: 'id', description: 'Opportunity identifier' })
   @ApiOkResponse({ type: OpportunityResponseDto })
-  async get(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async get(@Req() req: FastifyRequest, @Param('id') id: string): Promise<OpportunityResult> {
     const ctx = resolveRequestContext(req);
     return this.service.get(ctx, id);
   }
@@ -91,7 +97,7 @@ export class OpportunitiesController {
   @Permit('opportunities', 'create')
   @ApiBody({ type: CreateOpportunityDto })
   @ApiOkResponse({ type: OpportunityResponseDto })
-  async create(@Req() req: FastifyRequest, @Body() dto: CreateOpportunityDto) {
+  async create(@Req() req: FastifyRequest, @Body() dto: CreateOpportunityDto): Promise<OpportunityCreateResult> {
     const ctx = resolveRequestContext(req);
     return this.service.create(ctx, dto as unknown as Record<string, unknown>);
   }
@@ -105,7 +111,7 @@ export class OpportunitiesController {
     @Req() req: FastifyRequest,
     @Param('id') id: string,
     @Body() dto: UpdateOpportunityDto
-  ) {
+  ): Promise<OpportunityUpdateResult> {
     const ctx = resolveRequestContext(req);
     return this.service.update(ctx, id, dto as unknown as Record<string, unknown>);
   }
@@ -119,7 +125,7 @@ export class OpportunitiesController {
       properties: { id: { type: 'string', description: 'Soft-deleted opportunity id' } }
     }
   })
-  async remove(@Req() req: FastifyRequest, @Param('id') id: string) {
+  async remove(@Req() req: FastifyRequest, @Param('id') id: string): Promise<OpportunityDeleteResult> {
     const ctx = resolveRequestContext(req);
     return this.service.softDelete(ctx, id);
   }

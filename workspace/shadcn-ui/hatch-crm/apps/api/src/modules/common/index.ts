@@ -5,3 +5,5 @@ export * from './dto/query.transformers';
 export * from './dto/search-query.dto';
 export * from './openapi/decorators';
 export * from './request-context';
+export * from './org-admin.guard';
+export * from './prisma-json.util';
