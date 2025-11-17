@@ -203,7 +203,7 @@ export const CustomerExperienceProvider: React.FC<{ children: React.ReactNode }>
 
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .select('metadata')
         .eq('id', userId)
         .maybeSingle()
@@ -290,7 +290,7 @@ export const CustomerExperienceProvider: React.FC<{ children: React.ReactNode }>
       }
 
       const { error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .update({ metadata: updatedMetadata })
         .eq('id', userId)
 

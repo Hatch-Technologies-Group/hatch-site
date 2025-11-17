@@ -6,6 +6,7 @@ import { FlsService } from '../../../platform/security/fls.service';
 import type { RequestContext } from '../../common/request-context';
 import { OutboxService } from '../../outbox/outbox.service';
 import { OffersService } from '../offers/offers.service';
+import { AiEmployeesProducer } from '../../ai-employees/ai-employees.producer';
 
 const STATUS_TO_OPPORTUNITY_STAGE: Record<string, string> = {
   [ListingStatus.COMING_SOON]: 'Prospecting',
@@ -21,7 +22,8 @@ export class ListingsService {
     private readonly prisma: PrismaService,
     private readonly fls: FlsService,
     private readonly offers: OffersService,
-    private readonly outbox: OutboxService
+    private readonly outbox: OutboxService,
+    private readonly aiEmployeesProducer: AiEmployeesProducer
   ) {}
 
   async get(ctx: RequestContext, id: string) {
@@ -112,6 +114,14 @@ export class ListingsService {
         opportunityId: updated.opportunityId ?? null
       }
     });
+
+    if (normalizedStatus === ListingStatus.ACTIVE) {
+      await this.aiEmployeesProducer.enqueueListingConciergeNewListing({
+        tenantId: ctx.tenantId,
+        orgId: ctx.orgId,
+        listingId: updated.id
+      });
+    }
 
     return this.get(ctx, id);
   }

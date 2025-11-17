@@ -1,0 +1,17 @@
+name: client_summary
+description: Copilot should summarize a client and propose next steps.
+context:
+  page: "/broker/crm/leads/client_test_1"
+  entityType: "lead"
+  entityId: "client_test_1"
+inputs:
+  messages:
+    - role: user
+      content: "Summarize this client and tell me what to do next."
+expect:
+  must_include:
+    - "call"
+    - "email"
+  must_not_include:
+    - "I do not have any information"
+    - "hallucinated"

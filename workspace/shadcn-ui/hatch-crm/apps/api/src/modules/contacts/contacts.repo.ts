@@ -253,8 +253,29 @@ export class ContactsRepo {
 
     params.push(limit + 1);
 
-    const rows = await this.db.$queryRawUnsafe<ContactListRow[]>(sql, ...params);
+    let rows: ContactListRow[];
+    try {
+      rows = await this.db.$queryRawUnsafe<ContactListRow[]>(sql, ...params);
+    } catch (error) {
+      const message = String((error as Error)?.message ?? '').toLowerCase();
+      const code = (error as { code?: string } | undefined)?.code;
+      const isMissingView =
+        code === '42P01' ||
+        code === 'P2010' ||
+        message.includes('contact_list_view') ||
+        message.includes('relation') && message.includes('does not exist');
+      // If the materialized view does not exist yet, fall back to a direct Person query
+      if (isMissingView) {
+        return this.fallbackListDirect(query);
+      }
+      throw error;
+    }
     const page = rows.slice(0, limit);
+
+    // If view returns no matches for a name search, fall back to direct Person search
+    if (page.length === 0 && query.q) {
+      return this.fallbackListDirect(query);
+    }
 
     const nextCursor =
       rows.length > limit && page.length > 0
@@ -293,6 +314,107 @@ export class ContactsRepo {
         dnc: !!row.is_dnc_blocked
       })),
       nextCursor
+    };
+  }
+
+  private async fallbackListDirect(query: ContactListInternalQuery): Promise<ContactListPage> {
+    const take = Math.min(query.limit ?? 50, 200);
+    const where: any = {
+      tenantId: query.tenantId
+    };
+    if (query.q) {
+      const search = `%${query.q}%`;
+      // Using $queryRaw to keep case-insensitive matching similar to ILIKE
+      const sql = `
+        SELECT "id" as person_id, "tenantId" as tenant_id, "organizationId" as org_id,
+               "ownerId" as owner_id, NULL::text as team_id, "stage" as status,
+               NULLIF(concat_ws(' ', NULLIF("firstName", ''), NULLIF("lastName", '')), '') as full_name,
+               "primaryEmail" as email, "primaryPhone" as phone,
+               "companyId" as company_id, NULL::text as company_name,
+               "householdId" as household_id, NULL::text as household_name,
+               "leadScore" as score, "source", "updatedAt" as updated_at, "createdAt" as created_at,
+               NULL::timestamp as last_activity_at, 0::bigint as open_tasks,
+               false as has_sms_opt_in, false as has_email_opt_in, false as has_call_opt_in,
+               "doNotContact" as is_dnc_blocked
+        FROM "Person"
+        WHERE "tenantId" = $1 AND "organizationId" = $2
+          AND ("firstName" ILIKE $3 OR "lastName" ILIKE $3 OR "primaryEmail" ILIKE $3 OR "primaryPhone" ILIKE $3)
+        ORDER BY "updatedAt" DESC, "id" DESC
+        LIMIT $4
+      `;
+      const rows = await this.db.$queryRawUnsafe<ContactListRow[]>(
+        sql,
+        query.tenantId,
+        query.orgId,
+        search,
+        take + 1
+      );
+      return {
+        rows: rows.slice(0, take).map((row) => ({
+          id: row.person_id,
+          name: row.full_name,
+          email: row.email,
+          phone: row.phone,
+          status: row.status,
+          ownerId: row.owner_id,
+          teamId: row.team_id,
+          companyId: row.company_id,
+          companyName: row.company_name,
+          householdId: row.household_id,
+          householdName: row.household_name,
+          score: row.score,
+          source: row.source,
+          updatedAt: toIso(row.updated_at)!,
+          createdAt: toIso(row.created_at)!,
+          lastActivityAt: toIso(row.last_activity_at),
+          openTasks: Number(row.open_tasks ?? 0),
+          consent: { sms: false, email: false, call: false },
+          dnc: !!row.is_dnc_blocked
+        })),
+        nextCursor: undefined
+      };
+    }
+
+    const sql = `
+      SELECT "id" as person_id, "tenantId" as tenant_id, "organizationId" as org_id,
+             "ownerId" as owner_id, NULL::text as team_id, "stage" as status,
+             NULLIF(concat_ws(' ', NULLIF("firstName", ''), NULLIF("lastName", '')), '') as full_name,
+             "primaryEmail" as email, "primaryPhone" as phone,
+             "companyId" as company_id, NULL::text as company_name,
+             "householdId" as household_id, NULL::text as household_name,
+             "leadScore" as score, "source", "updatedAt" as updated_at, "createdAt" as created_at,
+             NULL::timestamp as last_activity_at, 0::bigint as open_tasks,
+             false as has_sms_opt_in, false as has_email_opt_in, false as has_call_opt_in,
+             "doNotContact" as is_dnc_blocked
+      FROM "Person"
+      WHERE "tenantId" = $1 AND "organizationId" = $2
+      ORDER BY "updatedAt" DESC, "id" DESC
+      LIMIT $3
+    `;
+    const rows = await this.db.$queryRawUnsafe<ContactListRow[]>(sql, query.tenantId, query.orgId, take + 1);
+    return {
+      rows: rows.slice(0, take).map((row) => ({
+        id: row.person_id,
+        name: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        status: row.status,
+        ownerId: row.owner_id,
+        teamId: row.team_id,
+        companyId: row.company_id,
+        companyName: row.company_name,
+        householdId: row.household_id,
+        householdName: row.household_name,
+        score: row.score,
+        source: row.source,
+        updatedAt: toIso(row.updated_at)!,
+        createdAt: toIso(row.created_at)!,
+        lastActivityAt: toIso(row.last_activity_at),
+        openTasks: Number(row.open_tasks ?? 0),
+        consent: { sms: false, email: false, call: false },
+        dnc: !!row.is_dnc_blocked
+      })),
+      nextCursor: undefined
     };
   }
 }

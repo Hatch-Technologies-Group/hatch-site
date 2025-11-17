@@ -176,11 +176,11 @@ export class InsightsService {
 
     const cached = this.getCachedResponse(cacheKey);
     if (cached) {
-      this.logger.verbose(`metric=insights.query.cache_hit tenant=${tenantId} value=1`);
-      this.logger.verbose(`metric=insights.query.latency_ms tenant=${tenantId} value=${Date.now() - requestStart}`);
+      this.logMetric(`metric=insights.query.cache_hit tenant=${tenantId} value=1`);
+      this.logMetric(`metric=insights.query.latency_ms tenant=${tenantId} value=${Date.now() - requestStart}`);
       return cached;
     }
-    this.logger.verbose(`metric=insights.query.cache_hit tenant=${tenantId} value=0`);
+    this.logMetric(`metric=insights.query.cache_hit tenant=${tenantId} value=0`);
 
     const personFilter = this.buildLeadFilter({
       tenantId,
@@ -498,9 +498,7 @@ export class InsightsService {
     };
 
     this.cacheResponse(cacheKey, tenantId, response);
-    this.logger.verbose(
-      `metric=insights.query.latency_ms tenant=${tenantId} value=${Date.now() - requestStart}`
-    );
+    this.logMetric(`metric=insights.query.latency_ms tenant=${tenantId} value=${Date.now() - requestStart}`);
     return response;
   }
 
@@ -1348,7 +1346,7 @@ export class InsightsService {
       }
     }
     this.cacheIndex.delete(tenantId);
-    this.logger.verbose(`metric=insights.cache.evictions tenant=${tenantId} value=${evicted}`);
+    this.logMetric(`metric=insights.cache.evictions tenant=${tenantId} value=${evicted}`);
   }
 
   private computeReengagementQueue(params: {
@@ -1580,5 +1578,12 @@ export class InsightsService {
       activities: activityOptions,
       savedViews: savedViewOptions
     };
+  }
+
+  private logMetric(message: string) {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+    this.logger.verbose(message);
   }
 }

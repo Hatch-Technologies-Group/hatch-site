@@ -8,22 +8,29 @@ import {
 } from '../../jobs/insights-refresh.job';
 import { InsightsService } from './insights.service';
 
+const queuesDisabled = process.env.DISABLE_BULLMQ === 'true';
+
 @Injectable()
 export class InsightsRefreshQueueMonitor implements OnModuleDestroy {
   private readonly logger = new Logger(InsightsRefreshQueueMonitor.name);
-  private readonly events = new QueueEvents(INSIGHTS_REFRESH_QUEUE, {
-    connection: queueConnection
-  });
+  private readonly events = queuesDisabled
+    ? null
+    : new QueueEvents(INSIGHTS_REFRESH_QUEUE, {
+        connection: queueConnection
+      });
 
   constructor(private readonly insights: InsightsService) {
-    this.events.on('completed', (event) => {
-      this.handleCompleted(event).catch((error) =>
-        this.logger.error('Failed to handle insights refresh completion', error as Error)
-      );
-    });
+    if (this.events) {
+      this.events.on('completed', (event) => {
+        this.handleCompleted(event).catch((error) =>
+          this.logger.error('Failed to handle insights refresh completion', error as Error)
+        );
+      });
+    }
   }
 
   private async handleCompleted(event: { jobId: string | undefined }) {
+    if (queuesDisabled) return;
     if (!event.jobId) return;
     const job = await insightsRefreshQueue.getJob(event.jobId);
     const tenantId = job?.data?.tenantId as string | undefined;
@@ -33,6 +40,8 @@ export class InsightsRefreshQueueMonitor implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.events.close();
+    if (this.events) {
+      await this.events.close();
+    }
   }
 }

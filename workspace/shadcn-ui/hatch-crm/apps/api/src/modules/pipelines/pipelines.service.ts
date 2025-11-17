@@ -133,7 +133,7 @@ export class PipelinesService {
             name: stage.name,
             order: stage.order,
             probWin: stage.probWin ?? null,
-            exitReasons: stage.exitReasons ?? Prisma.JsonNull,
+            exitReasons: stage.exitReasons ? (stage.exitReasons as Prisma.JsonValue) : Prisma.JsonNull,
             slaHours: stage.slaHours ?? null
           }
         })

@@ -49,4 +49,5 @@ export class InsightsController {
 
     return result;
   }
+
 }

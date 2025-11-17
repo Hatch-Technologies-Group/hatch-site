@@ -1,4 +1,23 @@
 -- Add JOURNEY_STARTED event type
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'LeadHistoryEventType'
+  ) THEN
+    CREATE TYPE "LeadHistoryEventType" AS ENUM (
+      'STAGE_MOVED',
+      'OWNER_ASSIGNED',
+      'OWNER_UNASSIGNED',
+      'TOUCHPOINT_LOGGED',
+      'NOTE_ADDED',
+      'FILE_ATTACHED',
+      'FIELD_UPDATED',
+      'JOURNEY_STARTED'
+    );
+  END IF;
+END
+$$;
+
 ALTER TYPE "LeadHistoryEventType" ADD VALUE IF NOT EXISTS 'JOURNEY_STARTED';
 
 -- Extend JourneySimulation with tenant/lead metadata

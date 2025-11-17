@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +26,7 @@ import {
   Upload
 } from 'lucide-react'
 import { toast } from '@/components/ui/use-toast'
+import { emitCopilotContext } from '@/lib/copilot/events'
 
 export default function BrokerDashboard() {
   const { properties, leads, addProperty, addDraftProperties } = useBroker()
@@ -93,6 +94,22 @@ export default function BrokerDashboard() {
       })
     }
   }
+
+  useEffect(() => {
+    emitCopilotContext({
+      surface: 'dashboard',
+      summary: `Broker dashboard · ${totalProperties} properties · ${totalLeads} leads`,
+      metadata: {
+        totalProperties,
+        activeProperties,
+        draftProperties,
+        totalLeads,
+        hotLeads,
+        totalAgents,
+        monthlyRevenue
+      }
+    })
+  }, [totalProperties, activeProperties, draftProperties, totalLeads, hotLeads, totalAgents, monthlyRevenue])
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">

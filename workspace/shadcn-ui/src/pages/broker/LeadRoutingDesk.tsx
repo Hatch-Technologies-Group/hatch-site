@@ -110,6 +110,19 @@ const formatMinutes = (minutes: number | null) => {
 
 const percent = (value: number) => `${value.toFixed(1)}%`
 
+const normalizeArray = <T,>(value: unknown): T[] => {
+  if (Array.isArray(value)) {
+    return value as T[]
+  }
+  if (value && typeof value === 'object' && 'items' in (value as Record<string, unknown>)) {
+    const items = (value as { items?: unknown }).items
+    if (Array.isArray(items)) {
+      return items as T[]
+    }
+  }
+  return []
+}
+
 const statusVariant = (status: string) => {
   if (status === 'SATISFIED' || status === 'KEPT') return 'secondary'
   if (status === 'BREACHED') return 'destructive'
@@ -465,9 +478,9 @@ function LeadRoutingDesk() {
 
   const [rules, setRules] = useState<LeadRoutingRule[]>([])
   const [capacity, setCapacity] = useState<RoutingCapacityAgent[]>([])
+  const [events, setEvents] = useState<LeadRouteEventRecord[]>([])
   const [sla, setSla] = useState<RoutingSlaDashboard | null>(null)
   const [metrics, setMetrics] = useState<RoutingMetricsSummary | null>(null)
-  const [events, setEvents] = useState<LeadRouteEventRecord[]>([])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<LeadRoutingRule | null>(null)
@@ -482,11 +495,11 @@ function LeadRoutingDesk() {
         fetchRoutingMetrics(TENANT_ID),
         fetchRoutingEvents({ tenantId: TENANT_ID, limit: 15 })
       ])
-      setRules(rulesData)
-      setCapacity(capacityData)
+      setRules(normalizeArray<LeadRoutingRule>(rulesData))
+      setCapacity(normalizeArray<RoutingCapacityAgent>(capacityData))
       setSla(slaData)
       setMetrics(metricsData)
-      setEvents(eventsData)
+      setEvents(normalizeArray<LeadRouteEventRecord>(eventsData))
     } catch (error) {
       toast({
         title: 'Unable to load routing data',
@@ -509,8 +522,8 @@ function LeadRoutingDesk() {
         fetchRoutingRules(TENANT_ID),
         fetchRoutingEvents({ tenantId: TENANT_ID, limit: 15 })
       ])
-      setRules(rulesData)
-      setEvents(eventsData)
+      setRules(normalizeArray<LeadRoutingRule>(rulesData))
+      setEvents(normalizeArray<LeadRouteEventRecord>(eventsData))
     } catch (error) {
       toast({
         title: 'Refresh failed',
@@ -524,7 +537,7 @@ function LeadRoutingDesk() {
 
   const ruleNameById = useMemo(() => {
     const map = new Map<string, string>()
-    for (const rule of rules) {
+    for (const rule of normalizeArray<LeadRoutingRule>(rules)) {
       map.set(rule.id, rule.name)
     }
     return map

@@ -41,15 +41,14 @@ describe('purgeTenantCache', () => {
     const payload = { v: 1 } as any;
     (service as any).cacheResponse('key-a', 'tenant-1', payload);
     (service as any).cacheResponse('key-b', 'tenant-1', payload);
-    const logger = (service as any).logger;
-    const spy = jest.spyOn(logger, 'verbose').mockImplementation(() => undefined);
+    const logSpy = jest.spyOn(service as any, 'logMetric').mockImplementation(() => undefined);
 
     service.purgeTenantCache('tenant-1');
 
-    expect(spy).toHaveBeenCalledWith(
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('metric=insights.cache.evictions tenant=tenant-1 value=2')
     );
     expect((service as any).responseCache.size).toBe(0);
-    spy.mockRestore();
+    logSpy.mockRestore();
   });
 });

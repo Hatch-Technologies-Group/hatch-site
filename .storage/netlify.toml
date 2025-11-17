@@ -1,4 +1,0 @@
-[build]
-  base = "workspace/shadcn-ui"
-  command = "npm run build"
-  publish = "dist"

@@ -59,3 +59,31 @@ export async function searchApi(params: SearchParams): Promise<SearchResponse> {
     facets: response.facets ?? { byType: {} }
   };
 }
+
+export type SemanticSearchItem = {
+  id: string;
+  content: string;
+  score: number;
+  entityType: string;
+  entityId: string;
+  meta?: Record<string, unknown> | null;
+};
+
+export type SemanticSearchResponse = {
+  items: SemanticSearchItem[];
+};
+
+export async function semanticSearch(
+  q: string,
+  entityType?: string,
+  entityId?: string,
+  limit = 5
+): Promise<SemanticSearchResponse> {
+  const params = new URLSearchParams();
+  params.set('q', q);
+  if (entityType) params.set('entityType', entityType);
+  if (entityId) params.set('entityId', entityId);
+  params.set('limit', String(limit));
+
+  return apiFetch<SemanticSearchResponse>(`v1/search/semantic?${params.toString()}`);
+}

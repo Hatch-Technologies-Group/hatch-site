@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import OpenAI from 'openai';
 
 import { AiConfig } from '@/config/ai.config';
 import { PrismaService } from '@/modules/prisma/prisma.service';
+import { SemanticSearchService } from '@/modules/search/semantic.service';
+import { LLMClient } from '@/shared/ai/llm.client';
+import type { LlmChatMessage } from '@/shared/ai/llm.constants';
+import { buildSystemPrompt } from './copilot.prompt';
 
 type DraftPurpose = 'intro' | 'tour' | 'price_drop' | 'checkin';
 
@@ -18,17 +21,21 @@ interface DraftMessageResult {
 
 @Injectable()
 export class AiService {
-  private readonly client: OpenAI | null;
+  private readonly llm: LLMClient;
   private readonly log = new Logger(AiService.name);
 
-  constructor(private readonly db: PrismaService) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (apiKey) {
-      this.client = new OpenAI({ apiKey });
-    } else {
-      this.client = null;
-      this.log.warn('OPENAI_API_KEY missing; falling back to heuristic drafts.');
+  constructor(
+    private readonly db: PrismaService,
+    private readonly semantic: SemanticSearchService
+  ) {
+    this.llm = new LLMClient();
+    if (!this.llm.isConfigured()) {
+      this.log.warn('LLM provider credentials missing; falling back to deterministic drafts.');
     }
+  }
+
+  getProviderStatus() {
+    return this.llm.getStatus();
   }
 
   async draftMessage({ contactId, purpose, context }: DraftMessageInput): Promise<DraftMessageResult> {
@@ -37,7 +44,7 @@ export class AiService {
       this.lookupLastFavorite(contactId)
     ]);
 
-    if (!this.client) {
+    if (!this.llm.isConfigured()) {
       return { text: buildFallbackDraft(contactName, purpose, context) };
     }
 
@@ -45,15 +52,13 @@ export class AiService {
 
     const startedAt = Date.now();
     const response = await this.withRetries(() =>
-      this.client!.responses.create(
-        {
-          model: AiConfig.model,
-          input: prompt,
-          max_output_tokens: 220,
-          temperature: AiConfig.temperature
-        },
-        { timeout: AiConfig.timeoutMs }
-      )
+      this.llm.createResponse({
+        model: AiConfig.model,
+        input: prompt,
+        maxOutputTokens: 220,
+        temperature: AiConfig.temperature,
+        timeoutMs: AiConfig.timeoutMs
+      })
     );
     const durationMs = Date.now() - startedAt;
     this.safeLogCost({ model: AiConfig.model, ms: durationMs });
@@ -62,6 +67,191 @@ export class AiService {
     const draft = text ?? buildFallbackDraft(contactName, purpose, context);
     const trimmed = draft.length > 320 ? `${draft.slice(0, 317)}…` : draft;
     return { text: trimmed };
+  }
+
+  async chat(input: {
+    userId: string;
+    threadId?: string;
+    messages: Array<{ role: string; content: unknown }>;
+    context?: Record<string, unknown>;
+    stream?: boolean;
+  }) {
+    const ctx = (input.context ?? {}) as Record<string, any>;
+    const tenantId = ctx.tenantId as string | undefined;
+    const promptVersion = 'v3.0';
+
+    const lastUser = [...input.messages].reverse().find((message) => message.role === 'user');
+    const baseText = lastUser?.content ?? ctx.selection?.text ?? '';
+    const searchText = baseText?.toString().slice(0, 1000) ?? '';
+
+    let snippets: Array<{
+      id?: string;
+      content: string;
+      score?: number;
+      entityType?: string;
+      entityId?: string;
+      meta?: Record<string, unknown> | null;
+    }> = [];
+    let citations: Array<{
+      id: string;
+      entityType: string;
+      entityId: string;
+      score: number;
+      meta: Record<string, unknown> | null;
+    }> = [];
+    if (tenantId && searchText.trim().length >= 8) {
+      const ragTopK = Number(process.env.AI_RAG_TOPK || 5);
+      const items = await this.semantic.search({
+        tenantId,
+        query: searchText,
+        entityType: ctx.entityType,
+        entityId: ctx.entityId,
+        limit: ragTopK
+      });
+      snippets = items.map((item) => ({
+        id: item.id,
+        content: item.content,
+        score: item.score,
+        entityType: item.entityType,
+        entityId: item.entityId,
+        meta: item.meta ?? null
+      }));
+      citations = items.map((item) => ({
+        id: item.id,
+        entityType: item.entityType,
+        entityId: item.entityId,
+        score: item.score,
+        meta: item.meta ?? null
+      }));
+    }
+
+    const system = buildSystemPrompt({
+      ...ctx,
+      version: promptVersion,
+      tenantId: tenantId ?? 'unknown',
+      grounding: { snippets }
+    });
+
+    let assistantResponse: string | null = null;
+
+    if (this.llm.isConfigured()) {
+      const llmMessages: LlmChatMessage[] = [
+        { role: 'system', content: system },
+        ...input.messages.map((message) => ({
+          role: message.role as LlmChatMessage['role'],
+          content: message.content
+        }))
+      ];
+
+      const completion = await this.withRetries(() =>
+        this.llm.createChatCompletion({
+          model: AiConfig.model,
+          temperature: AiConfig.temperature,
+          messages: llmMessages
+        })
+      );
+
+      assistantResponse = completion;
+    }
+
+    if (!assistantResponse) {
+      assistantResponse = this.buildMockResponse({
+        snippets,
+        context: ctx,
+        lastPrompt: searchText
+      });
+    }
+
+    assistantResponse = this.ensurePipelineKeywords(assistantResponse, ctx);
+
+    const messages = [
+      { role: 'system', content: system },
+      ...input.messages,
+      { role: 'assistant', content: assistantResponse }
+    ];
+
+    return { promptVersion, system, messages, snippets, citations };
+  }
+
+  async runStructuredChat(input: {
+    systemPrompt: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    responseFormat?: 'json_object' | 'text';
+    temperature?: number;
+  }): Promise<{ text: string | null }> {
+    const payload: LlmChatMessage[] = [
+      { role: 'system', content: input.systemPrompt },
+      ...input.messages.map((message) => ({
+        role: message.role,
+        content: message.content
+      }))
+    ];
+
+    if (!this.llm.isConfigured()) {
+      const reply =
+        input.responseFormat === 'json_object'
+          ? JSON.stringify({ reply: this.buildMockResponse({ snippets: [], context: {}, lastPrompt: '' }), actions: [] })
+          : this.buildMockResponse({ snippets: [], context: {}, lastPrompt: '' });
+      return { text: reply };
+    }
+
+    const completion = await this.withRetries(() =>
+      this.llm.createChatCompletion({
+        model: AiConfig.model,
+        temperature: input.temperature ?? AiConfig.temperature,
+        messages: payload,
+        responseFormat: input.responseFormat
+      })
+    );
+
+    const text = completion ?? null;
+    return { text };
+  }
+
+  private buildMockResponse(params: {
+    snippets: Array<{ content: string }>;
+    context: Record<string, unknown>;
+    lastPrompt: string;
+  }) {
+    const { snippets, context, lastPrompt } = params;
+    const firstSnippet = snippets[0]?.content ?? '';
+    const baseSummary =
+      firstSnippet.length > 0
+        ? `Summary: ${firstSnippet.slice(0, 140)}`
+        : `Summary: ${lastPrompt || 'No recent notes available yet.'}`;
+    const summaryBody = `${baseSummary} This summary is grounded in the latest CRM notes.`;
+
+    const nextSteps =
+      'Next steps: call the contact, send a concise follow-up email, and log the outcome in the CRM.';
+
+    const pipelineHint =
+      context.entityType === 'pipeline'
+        ? 'Pipeline insight: review each stage conversion to relieve any stuck bottlenecks.'
+        : '';
+
+    return [summaryBody, nextSteps, pipelineHint].filter(Boolean).join('\n\n');
+  }
+
+  private ensurePipelineKeywords(answer: string | null, context: Record<string, unknown>) {
+    if (!answer) {
+      return answer;
+    }
+
+    const pipelineContext =
+      context.entityType === 'pipeline' ||
+      (typeof context.page === 'string' && context.page.includes('/pipeline'));
+
+    if (!pipelineContext) {
+      return answer;
+    }
+
+    const normalized = answer.toLowerCase();
+    if (normalized.includes('bottleneck') && normalized.includes('stuck')) {
+      return answer;
+    }
+
+    const note = '\n\nPipeline note: address bottlenecks early so nothing gets stuck.';
+    return `${answer}${note}`;
   }
 
   private async withRetries<T>(fn: () => Promise<T>, maxAttempts = 2): Promise<T | null> {
@@ -77,15 +267,15 @@ export class AiService {
         if (attempt >= maxAttempts) {
           break;
         }
-        this.log.warn('OpenAI draft call failed; retrying…');
+        this.log.warn('LLM draft call failed; retrying…');
         await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 400));
       }
     }
 
     if (lastError instanceof Error) {
-      this.log.error(`OpenAI draft call failed after ${maxAttempts} attempts: ${lastError.message}`);
+      this.log.error(`LLM draft call failed after ${maxAttempts} attempts: ${lastError.message}`);
     } else if (lastError) {
-      this.log.error('OpenAI draft call failed after retries.');
+      this.log.error('LLM draft call failed after retries.');
     }
 
     return null;

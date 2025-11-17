@@ -19,6 +19,8 @@ import { differenceInHours, subDays } from 'date-fns';
 import type { RequestContext } from '../common/request-context';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { IndexerProducer } from '../search/indexer.queue';
+import { AiEmployeesProducer } from '../ai-employees/ai-employees.producer';
 import { CreateLeadDto, LeadFitInput } from './dto/create-lead.dto';
 import { CreateLeadNoteDto } from './dto/create-lead-note.dto';
 import { CreateLeadTaskDto } from './dto/create-lead-task.dto';
@@ -180,7 +182,9 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pipelines: PipelinesService,
-    private readonly events: EventEmitter2
+    private readonly events: EventEmitter2,
+    private readonly indexer: IndexerProducer,
+    private readonly aiEmployeesProducer: AiEmployeesProducer
   ) {}
 
   async list(query: ListLeadsQueryDto, ctx: RequestContext): Promise<LeadListResponse> {
@@ -425,34 +429,68 @@ export class LeadsService {
       throw new NotFoundException('Tenant not found');
     }
 
-    const { pipelineId, stage } = await this.resolveStageForMutation(ctx.tenantId, dto.pipelineId, dto.stageId);
+    // Prevent duplicates (email or phone) to avoid opaque unique constraint failures
+    if ((dto.email && dto.email.trim()) || (dto.phone && dto.phone.trim())) {
+      const duplicate = await this.prisma.person.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [
+            ...(dto.email?.trim() ? [{ primaryEmail: dto.email.trim() }] : []),
+            ...(dto.phone?.trim() ? [{ primaryPhone: dto.phone.trim() }] : [])
+          ]
+        },
+        select: { id: true }
+      });
+      if (duplicate) {
+        throw new BadRequestException('A lead with this email or phone already exists');
+      }
+    }
+
+    const { pipelineId, stage } = await this.resolveStageForMutation(
+      ctx.tenantId,
+      dto.pipelineId,
+      dto.stageId
+    );
+
+    // Normalize contact fields: treat blank strings as null
+    const normalizedEmail = (dto.email?.trim() ?? '') || null;
+    const normalizedPhone = (dto.phone?.trim() ?? '') || null;
 
     const now = new Date();
-    const person = await this.prisma.person.create({
-      data: {
-        tenantId: ctx.tenantId,
-        organizationId: tenant.organizationId,
-        ownerId: dto.ownerId ?? ctx.userId,
-        firstName: dto.firstName ?? '',
-        lastName: dto.lastName ?? '',
-        primaryEmail: dto.email ?? null,
-        primaryPhone: dto.phone ?? null,
-        source: dto.source ?? null,
-        stage: this.mapStageNameToPersonStage(stage?.name),
-        pipelineId,
-        stageId: stage?.id ?? null,
-        stageEnteredAt: now,
-        leadScore: 0,
-        scoreTier: LeadScoreTier.D,
-        scoreUpdatedAt: now,
-        utmSource: dto.utmSource ?? null,
-        utmMedium: dto.utmMedium ?? null,
-        utmCampaign: dto.utmCampaign ?? null,
-        gclid: dto.gclid ?? null,
-        doNotContact: dto.doNotContact ?? false
-      },
-      include: LIST_INCLUDE
-    });
+    let person: Prisma.PersonGetPayload<{ include: typeof LIST_INCLUDE }>;
+    try {
+      person = await this.prisma.person.create({
+        data: {
+          tenantId: ctx.tenantId,
+          organizationId: tenant.organizationId,
+          ownerId: dto.ownerId ?? ctx.userId,
+          firstName: dto.firstName ?? '',
+          lastName: dto.lastName ?? '',
+          primaryEmail: normalizedEmail,
+          primaryPhone: normalizedPhone,
+          source: dto.source ?? null,
+          stage: this.mapStageNameToPersonStage(stage?.name),
+          pipelineId,
+          stageId: stage?.id ?? null,
+          stageEnteredAt: now,
+          leadScore: 0,
+          scoreTier: LeadScoreTier.D,
+          scoreUpdatedAt: now,
+          utmSource: dto.utmSource ?? null,
+          utmMedium: dto.utmMedium ?? null,
+          utmCampaign: dto.utmCampaign ?? null,
+          gclid: dto.gclid ?? null,
+          doNotContact: dto.doNotContact ?? false
+        },
+        include: LIST_INCLUDE
+      });
+    } catch (err) {
+      const code = (err as { code?: string } | undefined)?.code;
+      if (code === 'P2002') {
+        throw new BadRequestException('A lead with this email or phone already exists');
+      }
+      throw err;
+    }
 
     if (dto.fit) {
       await this.upsertLeadFit(person.id, ctx.tenantId, dto.fit);
@@ -466,6 +504,13 @@ export class LeadsService {
     }
 
     const full = await this.getById(person.id, ctx.tenantId);
+
+    await this.aiEmployeesProducer.enqueueLeadNurseNewLead({
+      tenantId: ctx.tenantId,
+      orgId: tenant.organizationId,
+      leadId: person.id
+    });
+
     return full;
   }
 
@@ -485,8 +530,14 @@ export class LeadsService {
 
     if (dto.firstName !== undefined) updateData.firstName = dto.firstName;
     if (dto.lastName !== undefined) updateData.lastName = dto.lastName;
-    if (dto.email !== undefined) updateData.primaryEmail = dto.email ?? null;
-    if (dto.phone !== undefined) updateData.primaryPhone = dto.phone ?? null;
+    if (dto.email !== undefined) {
+      const normalizedEmail = (dto.email?.trim() ?? '') || null;
+      updateData.primaryEmail = normalizedEmail;
+    }
+    if (dto.phone !== undefined) {
+      const normalizedPhone = (dto.phone?.trim() ?? '') || null;
+      updateData.primaryPhone = normalizedPhone;
+    }
     if (dto.source !== undefined) updateData.source = dto.source ?? null;
     if (dto.utmSource !== undefined) updateData.utmSource = dto.utmSource ?? null;
     if (dto.utmMedium !== undefined) updateData.utmMedium = dto.utmMedium ?? null;
@@ -583,6 +634,12 @@ export class LeadsService {
           }
         }
       }
+    });
+
+    await this.indexer.enqueue({
+      tenantId: ctx.tenantId,
+      entityType: 'lead',
+      entityId: person.id
     });
 
     return {

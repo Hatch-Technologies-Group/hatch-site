@@ -53,7 +53,7 @@ const CustomerProfile: React.FC = () => {
       }
       setIsLoading(true)
       const { data, error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .select('first_name,last_name,display_name,phone,bio,avatar_url')
         .eq('id', userId)
         .maybeSingle()
@@ -104,7 +104,7 @@ const CustomerProfile: React.FC = () => {
         avatar_url: form.avatarUrl,
         updated_at: new Date().toISOString(),
       }
-      const { error } = await supabase.from('profiles').update(updates).eq('id', userId)
+      const { error } = await supabase.from('Profile').update(updates).eq('id', userId)
       if (error) throw error
       toast.success('Profile updated')
       await refresh()

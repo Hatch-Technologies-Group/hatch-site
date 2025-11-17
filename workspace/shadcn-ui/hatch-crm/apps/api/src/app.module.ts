@@ -12,6 +12,7 @@ import { AccountsModule } from './modules/accounts/accounts.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { ConsentsModule } from './modules/consents/consents.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { EmailModule } from './modules/email/email.module';
 import { ToursModule } from './modules/tours/tours.module';
 import { AgreementsModule } from './modules/agreements/agreements.module';
 import { RoutingModule } from './modules/routing/routing.module';
@@ -51,10 +52,19 @@ import { ViewsModule } from './modules/views/views.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { ReadModelsModule } from './modules/read-models/read-models.module';
 import { AiModule } from './modules/ai/ai.module';
+import { MarketingModule } from './modules/marketing/marketing.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { OutreachModule } from './modules/outreach/outreach.module';
 import { InsightsModule } from './modules/insights/insights.module';
+import { SmsModule } from './modules/sms/sms.module';
+import { AiEmployeesModule } from './modules/ai-employees/ai-employees.module';
 import { JwtStrategy } from './auth/jwt.strategy';
+
+const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
+const throttlerEnabled =
+  (process.env.THROTTLER_ENABLED ?? (isProd ? 'true' : 'false')).toLowerCase() === 'true';
+const throttlerLimit = Number(process.env.THROTTLER_LIMIT ?? (isProd ? 30 : 200));
+const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
 
 @Module({
   imports: [
@@ -102,8 +112,9 @@ import { JwtStrategy } from './auth/jwt.strategy';
     }),
     ThrottlerModule.forRoot([
       {
-        ttl: 60_000,
-        limit: 30,
+        ttl: throttlerTtl,
+        limit: throttlerLimit,
+        skipIf: () => !throttlerEnabled,
         generateKey: (context: ExecutionContext, suffix?: string) => {
           const request = context.switchToHttp().getRequest();
           const tenant = (request?.headers?.['x-tenant-id'] as string | undefined) ?? 'no-tenant';
@@ -120,6 +131,7 @@ import { JwtStrategy } from './auth/jwt.strategy';
     ContactsModule,
     ConsentsModule,
     MessagesModule,
+    EmailModule,
     OutreachModule,
     ToursModule,
     AgreementsModule,
@@ -158,6 +170,9 @@ import { JwtStrategy } from './auth/jwt.strategy';
     AuditModule,
     ReadModelsModule,
     AiModule,
+    MarketingModule,
+    SmsModule,
+    AiEmployeesModule,
     AnalyticsModule,
     InsightsModule
   ],

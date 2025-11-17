@@ -59,7 +59,7 @@ const buildAuthContext = async (authHeader: string): Promise<AuthContext | null>
   const serviceClient = createClient(supabaseUrl!, supabaseServiceRoleKey!)
 
   const { data: profile, error: profileError } = await serviceClient
-    .from('profiles')
+    .from('Profile')
     .select('id, email, global_role')
     .eq('id', user.id)
     .maybeSingle()

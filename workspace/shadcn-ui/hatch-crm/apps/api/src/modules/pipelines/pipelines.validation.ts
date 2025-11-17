@@ -1,9 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 
 import type { StageDto } from './dto/stage.dto';
 
 const ajv = new Ajv({ allErrors: true, strict: false } as any);
+addFormats(ajv);
 
 export function validateUniqueStageNamesAndOrder(stages: StageDto[]) {
   const names = new Set<string>();

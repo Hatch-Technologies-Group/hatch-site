@@ -2,6 +2,7 @@ import { LeadScoreTier, Prisma } from '@prisma/client';
 import { addHours } from 'date-fns';
 
 import { prisma } from './index';
+import { seedAiEmployees as seedAiEmployeeTemplates } from '../prisma/seed/ai-employees.seed';
 
 interface PipelineSeedDefinition {
   name: string;
@@ -50,6 +51,66 @@ const DEFAULT_PIPELINES: PipelineSeedDefinition[] = [
       { name: 'Closed' },
       { name: 'Nurture' }
     ]
+  }
+];
+
+type AiInstanceUserKey = 'agent' | 'broker' | 'isa' | 'none';
+
+interface AiInstanceSeed {
+  id: string;
+  templateKey: string;
+  nameOverride?: string;
+  status: 'active' | 'paused' | 'deleted';
+  autoMode: 'suggest-only' | 'requires-approval' | 'auto-run';
+  userKey?: AiInstanceUserKey;
+  settings?: Record<string, unknown>;
+}
+
+const AI_INSTANCE_DEFINITIONS: AiInstanceSeed[] = [
+  {
+    id: 'ai-instance-luna',
+    templateKey: 'lead_nurse',
+    nameOverride: 'Luna (Lead Nurse)',
+    status: 'active',
+    autoMode: 'requires-approval',
+    userKey: 'isa',
+    settings: { idleLeadThresholdDays: 3, escalateOwner: true }
+  },
+  {
+    id: 'ai-instance-marlo',
+    templateKey: 'listing_concierge',
+    nameOverride: 'Marlo (Listing Concierge)',
+    status: 'active',
+    autoMode: 'suggest-only',
+    userKey: 'broker',
+    settings: { preferredChannels: ['email', 'social'] }
+  },
+  {
+    id: 'ai-instance-taryn',
+    templateKey: 'transaction_coordinator',
+    nameOverride: 'Taryn (Transaction Coordinator)',
+    status: 'active',
+    autoMode: 'requires-approval',
+    userKey: 'broker',
+    settings: { alertBeforeDeadlineHours: 24 }
+  },
+  {
+    id: 'ai-instance-atlas',
+    templateKey: 'market_analyst',
+    nameOverride: 'Atlas (Market Analyst)',
+    status: 'active',
+    autoMode: 'suggest-only',
+    userKey: 'none',
+    settings: { includeBenchmarks: true }
+  },
+  {
+    id: 'ai-instance-echo',
+    templateKey: 'agent_copilot',
+    nameOverride: 'Echo (Agent Copilot)',
+    status: 'active',
+    autoMode: 'requires-approval',
+    userKey: 'agent',
+    settings: { includeFollowUps: true }
   }
 ];
 
@@ -117,6 +178,57 @@ async function ensurePipelines(tenantId: string) {
   }
 
   return pipelines;
+}
+
+async function seedAiEmployeeInstances(params: {
+  tenantId: string;
+  brokerId: string;
+  agentId: string;
+  isaId: string;
+}) {
+  const { tenantId, brokerId, agentId, isaId } = params;
+  const userLookup: Record<Exclude<AiInstanceUserKey, 'none'>, string> = {
+    broker: brokerId,
+    agent: agentId,
+    isa: isaId
+  };
+
+  await seedAiEmployeeTemplates(prisma);
+
+  const desiredKeys = Array.from(new Set(AI_INSTANCE_DEFINITIONS.map((def) => def.templateKey)));
+  const templates = await prisma.aiEmployeeTemplate.findMany({
+    where: { key: { in: desiredKeys } }
+  });
+  const templateIdByKey = new Map(templates.map((template) => [template.key, template.id]));
+
+  for (const instanceDefinition of AI_INSTANCE_DEFINITIONS) {
+    const templateId = templateIdByKey.get(instanceDefinition.templateKey);
+    if (!templateId) continue;
+    const userId =
+      instanceDefinition.userKey && instanceDefinition.userKey !== 'none'
+        ? userLookup[instanceDefinition.userKey]
+        : null;
+    await prisma.aiEmployeeInstance.upsert({
+      where: { id: instanceDefinition.id },
+      update: {
+        nameOverride: instanceDefinition.nameOverride ?? null,
+        status: instanceDefinition.status,
+        autoMode: instanceDefinition.autoMode,
+        settings: (instanceDefinition.settings ?? {}) as Prisma.JsonObject,
+        userId
+      },
+      create: {
+        id: instanceDefinition.id,
+        templateId,
+        tenantId,
+        userId,
+        nameOverride: instanceDefinition.nameOverride ?? null,
+        settings: (instanceDefinition.settings ?? {}) as Prisma.JsonObject,
+        status: instanceDefinition.status,
+        autoMode: instanceDefinition.autoMode
+      }
+    });
+  }
 }
 
 async function main() {
@@ -738,6 +850,13 @@ async function main() {
       postCapFeesYtd: new Prisma.Decimal(0),
       lastDealId: 'deal-sample'
     }
+  });
+
+  await seedAiEmployeeInstances({
+    tenantId: tenant.id,
+    brokerId: broker.id,
+    agentId: agent.id,
+    isaId: isa.id
   });
 
   console.info('Seed data created successfully');

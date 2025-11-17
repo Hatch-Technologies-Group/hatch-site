@@ -185,6 +185,30 @@
   }
 }
 
+@layer components {
+  .hatch-markdown strong {
+    font-weight: 600;
+  }
+
+  .hatch-markdown p {
+    margin-bottom: 0.25rem;
+  }
+
+  .hatch-markdown p:last-child {
+    margin-bottom: 0;
+  }
+
+  .hatch-markdown ul,
+  .hatch-markdown ol {
+    margin: 0.25rem 0;
+    padding-left: 1.2rem;
+  }
+
+  .hatch-markdown li {
+    margin: 0.15rem 0;
+  }
+}
+
 @keyframes hatch-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(31, 95, 255, 0.35);

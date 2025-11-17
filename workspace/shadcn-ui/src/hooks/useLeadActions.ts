@@ -55,7 +55,7 @@ export function useLeadActions(leadId: string | null): LeadActions {
     (ownerId: string) =>
       run('owner', () =>
         updateLead(leadId!, {
-          ownerId
+          ownerId: ownerId === '' ? null : ownerId
         })
       ),
     [leadId, run]
@@ -67,10 +67,12 @@ export function useLeadActions(leadId: string | null): LeadActions {
     [leadId, run]
   )
 
+  const clearError = useCallback(() => setError(null), [])
+
   return {
     pending,
     error,
-    clearError: () => setError(null),
+    clearError,
     changeStage,
     assignOwner,
     addNote

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FilterIcon, RefreshCcw, Sparkles, TrendingUp } from 'lucide-react';
 import clsx from 'clsx';
@@ -25,12 +25,13 @@ import {
   ConversionChart,
   Leaderboard,
   ReengagementList
-} from '@hatch/ui/crm/ClientInsights';
-import { Button } from '@hatch/ui/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@hatch/ui/ui/select';
-import { Badge } from '@hatch/ui/ui/badge';
-import { Card } from '@hatch/ui/ui/card';
-import { useToast } from '@hatch/ui/ui/use-toast';
+} from '@/components/crm/ClientInsights';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { useToast } from '@/components/ui/use-toast';
+import { emitCopilotContext } from '@/lib/copilot/events';
 
 type ClientInsightsHubProps = {
   tenantId: string;
@@ -182,6 +183,20 @@ export function ClientInsightsHub({ tenantId }: ClientInsightsHubProps) {
   const resetFilters = () => {
     setFilters({ period: filters.period });
   };
+
+  useEffect(() => {
+    emitCopilotContext({
+      surface: 'dashboard',
+      summary: `Client insights · ${filters.period}`,
+      metadata: {
+        tenantId,
+        filters,
+        reengageQueue: reengageList.length,
+        breachQueue: breachQueue.length,
+        stageFocus: filters.activity ?? 'all'
+      }
+    });
+  }, [tenantId, filters, reengageList.length, breachQueue.length]);
 
   return (
     <div className="space-y-6">

@@ -63,7 +63,7 @@ export class RoleService {
 
       // 3. Create/update the user profile
       const { error: profileError } = await supabase
-        .from('profiles')
+        .from('Profile')
         .upsert({
           id: authData.user.id,
           email: email,
@@ -102,7 +102,7 @@ export class RoleService {
     try {
       // 1. Find the user by email
       const { data: userData, error: userError } = await supabase
-        .from('profiles')
+        .from('Profile')
         .select('*')
         .eq('email', userEmail.toLowerCase())
         .single();
@@ -133,7 +133,7 @@ export class RoleService {
 
       // 3. Update user profile to broker
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('Profile')
         .update({
           role: 'primary_broker' as UserRole,
           firm_id: firmData.id,
@@ -165,7 +165,7 @@ export class RoleService {
   static async getUserProfile(userId: string): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .select(`
           *,
           firms (
@@ -203,7 +203,7 @@ export class RoleService {
   static async getAllBrokers(): Promise<{ success: boolean; brokers?: BrokerProfile[]; error?: string }> {
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .select(`
           *,
           firms (
@@ -235,7 +235,7 @@ export class RoleService {
   static async updateUserRole(userId: string, newRole: UserRole): Promise<{ success: boolean; error?: string }> {
     try {
       const { error } = await supabase
-        .from('profiles')
+        .from('Profile')
         .update({ role: newRole })
         .eq('id', userId);
 

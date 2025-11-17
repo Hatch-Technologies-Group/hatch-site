@@ -22,6 +22,7 @@ import { useLeadActions } from '@/hooks/useLeadActions'
 import { getLead, type LeadDetail, type LeadSummary, type Pipeline, type PipelineStage } from '@/lib/api/hatch'
 import { getStageDisplay } from '@/lib/stageDisplay'
 import { cn } from '@/lib/utils'
+import { emitCopilotContext } from '@/lib/copilot/events'
 
 interface OwnerOption {
   id: string
@@ -90,7 +91,25 @@ export function LeadDrawer({
     return () => {
       cancelled = true
     }
-  }, [open, leadId, clearError])
+  }, [open, leadId])
+
+  // Emit Copilot context with the lead's email when drawer is open so composer can prefill recipients
+  useEffect(() => {
+    if (!open) return
+    const email = detail?.email ?? lead?.email ?? null
+    const summary = detail
+      ? `${detail.firstName ?? ''} ${detail.lastName ?? ''}`.trim() || detail.email || detail.id
+      : lead
+      ? `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || lead.email || lead.id
+      : 'Lead'
+    emitCopilotContext({
+      surface: 'lead',
+      entityType: 'lead',
+      entityId: leadId ?? lead?.id ?? undefined,
+      summary,
+      metadata: { email }
+    })
+  }, [open, detail, lead, leadId])
 
   const activeStageId =
     detail?.stage?.id ?? detail?.stageId ?? lead?.stage?.id ?? lead?.stageId ?? null
@@ -137,11 +156,12 @@ export function LeadDrawer({
   }
 
   const handleOwnerChange = async (ownerId: string) => {
-    if (!ownerId || ownerId === (detail?.owner?.id ?? lead?.owner?.id ?? '')) {
+    const normalizedId = ownerId === 'unassigned' ? '' : ownerId;
+    if (normalizedId === (detail?.owner?.id ?? lead?.owner?.id ?? '')) {
       return
     }
     try {
-      const updated = await assignOwner(ownerId)
+      const updated = await assignOwner(normalizedId)
       setDetail(updated)
       onLeadUpdated(extractSummary(updated))
     } catch (err) {
@@ -282,7 +302,7 @@ export function LeadDrawer({
                 <section className="space-y-2">
                   <Label htmlFor="lead-owner">Owner</Label>
                   <Select
-                    value={detail.owner?.id ?? ''}
+                    value={detail.owner?.id ?? 'unassigned'}
                     onValueChange={handleOwnerChange}
                     disabled={pending === 'owner'}
                   >
@@ -290,7 +310,7 @@ export function LeadDrawer({
                       <SelectValue placeholder="Select owner" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
                       {ownerOptions.map((owner) => (
                         <SelectItem key={owner.id} value={owner.id}>
                           {owner.name}

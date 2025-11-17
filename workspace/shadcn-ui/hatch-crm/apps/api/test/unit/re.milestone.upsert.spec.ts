@@ -38,8 +38,11 @@ describe('TransactionsService – milestone upsert', () => {
     const commissionPlans = {} as any;
     const payouts = {} as any;
     const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) } as any;
+    const aiEmployees = {
+      enqueueTransactionMilestone: jest.fn().mockResolvedValue(undefined)
+    } as any;
 
-    const service = new TransactionsService(prisma, fls, commissionPlans, payouts, outbox);
+    const service = new TransactionsService(prisma, fls, commissionPlans, payouts, outbox, aiEmployees);
 
     const completedAt = new Date().toISOString();
 

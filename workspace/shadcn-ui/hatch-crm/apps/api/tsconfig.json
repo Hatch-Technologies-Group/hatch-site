@@ -24,6 +24,9 @@
       "@hatch/config": [
         "../../packages/config/src"
       ],
+      "@/*": [
+        "src/*"
+      ],
       "@app/*": [
         "src/*"
       ]
@@ -48,6 +51,10 @@
   "exclude": [
     "node_modules",
     "src/docs/**/*",
-    "scripts/**/*"
+    "scripts/**/*",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
   ]
 }

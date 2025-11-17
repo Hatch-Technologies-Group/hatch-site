@@ -17,24 +17,24 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() })
 }));
 
-vi.mock('@hatch/ui/ui/use-toast', () => ({
+vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: vi.fn() })
 }));
 
-vi.mock('@hatch/ui/crm/ClientInsights', () => ({
+vi.mock('@/components/crm/ClientInsights', () => ({
   EngagementHeatmap: () => <div data-testid="mock-heatmap" />,
   ConversionChart: () => null,
   Leaderboard: () => null,
   ReengagementList: () => null
 }));
 
-vi.mock('@hatch/ui/ui/button', () => ({
+vi.mock('@/components/ui/button', () => ({
   Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   )
 }));
 
-vi.mock('@hatch/ui/ui/select', () => {
+vi.mock('@/components/ui/select', () => {
   const Base = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
   const Trigger = ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>;
   return {
@@ -46,11 +46,11 @@ vi.mock('@hatch/ui/ui/select', () => {
   };
 });
 
-vi.mock('@hatch/ui/ui/badge', () => ({
+vi.mock('@/components/ui/badge', () => ({
   Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>
 }));
 
-vi.mock('@hatch/ui/ui/card', () => ({
+vi.mock('@/components/ui/card', () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 

@@ -31,7 +31,6 @@ export function Navbar() {
     () => [
       { name: 'Buy', href: '/?persona=buyer#hero' },
       { name: 'Sell', href: '/?persona=seller#hero' },
-      { name: 'Market', href: '/#market-snapshot' },
       { name: 'Find an Agent', href: '/#agent-match' },
       { name: 'For Pros', href: '/#for-pros' },
     ],

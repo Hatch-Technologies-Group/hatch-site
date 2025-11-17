@@ -1,4 +1,3 @@
-import { InsightsRefreshQueueMonitor } from './insights.refresh.monitor';
 import type { InsightsService } from './insights.service';
 import { insightsRefreshQueue } from '../../jobs/insights-refresh.job';
 
@@ -20,10 +19,20 @@ jest.mock('bullmq', () => ({
   }))
 }));
 
+let InsightsRefreshQueueMonitor: typeof import('./insights.refresh.monitor').InsightsRefreshQueueMonitor;
+
 describe('InsightsRefreshQueueMonitor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockOn.mockClear();
+    process.env.DISABLE_BULLMQ = 'false';
+    jest.isolateModules(() => {
+      ({ InsightsRefreshQueueMonitor } = require('./insights.refresh.monitor'));
+    });
+  });
+
+  afterEach(() => {
+    process.env.DISABLE_BULLMQ = 'true';
   });
 
   it('purges tenant cache on completed refresh events', async () => {

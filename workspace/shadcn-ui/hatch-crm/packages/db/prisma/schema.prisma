@@ -199,6 +199,13 @@ enum OutboxStatus {
   FAILED
 }
 
+enum MarketingCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  FAILED
+}
+
 enum LeadHistoryEventType {
   STAGE_MOVED
   OWNER_ASSIGNED
@@ -468,6 +475,7 @@ model Tenant {
   disclaimerPolicies    DisclaimerPolicy[]
   overrideLogs          OverrideLog[]
   marketingEvents       MarketingEvent[]
+  marketingCampaigns    MarketingCampaign[]
   complianceSnapshots   ComplianceStatusDaily[]
   routingRules          RoutingRule[]
   routeEvents           LeadRouteEvent[]
@@ -495,6 +503,235 @@ model Tenant {
   customFieldValues     CustomFieldValue[]
   customFieldLayouts    CustomFieldLayout[]
   JourneySimulation     JourneySimulation[]
+  aiMemories            AiMemory[]
+  aiEmployeeInstances   AiEmployeeInstance[]
+  aiEmployeeSessions    AiEmployeeSession[]
+  aiProposedActions     AiProposedAction[]
+  aiExecutionLogs       AiExecutionLog[]
+  emailSequences        EmailSequence[]
+  emailSteps            EmailStep[]
+  leadSequenceEnrollments LeadSequenceEnrollment[]
+  emailDrafts           EmailDraft[]
+  vectorChunks          VectorChunk[]
+  leadScoresV2          LeadScoreV2[]
+  clientAnalyticsEvents ClientAnalyticsEvent[]
+}
+
+model AiMemory {
+  id        String   @id @default(cuid())
+  tenantId  String
+  personaId String
+  label     String
+  details   String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, personaId, createdAt])
+}
+
+model AiEmployeeTemplate {
+  id              String               @id @default(cuid())
+  key             String               @unique
+  displayName     String
+  description     String
+  systemPrompt    String
+  allowedTools    Json
+  defaultSettings Json
+  isActive        Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  instances       AiEmployeeInstance[]
+}
+
+model AiEmployeeInstance {
+  id          String              @id @default(cuid())
+  templateId  String
+  tenantId    String
+  userId      String?
+  nameOverride String?
+  settings    Json
+  status      String
+  autoMode    String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  template    AiEmployeeTemplate  @relation(fields: [templateId], references: [id])
+  tenant      Tenant              @relation(fields: [tenantId], references: [id])
+  user        User?               @relation(fields: [userId], references: [id])
+  sessions    AiEmployeeSession[]
+  proposedActions AiProposedAction[]
+  executionLogs  AiExecutionLog[]
+
+  @@index([tenantId, status, templateId])
+  @@index([tenantId, userId])
+}
+
+model AiEmployeeSession {
+  id                 String              @id @default(cuid())
+  employeeInstanceId String
+  tenantId           String
+  userId             String
+  channel            String
+  contextType        String?
+  contextId          String?
+  lastInteractionAt  DateTime            @default(now())
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  employeeInstance   AiEmployeeInstance  @relation(fields: [employeeInstanceId], references: [id])
+  tenant             Tenant              @relation(fields: [tenantId], references: [id])
+  user               User                @relation(fields: [userId], references: [id])
+  proposedActions    AiProposedAction[]
+  executionLogs      AiExecutionLog[]
+
+  @@index([employeeInstanceId, tenantId, userId])
+  @@index([tenantId, channel, contextType, contextId])
+}
+
+model AiProposedAction {
+  id                 String              @id @default(cuid())
+  employeeInstanceId String
+  tenantId           String
+  userId             String?
+  sessionId          String?
+  actionType         String
+  payload            Json
+  status             String
+  errorMessage       String?
+  requiresApproval   Boolean             @default(true)
+  executedAt         DateTime?
+  approvedByUserId   String?
+  dryRun             Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  employeeInstance   AiEmployeeInstance  @relation(fields: [employeeInstanceId], references: [id])
+  tenant             Tenant              @relation(fields: [tenantId], references: [id])
+  user               User?               @relation("AiProposedActionUser", fields: [userId], references: [id])
+  approvedBy         User?               @relation("AiProposedActionApprovedBy", fields: [approvedByUserId], references: [id])
+  session            AiEmployeeSession?  @relation(fields: [sessionId], references: [id])
+  executionLogs      AiExecutionLog[]
+
+  @@index([tenantId, status, requiresApproval])
+  @@index([employeeInstanceId, status])
+}
+
+model AiExecutionLog {
+  id                 String              @id @default(cuid())
+  employeeInstanceId String
+  sessionId          String?
+  tenantId           String
+  userId             String?
+  proposedActionId   String?
+  toolKey            String?
+  input              Json
+  output             Json?
+  success            Boolean
+  errorMessage       String?
+  modelName          String?
+  rawPromptTokens    Int?
+  rawCompletionTokens Int?
+  createdAt          DateTime            @default(now())
+  employeeInstance   AiEmployeeInstance  @relation(fields: [employeeInstanceId], references: [id])
+  session            AiEmployeeSession?  @relation(fields: [sessionId], references: [id])
+  tenant             Tenant              @relation(fields: [tenantId], references: [id])
+  user               User?               @relation(fields: [userId], references: [id])
+  proposedAction     AiProposedAction?   @relation(fields: [proposedActionId], references: [id])
+
+  @@index([tenantId, success])
+  @@index([employeeInstanceId, proposedActionId])
+  @@index([sessionId])
+}
+
+model EmailSequence {
+  id          String                 @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id])
+  steps       EmailStep[]
+  enrollments LeadSequenceEnrollment[]
+  @@index([tenantId, name])
+}
+
+model EmailStep {
+  id         String        @id @default(cuid())
+  tenantId   String
+  sequenceId String
+  stepIndex  Int
+  delayHours Int            @default(0)
+  subject    String?
+  body       String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  sequence   EmailSequence  @relation(fields: [sequenceId], references: [id])
+  tenant     Tenant         @relation(fields: [tenantId], references: [id])
+
+  @@unique([sequenceId, stepIndex])
+  @@index([tenantId, sequenceId])
+}
+
+model LeadSequenceEnrollment {
+  id          String         @id @default(cuid())
+  tenantId    String
+  sequenceId  String
+  leadId      String
+  currentStep Int            @default(0)
+  nextSendAt  DateTime?
+  lastSentAt  DateTime?
+  active      Boolean        @default(true)
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  sequence    EmailSequence  @relation(fields: [sequenceId], references: [id])
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  lead        Person         @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, sequenceId])
+  @@index([tenantId, active])
+}
+
+model EmailDraft {
+  id        String   @id @default(cuid())
+  tenantId  String
+  leadId    String
+  subject   String
+  html      String?
+  text      String?
+  meta      Json?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  lead      Person   @relation(fields: [leadId], references: [id])
+}
+
+model LeadScoreV2 {
+  leadId   String   @id
+  tenantId String
+  score    Float
+  factors  Json
+  updatedAt DateTime @default(now())
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  lead     Person   @relation(fields: [leadId], references: [id])
+
+  @@index([tenantId])
+}
+
+model VectorChunk {
+  id          String   @id
+  tenantId    String   @map("tenant_id")
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  chunkIndex  Int      @map("chunk_index")
+  content     String
+  embeddingF8 Float[]  @map("embedding_f8")
+  embeddingV  Unsupported("vector")? @map("embedding_v")
+  meta        Json?    @map("meta")
+  createdAt   DateTime @default(now()) @map("created_at")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, entityType, entityId, chunkIndex], map: "vectorchunk_tenant_entity_chunk_uq")
+  @@index([tenantId, entityType, entityId], map: "vectorchunk_tenant_entity_idx")
+  @@map("VectorChunk")
 }
 
 model User {
@@ -555,6 +792,12 @@ model User {
   customFieldsUpdated       CustomField[]             @relation("CustomFieldUpdatedBy")
   customFieldLayoutsCreated CustomFieldLayout[]       @relation("CustomFieldLayoutCreatedBy")
   customFieldLayoutsUpdated CustomFieldLayout[]       @relation("CustomFieldLayoutUpdatedBy")
+  aiEmployeeInstances       AiEmployeeInstance[]
+  aiEmployeeSessions        AiEmployeeSession[]
+  aiProposedActions         AiProposedAction[]        @relation("AiProposedActionUser")
+  aiApprovedActions         AiProposedAction[]        @relation("AiProposedActionApprovedBy")
+  aiExecutionLogs           AiExecutionLog[]
+  marketingCampaigns        MarketingCampaign[]       @relation("MarketingCampaignCreatedBy")
 }
 
 model Team {
@@ -684,10 +927,13 @@ model Person {
   cases                   Case[]                    @relation("CaseContact")
   primaryForCompanies     Company[]                 @relation("CompanyPrimaryContact")
   sequenceEnrollments     SequenceEnrollment[]
+  leadSequenceEnrollments LeadSequenceEnrollment[]
+  emailDrafts             EmailDraft[]
   campaignEnrollments     CampaignEnrollment[]
   queueAssignments        QueueAssignment[]         @relation("QueueAssignmentPerson")
   customFieldValues       CustomFieldValue[]
   JourneySimulation       JourneySimulation[]
+  leadScoreV2             LeadScoreV2?
 
   @@unique([tenantId, primaryEmail])
   @@unique([tenantId, primaryPhone])
@@ -990,6 +1236,24 @@ view LeadAnalyticsView {
 
   @@unique([tenantId, personId])
   @@map("LeadAnalyticsView")
+}
+
+model ClientAnalyticsEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  name       String
+  category   String?
+  properties Json?
+  sourceIp   String?
+  userAgent  String?
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, name])
 }
 
 model ConsentEvent {
@@ -1663,6 +1927,31 @@ model MarketingEvent {
   @@index([tenantId, occurredAt])
   @@index([listingId])
   @@index([mlsProfileId])
+}
+
+model MarketingCampaign {
+  id              String                  @id @default(cuid())
+  tenantId        String
+  createdById     String?
+  personaId       String
+  name            String
+  subject         String
+  body            String
+  channel         OutreachChannel         @default(EMAIL)
+  audienceKey     String?
+  audienceLabel   String?
+  callToAction    String?
+  recipientsCount Int                     @default(0)
+  status          MarketingCampaignStatus @default(DRAFT)
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id])
+  createdBy       User?                   @relation("MarketingCampaignCreatedBy", fields: [createdById], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
 }
 
 model ComplianceStatusDaily {

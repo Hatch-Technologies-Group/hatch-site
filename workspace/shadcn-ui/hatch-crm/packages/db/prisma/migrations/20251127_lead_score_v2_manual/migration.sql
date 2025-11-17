@@ -1,0 +1,2 @@
+-- Manual migration applied via prisma db execute to create LeadScoreV2.
+-- No-op placeholder so Prisma history acknowledges the change.

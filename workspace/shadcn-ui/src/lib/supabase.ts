@@ -13,7 +13,7 @@ export const getUser = async () => {
 
 export const getProfile = async (userId: string) => {
   const { data, error } = await supabase
-    .from('profiles')
+    .from('Profile')
     .select('*')
     .eq('id', userId)
     .single()

@@ -64,4 +64,6 @@ export function bootstrapObjectRegistry() {
   register('metrics_runs', ['metricsRun']);
   register('cases', ['case']);
   register('search', ['person']);
+  register('ai_employees', ['aiEmployeeInstance']);
+  register('ai_actions', ['aiProposedAction']);
 }

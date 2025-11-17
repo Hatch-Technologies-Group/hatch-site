@@ -1,245 +1,268 @@
-import { useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useEffect, useMemo, useState } from 'react';
+
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Lead } from '@/types';
+import type { CreateLeadPayload, Pipeline } from '@/lib/api/hatch';
 
-interface AddLeadModalProps {
+type OwnerOption = {
+  id: string;
+  name: string;
+};
+
+type AddLeadModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddLead: (lead: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => void;
-}
+  pipelines: Pipeline[];
+  owners: OwnerOption[];
+  defaultPipelineId?: string;
+  onCreate: (payload: CreateLeadPayload & { notes?: string }) => Promise<void> | void;
+};
 
-const AddLeadModal = ({ open, onOpenChange, onAddLead }: AddLeadModalProps) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    source: '',
-    status: 'cold' as Lead['status'],
-    score: 50,
-    assignedAgent: '',
-    propertyInterest: '',
-    budget: 0,
-    notes: '',
-    lastContact: new Date().toISOString().split('T')[0]
-  });
+const DEFAULT_FORM = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  source: '',
+  ownerId: '',
+  pipelineId: '',
+  stageId: '',
+  notes: '',
+  consentEmail: true,
+  consentSMS: false
+};
 
+export function AddLeadModal({
+  open,
+  onOpenChange,
+  pipelines,
+  owners,
+  defaultPipelineId,
+  onCreate
+}: AddLeadModalProps) {
+  const [form, setForm] = useState(DEFAULT_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
+  const firstPipelineId = pipelines[0]?.id ?? '';
+  const currentPipeline = useMemo(() => {
+    return pipelines.find((pipeline) => pipeline.id === form.pipelineId) ?? pipelines.find((p) => p.id === defaultPipelineId) ?? pipelines[0] ?? null;
+  }, [defaultPipelineId, form.pipelineId, pipelines]);
 
-    if (!formData.name.trim()) newErrors.name = 'Name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email is invalid';
-    if (!formData.phone.trim()) newErrors.phone = 'Phone is required';
-    if (!formData.source.trim()) newErrors.source = 'Source is required';
-    if (!formData.assignedAgent.trim()) newErrors.assignedAgent = 'Assigned agent is required';
-    if (!formData.propertyInterest.trim()) newErrors.propertyInterest = 'Property interest is required';
-    if (formData.budget <= 0) newErrors.budget = 'Budget must be greater than 0';
+  useEffect(() => {
+    if (!open) return;
+    setErrors({});
+    setSubmitError(null);
+    setForm((prev) => {
+    const pipelineId = prev.pipelineId || defaultPipelineId || firstPipelineId;
+    const pipeline = pipelines.find((pipe) => pipe.id === pipelineId);
+    const stageId = pipeline?.stages[0]?.id ?? '';
+      return {
+        ...prev,
+        pipelineId,
+        stageId
+      };
+    });
+  }, [defaultPipelineId, firstPipelineId, open, pipelines]);
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (validateForm()) {
-      onAddLead(formData);
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        source: '',
-        status: 'cold',
-        score: 50,
-        assignedAgent: '',
-        propertyInterest: '',
-        budget: 0,
-        notes: '',
-        lastContact: new Date().toISOString().split('T')[0]
-      });
-      setErrors({});
-      onOpenChange(false);
-    }
-  };
-
-  const handleInputChange = (field: string, value: string | number) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleChange = (field: keyof typeof form, value: string | boolean) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: '' }));
     }
+  };
+
+  const validate = () => {
+    const nextErrors: Record<string, string> = {};
+    if (!form.firstName.trim() && !form.lastName.trim()) {
+      nextErrors.firstName = 'Provide a first or last name';
+      nextErrors.lastName = 'Provide a first or last name';
+    }
+    if (!form.email.trim() && !form.phone.trim()) {
+      nextErrors.email = 'Email or phone required';
+      nextErrors.phone = 'Email or phone required';
+    }
+    if (!form.pipelineId) {
+      nextErrors.pipelineId = 'Select a pipeline';
+    }
+    if (!form.stageId) {
+      nextErrors.stageId = 'Select a stage';
+    }
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitError(null);
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      const submission = {
+        ...form,
+        ownerId: form.ownerId?.trim() ? form.ownerId : undefined
+      };
+      await onCreate(submission);
+      setForm((prev) => ({
+        ...DEFAULT_FORM,
+        pipelineId: prev.pipelineId,
+        stageId: prev.stageId
+      }));
+      onOpenChange(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to add lead';
+      setSubmitError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePipelineChange = (pipelineId: string) => {
+    const pipeline = pipelines.find((pipe) => pipe.id === pipelineId);
+    handleChange('pipelineId', pipelineId);
+    handleChange('stageId', pipeline?.stages[0]?.id ?? '');
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-full max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Lead</DialogTitle>
-          <DialogDescription>
-            Enter the lead information below. All fields marked with * are required.
-          </DialogDescription>
+          <DialogTitle>Add lead</DialogTitle>
+          <DialogDescription>Capture a new buyer or seller and drop them in the right spot.</DialogDescription>
         </DialogHeader>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                placeholder="Enter full name"
-              />
-              {errors.name && <p className="text-sm text-red-600">{errors.name}</p>}
+              <Label>First name</Label>
+              <Input value={form.firstName} onChange={(event) => handleChange('firstName', event.target.value)} />
+              {errors.firstName && <p className="text-xs text-red-600">{errors.firstName}</p>}
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Enter email address"
-              />
-              {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
+              <Label>Last name</Label>
+              <Input value={form.lastName} onChange={(event) => handleChange('lastName', event.target.value)} />
+              {errors.lastName && <p className="text-xs text-red-600">{errors.lastName}</p>}
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone *</Label>
-              <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                placeholder="(555) 123-4567"
-              />
-              {errors.phone && <p className="text-sm text-red-600">{errors.phone}</p>}
+              <Label>Email</Label>
+              <Input type="email" value={form.email} onChange={(event) => handleChange('email', event.target.value)} placeholder="lead@email.com" />
+              {errors.email && <p className="text-xs text-red-600">{errors.email}</p>}
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="source">Source *</Label>
-              <Select value={formData.source} onValueChange={(value) => handleInputChange('source', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select lead source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Website Form">Website Form</SelectItem>
-                  <SelectItem value="Referral">Referral</SelectItem>
-                  <SelectItem value="Google Ads">Google Ads</SelectItem>
-                  <SelectItem value="Facebook Ad">Facebook Ad</SelectItem>
-                  <SelectItem value="Cold Call">Cold Call</SelectItem>
-                  <SelectItem value="Open House">Open House</SelectItem>
-                  <SelectItem value="Zillow">Zillow</SelectItem>
-                  <SelectItem value="Realtor.com">Realtor.com</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-              {errors.source && <p className="text-sm text-red-600">{errors.source}</p>}
+              <Label>Phone</Label>
+              <Input value={form.phone} onChange={(event) => handleChange('phone', event.target.value)} placeholder="(555) 123-4567" />
+              {errors.phone && <p className="text-xs text-red-600">{errors.phone}</p>}
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select value={formData.status} onValueChange={(value: Lead['status']) => handleInputChange('status', value)}>
+              <Label>Owner</Label>
+              <Select value={form.ownerId || 'unassigned'} onValueChange={(value) => handleChange('ownerId', value === 'unassigned' ? '' : value)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Unassigned" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cold">Cold</SelectItem>
-                  <SelectItem value="warm">Warm</SelectItem>
-                  <SelectItem value="hot">Hot</SelectItem>
-                  <SelectItem value="qualified">Qualified</SelectItem>
-                  <SelectItem value="converted">Converted</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {owners.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="score">Lead Score (1-100)</Label>
-              <Input
-                id="score"
-                type="number"
-                min="1"
-                max="100"
-                value={formData.score}
-                onChange={(e) => handleInputChange('score', parseInt(e.target.value) || 0)}
-              />
+              <Label>Source</Label>
+              <Input value={form.source} onChange={(event) => handleChange('source', event.target.value)} placeholder="Zillow, Open house, Referral…" />
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="assignedAgent">Assigned Agent *</Label>
-              <Select value={formData.assignedAgent} onValueChange={(value) => handleInputChange('assignedAgent', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select agent" />
+              <Label>Pipeline</Label>
+              <Select value={form.pipelineId} onValueChange={handlePipelineChange}>
+                <SelectTrigger className={errors.pipelineId ? 'ring-1 ring-red-500' : undefined}>
+                  <SelectValue placeholder="Select pipeline" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Sarah Johnson">Sarah Johnson</SelectItem>
-                  <SelectItem value="Mike Rodriguez">Mike Rodriguez</SelectItem>
-                  <SelectItem value="David Chen">David Chen</SelectItem>
-                  <SelectItem value="Lisa Rodriguez">Lisa Rodriguez</SelectItem>
-                  <SelectItem value="John Davis">John Davis</SelectItem>
+                  {pipelines.map((pipeline) => (
+                    <SelectItem key={pipeline.id} value={pipeline.id}>
+                      {pipeline.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {errors.assignedAgent && <p className="text-sm text-red-600">{errors.assignedAgent}</p>}
+              {errors.pipelineId && <p className="text-xs text-red-600">{errors.pipelineId}</p>}
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="budget">Budget *</Label>
-              <Input
-                id="budget"
-                type="number"
-                min="0"
-                step="1000"
-                value={formData.budget}
-                onChange={(e) => handleInputChange('budget', parseInt(e.target.value) || 0)}
-                placeholder="Enter budget amount"
-              />
-              {errors.budget && <p className="text-sm text-red-600">{errors.budget}</p>}
+              <Label>Stage</Label>
+              <Select value={form.stageId} onValueChange={(value) => handleChange('stageId', value)}>
+                <SelectTrigger className={errors.stageId ? 'ring-1 ring-red-500' : undefined}>
+                  <SelectValue placeholder="Select stage" />
+                </SelectTrigger>
+                <SelectContent>
+                  {currentPipeline?.stages?.length ? (
+                    currentPipeline.stages.map((stage) => (
+                      <SelectItem key={stage.id} value={stage.id}>
+                        {stage.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__placeholder__" disabled>
+                      No stages
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {errors.stageId && <p className="text-xs text-red-600">{errors.stageId}</p>}
             </div>
           </div>
-
           <div className="space-y-2">
-            <Label htmlFor="propertyInterest">Property Interest *</Label>
-            <Input
-              id="propertyInterest"
-              value={formData.propertyInterest}
-              onChange={(e) => handleInputChange('propertyInterest', e.target.value)}
-              placeholder="e.g., Miami Beach Condo, Tampa Single Family"
-            />
-            {errors.propertyInterest && <p className="text-sm text-red-600">{errors.propertyInterest}</p>}
+            <Label>Notes</Label>
+            <Textarea value={form.notes} onChange={(event) => handleChange('notes', event.target.value)} placeholder="Context for your team…" rows={3} />
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
-            <Textarea
-              id="notes"
-              value={formData.notes}
-              onChange={(e) => handleInputChange('notes', e.target.value)}
-              placeholder="Additional notes about the lead..."
-              rows={3}
-            />
+          <div className="flex flex-wrap gap-6">
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <Checkbox checked={form.consentEmail} onCheckedChange={(checked) => handleChange('consentEmail', Boolean(checked))} />
+              Email consent captured
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <Checkbox checked={form.consentSMS} onCheckedChange={(checked) => handleChange('consentSMS', Boolean(checked))} />
+              SMS consent captured
+            </label>
           </div>
-
-          <DialogFooter>
+          {submitError && <p className="text-sm text-red-600">{submitError}</p>}
+          <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">Add Lead</Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Adding…' : 'Add lead'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
-};
+}
 
 export default AddLeadModal;

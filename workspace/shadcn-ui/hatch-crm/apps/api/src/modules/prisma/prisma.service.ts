@@ -21,6 +21,10 @@ export class PrismaService
 
   async onModuleInit() {
     await this.$connect();
+    const pgvectorLists = process.env.PGVECTOR_LISTS;
+    if (pgvectorLists) {
+      await this.$executeRaw`SELECT set_config('ai.pgvectors.lists', ${pgvectorLists}, false)`;
+    }
   }
 
   async enableShutdownHooks(app: INestApplication) {

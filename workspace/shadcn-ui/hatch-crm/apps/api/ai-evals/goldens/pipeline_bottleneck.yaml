@@ -1,0 +1,19 @@
+name: pipeline_bottleneck
+description: Ensure Copilot explains pipeline bottlenecks using CRM data.
+context:
+  page: "/broker/crm/pipeline"
+  entityType: "pipeline"
+  entityId: "pipeline_test"
+inputs:
+  messages:
+    - role: user
+      content: "Where is my pipeline slowing down?"
+expect:
+  must_include:
+    - "pipeline"
+    - "bottleneck"
+  must_not_include:
+    - "no issues"
+  scoring:
+    grounded: true
+    analytical: true

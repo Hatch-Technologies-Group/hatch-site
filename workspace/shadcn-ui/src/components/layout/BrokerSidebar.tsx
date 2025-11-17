@@ -12,7 +12,8 @@ import {
   NotebookPen,
   Home,
   ShieldCheck,
-  Percent
+  Percent,
+  Megaphone
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { HatchLogo } from '@/components/HatchLogo'
@@ -26,6 +27,7 @@ export default function BrokerSidebar() {
     { icon: Home, label: 'Dashboard', path: '/broker/dashboard' },
     { icon: Building2, label: 'Properties', path: '/broker/properties' },
     { icon: NotebookPen, label: 'CRM', path: '/broker/crm' },
+    { icon: Megaphone, label: 'Marketing', path: '/broker/marketing' },
     { icon: ShieldCheck, label: 'Compliance', path: '/broker/compliance' },
     { icon: UserCheck, label: 'Team', path: '/broker/team' },
     { icon: Percent, label: 'Commission Plans', path: '/broker/commission-plans' },

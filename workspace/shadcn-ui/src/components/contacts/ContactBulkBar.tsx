@@ -48,7 +48,11 @@ export function ContactBulkBar({
             <SelectValue placeholder="Assign to owner" />
           </SelectTrigger>
           <SelectContent>
-            {ownerOptions.length === 0 && <SelectItem value="">No owners available</SelectItem>}
+            {ownerOptions.length === 0 && (
+              <SelectItem value="__no_owners__" disabled>
+                No owners available
+              </SelectItem>
+            )}
             {ownerOptions.map((owner) => (
               <SelectItem key={owner.id} value={owner.id}>
                 {owner.name}

@@ -27,7 +27,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
-      '@hatch/ui': path.resolve(__dirname, '../../..', 'src/components')
+      '@hatch/ui': path.resolve(__dirname, './components')
     }
   },
   esbuild: {

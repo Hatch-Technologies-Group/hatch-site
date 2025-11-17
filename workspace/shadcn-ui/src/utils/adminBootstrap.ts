@@ -56,7 +56,7 @@ const createAdminUser = async (email: string, password: string): Promise<AdminBo
 
     // Now create the profile
     const { error: profileError } = await supabase
-      .from('profiles')
+      .from('Profile')
       .insert({
         id: signUpData.user.id,
         email: email,
@@ -106,7 +106,7 @@ const createSampleData = async (): Promise<AdminBootstrapResult> => {
 
     // Create broker profile
     const { error: brokerProfileError } = await supabase
-      .from('profiles')
+      .from('Profile')
       .insert({
         id: brokerAuth.user.id,
         email: 'broker@example.com',
@@ -136,7 +136,7 @@ const createSampleData = async (): Promise<AdminBootstrapResult> => {
 
     // Create customer profile
     const { error: customerProfileError } = await supabase
-      .from('profiles')
+      .from('Profile')
       .insert({
         id: customerAuth.user.id,
         email: 'customer@example.com',
@@ -247,7 +247,7 @@ export const bootstrapAdmin = async (adminEmail: string, adminPassword: string):
 export const checkAdminExists = async (): Promise<{ exists: boolean; error?: string }> => {
   try {
     const { data, error } = await supabase
-      .from('profiles')
+      .from('Profile')
       .select('id')
       .eq('role', 'admin')
       .limit(1);

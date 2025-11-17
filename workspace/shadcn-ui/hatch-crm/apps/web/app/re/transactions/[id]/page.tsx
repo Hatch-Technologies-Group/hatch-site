@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 
 import TransactionClient from '@/components/re/transaction-client';
+import { CopilotContextEmitter } from '@/components/copilot/CopilotContextEmitter';
 import { getReTransaction, getTransactionCommission } from '@/lib/api/re.transactions';
 
 interface TransactionPageProps {
@@ -18,17 +19,33 @@ export default async function TransactionPage({ params }: TransactionPageProps) 
       getTransactionCommission(id).catch(() => null)
     ]);
 
-    return (
-      <div className="space-y-6">
-        <header className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h1 className="text-2xl font-semibold text-slate-900">Transaction</h1>
-          <p className="text-sm text-slate-500">
-            Track escrow milestones, commission estimates, and trigger payouts.
-          </p>
-        </header>
+    const copilotContext = {
+      surface: 'transaction' as const,
+      entityType: 'transaction' as const,
+      entityId: transaction.id,
+      summary: `${transaction.listing?.addressLine1 ?? 'Transaction'} · ${transaction.stage}`,
+      metadata: {
+        listingId: transaction.listingId,
+        stage: transaction.stage,
+        milestoneCount: transaction.milestoneChecklist.items.length,
+        commissionReady: Boolean(commission)
+      }
+    };
 
-        <TransactionClient transaction={transaction} initialCommission={commission} />
-      </div>
+    return (
+      <>
+        <CopilotContextEmitter context={copilotContext} />
+        <div className="space-y-6">
+          <header className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <h1 className="text-2xl font-semibold text-slate-900">Transaction</h1>
+            <p className="text-sm text-slate-500">
+              Track escrow milestones, commission estimates, and trigger payouts.
+            </p>
+          </header>
+
+          <TransactionClient transaction={transaction} initialCommission={commission} />
+        </div>
+      </>
     );
   } catch (error) {
     notFound();

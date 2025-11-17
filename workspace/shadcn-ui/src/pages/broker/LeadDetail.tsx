@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 
@@ -7,14 +7,26 @@ import {
   getLead,
   getPipelines,
   type LeadDetail,
+  type LeadSummary,
   type Pipeline
 } from '@/lib/api/hatch'
+import {
+  listSequences,
+  enrollLeadInSequence,
+  draftNextForLead
+} from '@/lib/api/outreach'
 import { getStageDisplay } from '@/lib/stageDisplay'
 import ActivityFeed, { type ActivityItem } from '@/components/crm/ActivityFeed'
+import { ReindexEntityButton } from '@/components/copilot/ReindexEntityButton'
+import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge'
+import { LeadScoreExplanation } from '@/components/leads/LeadScoreExplanation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { emitCopilotContext } from '@/lib/copilot/events'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { ApiError } from '@/lib/api/errors'
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
 
@@ -42,32 +54,148 @@ const formatEventDetails = (properties?: Record<string, unknown>) => {
   }
 }
 
+const buildLeadDetailFromSummary = (lead: LeadSummary): LeadDetail => {
+  const hasFitData =
+    typeof lead.preapproved === 'boolean' ||
+    typeof lead.budgetMin === 'number' ||
+    typeof lead.budgetMax === 'number' ||
+    typeof lead.timeframeDays === 'number'
+
+  return {
+    ...lead,
+    notes: [],
+    tasks: [],
+    consents: [],
+    events: [],
+    touchpoints: [],
+    fit: hasFitData
+      ? {
+          preapproved: lead.preapproved,
+          budgetMin: lead.budgetMin ?? null,
+          budgetMax: lead.budgetMax ?? null,
+          timeframeDays: lead.timeframeDays ?? null,
+          geo: null,
+          inventoryMatch: null
+        }
+      : null
+  }
+}
+
+type LeadDetailLocationState = {
+  lead?: LeadSummary
+  skipRemoteFetch?: boolean
+} | null
+
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [lead, setLead] = useState<LeadDetail | null>(null)
+  const location = useLocation()
+  const locationState = location.state as LeadDetailLocationState
+  const initialLeadSummary = locationState?.lead
+  const skipRemoteFetch = Boolean(locationState?.skipRemoteFetch)
+  const fallbackLeadDetail = useMemo(
+    () => (initialLeadSummary ? buildLeadDetailFromSummary(initialLeadSummary) : null),
+    [initialLeadSummary]
+  )
+  const [lead, setLead] = useState<LeadDetail | null>(fallbackLeadDetail)
   const [pipelines, setPipelines] = useState<Pipeline[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [sequences, setSequences] = useState<Array<{ id: string; name: string }>>([])
+  const [sequenceId, setSequenceId] = useState('')
+  const [sequenceMsg, setSequenceMsg] = useState<string | null>(null)
+  const [sequenceBusy, setSequenceBusy] = useState(false)
+  const [draftMsg, setDraftMsg] = useState<string | null>(null)
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(
+    fallbackLeadDetail ? 'Showing cached lead snapshot while we sync with the CRM…' : null
+  )
 
   useEffect(() => {
+    if (!fallbackLeadDetail) {
+      setFallbackNotice(null)
+      return
+    }
+    setLead((current) => {
+      if (!current || current.id !== fallbackLeadDetail.id) {
+        return fallbackLeadDetail
+      }
+      return current
+    })
+    setFallbackNotice((current) => current ?? 'Showing cached lead snapshot while we sync with the CRM…')
+  }, [fallbackLeadDetail])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadPipelines = async () => {
+      try {
+        const data = await getPipelines()
+        if (!cancelled) {
+          setPipelines(data)
+        }
+      } catch (err) {
+        console.error('Failed to load pipelines', err)
+      }
+    }
+    void loadPipelines()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!id) return
+    if (skipRemoteFetch) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
     const fetchLead = async () => {
-      if (!id) return
       try {
         setLoading(true)
-        const [leadData, pipelineData] = await Promise.all([getLead(id), getPipelines()])
+        const leadData = await getLead(id)
+        if (cancelled) return
         setLead(leadData)
-        setPipelines(pipelineData)
         setError(null)
+        setFallbackNotice(null)
       } catch (err) {
         console.error('Failed to load lead', err)
-        setError(err instanceof Error ? err.message : 'Failed to load lead')
+        if (err instanceof ApiError && err.status === 404 && fallbackLeadDetail) {
+          setError(null)
+          setFallbackNotice('This lead is no longer in Hatch. Showing the last known snapshot.')
+          setLead(fallbackLeadDetail)
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load lead')
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     void fetchLead()
-  }, [id])
+    return () => {
+      cancelled = true
+    }
+  }, [fallbackLeadDetail, id, skipRemoteFetch])
+
+  useEffect(() => {
+    const loadSequences = async () => {
+      try {
+        const data = await listSequences()
+        setSequences(data)
+        if (!sequenceId && data.length > 0) {
+          setSequenceId(data[0].id)
+        }
+      } catch (err) {
+        console.error('Failed to load outreach sequences', err)
+      }
+    }
+
+    void loadSequences()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const pipelineName = useMemo(() => {
     if (!lead) return 'No pipeline'
@@ -116,6 +244,25 @@ export default function LeadDetailPage() {
     return items.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
   }, [lead])
 
+  useEffect(() => {
+    if (!lead) return
+    emitCopilotContext({
+      surface: 'lead',
+      entityType: 'lead',
+      entityId: lead.id,
+      summary: `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || lead.email || lead.id,
+      metadata: {
+        stage: stageName,
+        pipeline: pipelineName,
+        scoreTier: lead.scoreTier ?? null,
+        timeInStage,
+        owner: lead.owner?.name ?? 'Unassigned',
+        lastTouchpointAt: lastTouchpoint,
+        email: lead.email ?? null
+      }
+    })
+  }, [lead, pipelineName, stageName, timeInStage, lastTouchpoint])
+
   if (loading && !lead) {
     return (
       <div className="flex h-48 items-center justify-center text-slate-500">
@@ -142,11 +289,50 @@ export default function LeadDetailPage() {
 
   const openTasks = lead.tasks.filter((task) => task.status !== 'DONE')
 
+  const startSequence = async () => {
+    if (!sequenceId) {
+      setSequenceMsg('Select a sequence first.')
+      return
+    }
+    try {
+      setSequenceBusy(true)
+      setSequenceMsg('Enrolling…')
+      await enrollLeadInSequence(lead.id, sequenceId)
+      setSequenceMsg('Sequence started')
+    } catch (err) {
+      setSequenceMsg(err instanceof Error ? err.message : 'Unable to start sequence')
+    } finally {
+      setSequenceBusy(false)
+    }
+  }
+
+  const draftEmail = async () => {
+    try {
+      setDraftBusy(true)
+      setDraftMsg('Drafting…')
+      const result = await draftNextForLead(lead.id)
+      setDraftMsg(result?.subject ? `Draft created: ${result.subject}` : 'Draft created')
+    } catch (err) {
+      setDraftMsg(err instanceof Error ? err.message : 'Draft failed')
+    } finally {
+      setDraftBusy(false)
+    }
+  }
+
+  const noticeBanner = fallbackNotice ? (
+    <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+      <AlertTitle>Cached snapshot</AlertTitle>
+      <AlertDescription>{fallbackNotice}</AlertDescription>
+    </Alert>
+  ) : null
+
   return (
     <div className="space-y-6">
       <Link to="/broker/crm" className="inline-flex items-center text-sm text-brand-600 hover:text-brand-700">
         <ArrowLeft className="mr-1 h-4 w-4" /> Back to pipeline
       </Link>
+
+      {noticeBanner}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="space-y-4">
@@ -161,9 +347,45 @@ export default function LeadDetailPage() {
                   {stageDisplay.long ? ` · ${stageDisplay.long}` : ''} · Owner {lead.owner?.name ?? 'Unassigned'}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge className={tierBadgeClass(lead.scoreTier)}>Tier {lead.scoreTier}</Badge>
-                <Badge variant="secondary">Score {Math.round(lead.score ?? 0)}</Badge>
+              <div className="flex flex-col items-end gap-2 text-right text-xs">
+                <ReindexEntityButton entityType="lead" entityId={lead.id} />
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <select
+                    className="rounded border px-2 py-1 text-xs"
+                    value={sequenceId}
+                    onChange={(event) => setSequenceId(event.target.value)}
+                  >
+                    <option value="">Select outreach sequence</option>
+                    {sequences.map((seq) => (
+                      <option key={seq.id} value={seq.id}>
+                        {seq.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="rounded border px-2 py-1 disabled:opacity-50"
+                    onClick={() => void startSequence()}
+                    disabled={sequenceBusy || !sequenceId}
+                  >
+                    {sequenceBusy ? 'Enrolling…' : 'Enroll'}
+                  </button>
+                  <button
+                    className="rounded border px-2 py-1 disabled:opacity-50"
+                    onClick={() => void draftEmail()}
+                    disabled={draftBusy}
+                  >
+                    {draftBusy ? 'Drafting…' : 'Draft Next Email (AI)'}
+                  </button>
+                </div>
+                {(sequenceMsg || draftMsg) && (
+                  <span className="text-[11px] text-slate-500">
+                    {[sequenceMsg, draftMsg].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+                <div className="flex items-center gap-2">
+                  <LeadScoreBadge leadId={lead.id} />
+                  <Badge className={tierBadgeClass(lead.scoreTier)}>Tier {lead.scoreTier}</Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm text-slate-600 md:grid-cols-2">
@@ -189,6 +411,7 @@ export default function LeadDetailPage() {
               </div>
             </CardContent>
           </Card>
+          <LeadScoreExplanation leadId={lead.id} />
 
           <Card>
             <CardHeader>

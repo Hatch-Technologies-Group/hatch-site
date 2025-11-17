@@ -1,5 +1,7 @@
 import { Queue } from 'bullmq';
 
+const queuesDisabled = process.env.DISABLE_BULLMQ === 'true';
+
 export const queueConnection = process.env.REDIS_URL
   ? { url: process.env.REDIS_URL }
   : {
@@ -9,13 +11,24 @@ export const queueConnection = process.env.REDIS_URL
 
 export const INSIGHTS_REFRESH_QUEUE = 'insights.refresh';
 
-export const insightsRefreshQueue = new Queue(INSIGHTS_REFRESH_QUEUE, {
-  connection: queueConnection,
-  defaultJobOptions: {
-    removeOnComplete: true,
-    removeOnFail: 10
+const createQueue = () => {
+  if (queuesDisabled) {
+    return {
+      add: async () => undefined,
+      getJob: async () => null
+    } as unknown as Queue;
   }
-});
+
+  return new Queue(INSIGHTS_REFRESH_QUEUE, {
+    connection: queueConnection,
+    defaultJobOptions: {
+      removeOnComplete: true,
+      removeOnFail: 10
+    }
+  });
+};
+
+export const insightsRefreshQueue = createQueue();
 
 const sanitizeTenantId = (tenantId: string) => tenantId.replace(/[^a-zA-Z0-9_-]/g, '-');
 

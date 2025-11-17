@@ -3,7 +3,7 @@ import cookie, { type FastifyCookieOptions } from '@fastify/cookie';
 import helmet, { type FastifyHelmetOptions } from '@fastify/helmet';
 import multipart, { type FastifyMultipartOptions } from '@fastify/multipart';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -68,7 +68,12 @@ export async function createApp(): Promise<NestFastifyApplication> {
   );
 
   if (process.env.NODE_ENV !== 'test') {
-    app.setGlobalPrefix('api');
+    app.setGlobalPrefix('api/v1', {
+      exclude: [
+        { path: 'sms/status', method: RequestMethod.POST },
+        { path: 'sms/inbound', method: RequestMethod.POST }
+      ]
+    });
   }
 
   const helmetOptions: FastifyHelmetOptions = { contentSecurityPolicy: false };
@@ -125,6 +130,24 @@ export async function createApp(): Promise<NestFastifyApplication> {
   await app.init();
 
   const fastify = app.getHttpAdapter().getInstance();
+
+  // Parse application/x-www-form-urlencoded bodies (e.g., Twilio webhooks)
+  const urlEncodedType = 'application/x-www-form-urlencoded';
+  if (fastify.hasContentTypeParser(urlEncodedType)) {
+    fastify.removeContentTypeParser(urlEncodedType);
+  }
+  fastify.addContentTypeParser(
+    urlEncodedType,
+    { parseAs: 'string' },
+    (_request, payload, done) => {
+      try {
+        const parsed = Object.fromEntries(new URLSearchParams(payload as string));
+        done(null, parsed);
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    }
+  );
 
   // Ensure preParsing hook list is initialized to avoid Fastify internal null checks
   fastify.addHook('preParsing', (_request, _reply, payload, done) => {

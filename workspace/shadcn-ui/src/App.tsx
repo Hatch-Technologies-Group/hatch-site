@@ -25,6 +25,7 @@ import BrokerAnalytics from './pages/broker/Analytics'
 import CommissionPlansPage from './pages/broker/CommissionPlans'
 import LeadRoutingDesk from './pages/broker/LeadRoutingDesk'
 import DraftListingsPage from './pages/broker/DraftListings'
+import BrokerMarketingPage from './pages/broker/Marketing'
 import Pricing from './pages/broker/Pricing'
 import Payment from './pages/broker/Payment'
 import ComplianceCenter from './pages/broker/Compliance'
@@ -73,6 +74,7 @@ function App() {
                   <Route path="team-advanced" element={<BrokerTeamAdvanced />} />
                   <Route path="calendar" element={<BrokerCalendar />} />
                   <Route path="analytics" element={<BrokerAnalytics />} />
+                  <Route path="marketing" element={<BrokerMarketingPage />} />
                   <Route path="commission-plans" element={<CommissionPlansPage />} />
                   <Route path="lead-routing" element={<LeadRoutingDesk />} />
                   <Route path="draft-listings" element={<DraftListingsPage />} />

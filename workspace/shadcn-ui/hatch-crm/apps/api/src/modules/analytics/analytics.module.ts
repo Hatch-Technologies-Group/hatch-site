@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsListeners } from './analytics.listeners';
+import { AnalyticsController } from './analytics.controller';
 
 @Module({
-  imports: [EventEmitterModule.forRoot()],
+  controllers: [AnalyticsController],
   providers: [AnalyticsService, AnalyticsListeners],
   exports: [AnalyticsService]
 })

@@ -18,12 +18,14 @@ const config: Config = {
   },
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/test/jest.setup.ts'],
   moduleNameMapper: {
     '^@hatch/db$': '<rootDir>/../../packages/db/src/index.ts',
     '^@hatch/shared$': '<rootDir>/../../packages/shared/src/index.ts',
     '^@hatch/shared/(.*)$': '<rootDir>/../../packages/shared/src/$1.ts',
     '^@hatch/config$': '<rootDir>/../../packages/config/src',
-    '^@app/(.*)$': '<rootDir>/src/$1'
+    '^@app/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)$': '<rootDir>/src/$1'
   }
 };
 

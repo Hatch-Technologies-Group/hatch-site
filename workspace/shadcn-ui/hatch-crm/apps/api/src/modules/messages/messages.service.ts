@@ -1,11 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ConsentScope, Message, MessageChannel, Prisma } from '@hatch/db';
+import { ConsentScope, Message, MessageChannel, PersonStage, Prisma } from '@hatch/db';
+import sgMail from '@sendgrid/mail';
+import type { MailDataRequired } from '@sendgrid/helpers/classes/mail';
 
 import { ComplianceService } from '../compliance/compliance.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RoutingService } from '../routing/routing.service';
+import { IndexerProducer } from '../search/indexer.queue';
 import { InboundMessageDto } from './dto/inbound-message.dto';
 import { SendEmailDto } from './dto/send-email.dto';
 import { SendSmsDto } from './dto/send-sms.dto';
@@ -21,15 +24,106 @@ import {
 @Injectable()
 export class MessagesService {
   private readonly emailSenderDomain: string;
+  private readonly sendgridConfigured: boolean;
+  private readonly logger = new Logger(MessagesService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly compliance: ComplianceService,
     private readonly outbox: OutboxService,
     private readonly routing: RoutingService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly indexer: IndexerProducer
   ) {
     this.emailSenderDomain = this.config.get<string>('EMAIL_SENDER_DOMAIN') ?? 'example.hatchcrm.test';
+
+    const sendgridKey = this.config.get<string>('SENDGRID_API_KEY');
+    if (sendgridKey) {
+      sgMail.setApiKey(sendgridKey);
+      this.sendgridConfigured = true;
+    } else {
+      this.sendgridConfigured = false;
+      if ((process.env.NODE_ENV ?? 'development') !== 'test') {
+        this.logger.warn('SENDGRID_API_KEY is not configured; outbound email delivery is disabled.');
+      }
+    }
+  }
+
+  private resolveEntityType(stage?: PersonStage | null): 'client' | 'lead' {
+    if (!stage) {
+      return 'lead';
+    }
+    const clientLikeStages = new Set<PersonStage>([
+      PersonStage.ACTIVE,
+      PersonStage.UNDER_CONTRACT,
+      PersonStage.CLOSED
+    ]);
+    return clientLikeStages.has(stage) ? 'client' : 'lead';
+  }
+
+  private async enqueueIndexJob(tenantId: string, personId: string, stageHint?: PersonStage | null) {
+    const stage =
+      stageHint ??
+      (await this.prisma.person.findUnique({
+        where: { id: personId },
+        select: { stage: true }
+      }))?.stage ??
+      null;
+
+    await this.indexer.enqueue({
+      tenantId,
+      entityType: this.resolveEntityType(stage),
+      entityId: personId
+    });
+  }
+
+  private async deliverEmailViaSendgrid(dto: SendEmailDto): Promise<string | undefined> {
+    if (!this.sendgridConfigured) {
+      return undefined;
+    }
+
+    const payload: MailDataRequired = {
+      to: dto.to,
+      from: dto.from,
+      subject: dto.subject,
+      text: dto.body,
+      html: dto.body,
+      customArgs: {
+        tenantId: dto.tenantId,
+        personId: dto.personId,
+        userId: dto.userId
+      },
+      trackingSettings: dto.includeUnsubscribe
+        ? {
+            subscriptionTracking: {
+              enable: true
+            }
+          }
+        : undefined
+    };
+
+    try {
+      const [response] = await sgMail.send(payload);
+      return this.extractProviderMessageId(response.headers ?? undefined);
+    } catch (error) {
+      const description =
+        error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
+      this.logger.error(`SendGrid email send failed: ${description}`);
+      throw new BadRequestException('Failed to send email via SendGrid');
+    }
+  }
+
+  private extractProviderMessageId(headers: Record<string, unknown> | undefined): string | undefined {
+    if (!headers) {
+      return undefined;
+    }
+    const headerValue =
+      (headers['x-message-id'] as string | string[] | undefined) ??
+      (headers['X-Message-Id'] as string | string[] | undefined);
+    if (Array.isArray(headerValue)) {
+      return headerValue[0];
+    }
+    return typeof headerValue === 'string' ? headerValue : undefined;
   }
 
   async sendSms(dto: SendSmsDto): Promise<Message> {
@@ -97,10 +191,20 @@ export class MessagesService {
       occurredAt: new Date()
     });
 
+    await this.enqueueIndexJob(dto.tenantId, dto.personId);
+
     return message;
   }
 
   async sendEmail(dto: SendEmailDto): Promise<Message> {
+    // Sanitize accidental model prefixes like "Subject: ..." and remove stray labels from body
+    const cleanSubject = (dto.subject ?? '').replace(/^\s*subject\s*:\s*/i, '').trim();
+    let cleanBody = dto.body ?? '';
+    cleanBody = cleanBody.replace(/^\s*subject\s*:[^\n]*\n?/gim, '');
+    cleanBody = cleanBody.replace(/^\s*html\s*:\s*/i, '');
+    cleanBody = cleanBody.replace(/^\s*text\s*:\s*/i, '');
+    cleanBody = cleanBody.replace(/\n{3,}/g, '\n\n').trim();
+
     const domain = dto.from.split('@')[1];
     if (!domain || domain !== this.emailSenderDomain) {
       throw new BadRequestException('Sending domain is not authenticated');
@@ -119,6 +223,8 @@ export class MessagesService {
       isTransactional: dto.scope === ConsentScope.TRANSACTIONAL
     });
 
+    const providerMessageId = await this.deliverEmailViaSendgrid({ ...dto, subject: cleanSubject, body: cleanBody });
+
     const message = await this.prisma.message.create({
       data: {
         tenantId: dto.tenantId,
@@ -126,11 +232,12 @@ export class MessagesService {
         userId: dto.userId,
         channel: MessageChannel.EMAIL,
         direction: 'OUTBOUND',
-        subject: dto.subject,
-        body: dto.body,
+        subject: cleanSubject,
+        body: cleanBody,
         toAddress: dto.to,
         fromAddress: dto.from,
-        status: 'SENT'
+        status: 'SENT',
+        providerMessageId: providerMessageId ?? null
       }
     });
 
@@ -239,6 +346,10 @@ export class MessagesService {
         channel: dto.channel
       }
     });
+
+    if (message.channel === MessageChannel.EMAIL && person) {
+      await this.enqueueIndexJob(person.tenantId, person.id, person.stage);
+    }
 
     return message;
   }

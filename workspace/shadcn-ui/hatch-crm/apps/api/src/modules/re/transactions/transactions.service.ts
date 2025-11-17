@@ -6,6 +6,7 @@ import { FlsService } from '../../../platform/security/fls.service';
 import { CommissionPlansService } from '../../commission-plans/commission-plans.service';
 import { PayoutsService } from '../../payouts/payouts.service';
 import { OutboxService } from '../../outbox/outbox.service';
+import { AiEmployeesProducer } from '../../ai-employees/ai-employees.producer';
 import type { RequestContext } from '../../common/request-context';
 import { assertJsonSafe, toJsonValue, toNullableJson } from '../../common';
 import { UpdateMilestoneDto } from './dto';
@@ -38,7 +39,8 @@ export class TransactionsService {
     private readonly fls: FlsService,
     private readonly commissionPlans: CommissionPlansService,
     private readonly payouts: PayoutsService,
-    private readonly outbox: OutboxService
+    private readonly outbox: OutboxService,
+    private readonly aiEmployeesProducer: AiEmployeesProducer
   ) {}
 
   async get(ctx: RequestContext, id: string) {
@@ -244,6 +246,16 @@ export class TransactionsService {
           transactionId: id,
           name: dto.name
         }
+      });
+    }
+
+    if (ctx.tenantId) {
+      await this.aiEmployeesProducer.enqueueTransactionMilestone({
+        tenantId: ctx.tenantId,
+        orgId: ctx.orgId,
+        transactionId: id,
+        milestoneName: dto.name,
+        completed: !!dto.completedAt
       });
     }
 

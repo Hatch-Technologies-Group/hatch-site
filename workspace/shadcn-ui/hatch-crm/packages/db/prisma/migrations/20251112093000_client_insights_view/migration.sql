@@ -1,4 +1,59 @@
 -- Materialized view consolidating lead, touchpoint, and queue analytics for client insights.
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'LeadHistory'
+  ) THEN
+    CREATE TABLE "LeadHistory" (
+      "id"          text PRIMARY KEY,
+      "tenantId"    text NOT NULL,
+      "personId"    text NOT NULL,
+      "eventType"   text NOT NULL,
+      "payload"     jsonb,
+      "occurredAt"  timestamptz NOT NULL DEFAULT now(),
+      "createdAt"   timestamptz NOT NULL DEFAULT now()
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'LeadTouchpoint'
+  ) THEN
+    CREATE TABLE "LeadTouchpoint" (
+      "id"         text PRIMARY KEY,
+      "tenantId"   text NOT NULL,
+      "personId"   text NOT NULL,
+      "occurredAt" timestamptz NOT NULL DEFAULT now(),
+      "summary"    text,
+      "body"       text,
+      "metadata"   jsonb
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'QueueAssignment'
+  ) THEN
+    CREATE TABLE "QueueAssignment" (
+      "id"         text PRIMARY KEY,
+      "tenantId"   text NOT NULL,
+      "personId"   text NOT NULL,
+      "assigneeId" text,
+      "claimedAt"  timestamptz,
+      "breachedAt" timestamptz
+    );
+  END IF;
+END
+$$;
+
 DROP MATERIALIZED VIEW IF EXISTS "LeadAnalyticsView";
 
 CREATE MATERIALIZED VIEW "LeadAnalyticsView" AS

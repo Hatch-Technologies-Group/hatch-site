@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
   const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey)
 
   const { data: profile, error: profileError } = await serviceClient
-    .from('profiles')
+    .from('Profile')
     .select('*')
     .eq('id', user.id)
     .maybeSingle()

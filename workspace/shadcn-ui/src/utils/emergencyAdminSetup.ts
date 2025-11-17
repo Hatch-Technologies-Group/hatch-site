@@ -15,7 +15,7 @@ export const createEmergencyAdmin = async (): Promise<EmergencyAdminResult> => {
     
     // First check if admin already exists
     const { data: existingProfiles, error: checkError } = await supabase
-      .from('profiles')
+      .from('Profile')
       .select('id, email')
       .eq('role', 'admin')
       .limit(1);
@@ -60,7 +60,7 @@ export const createEmergencyAdmin = async (): Promise<EmergencyAdminResult> => {
     
     // Create or update profile
     const { error: profileError } = await supabase
-      .from('profiles')
+      .from('Profile')
       .upsert({
         id: userId,
         email: adminEmail,
@@ -119,7 +119,7 @@ export const setupEmergencyAccess = async (): Promise<EmergencyAdminResult> => {
 export const checkEmergencyAdmin = async (): Promise<{ exists: boolean; adminId?: string; error?: string }> => {
   try {
     const { data, error } = await supabase
-      .from('profiles')
+      .from('Profile')
       .select('id')
       .eq('role', 'admin')
       .eq('email', 'admin@realestate.com')

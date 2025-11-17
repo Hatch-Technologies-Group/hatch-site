@@ -1,108 +1,28 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { JobsOptions, Queue } from 'bullmq';
+import { Injectable } from '@nestjs/common';
+import type { JobsOptions, Queue } from 'bullmq';
 
-import { CampaignEnrollmentStatus, OutreachChannel } from '@hatch/db';
+export const OUTREACH_SEQUENCER_QUEUE = 'outreach-sequencer';
 
-import { PrismaService } from '@/shared/prisma.service';
-
-export const OUTREACH_QUEUE_NAME = 'outreach-send';
-export const OUTREACH_JOB_NAME = 'send-step';
-
-export type OutreachJobData = {
-  enrollmentId: string;
-  stepOrder: number;
+export type OutreachSequencerJob = {
+  tenantId: string;
+  leadId: string;
 };
 
 @Injectable()
-export class OutreachQueueService {
-  private readonly log = new Logger(OutreachQueueService.name);
-
+export class OutreachProducer {
   constructor(
-    private readonly prisma: PrismaService,
-    @InjectQueue(OUTREACH_QUEUE_NAME) private readonly queue: Queue<OutreachJobData>
+    @InjectQueue(OUTREACH_SEQUENCER_QUEUE) private readonly queue: Queue<OutreachSequencerJob>
   ) {}
 
-  async scheduleDueEnrollments(): Promise<void> {
-    const dueEnrollments = await this.prisma.campaignEnrollment.findMany({
-      where: {
-        status: CampaignEnrollmentStatus.ACTIVE,
-        nextRunAt: { lte: new Date() }
-      },
-      select: {
-        id: true,
-        campaignId: true,
-        lastStepSent: true
-      }
-    });
+  async enqueueDraft(tenantId: string, leadId: string) {
+    const options: JobsOptions = {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2_000 },
+      removeOnComplete: 1000,
+      removeOnFail: 1000
+    };
 
-    for (const enrollment of dueEnrollments) {
-      const nextOrder = (enrollment.lastStepSent ?? 0) + 1;
-      const nextStep = await this.prisma.campaignStep.findFirst({
-        where: {
-          campaignId: enrollment.campaignId,
-          order: nextOrder
-        },
-        select: {
-          id: true,
-          channel: true,
-          delayHours: true,
-          templateId: true
-        }
-      });
-
-      if (!nextStep) {
-        await this.prisma.campaignEnrollment.update({
-          where: { id: enrollment.id },
-          data: {
-            status: CampaignEnrollmentStatus.COMPLETED,
-            nextRunAt: new Date()
-          }
-        });
-        continue;
-      }
-
-      if (nextStep.channel !== OutreachChannel.EMAIL) {
-        this.log.warn(
-          `Campaign step ${nextStep.id} uses unsupported channel ${nextStep.channel}; skipping enrollment ${enrollment.id}`
-        );
-        await this.prisma.campaignEnrollment.update({
-          where: { id: enrollment.id },
-          data: {
-            status: CampaignEnrollmentStatus.PAUSED,
-            nextRunAt: new Date()
-          }
-        });
-        continue;
-      }
-
-      const jobId = `${enrollment.id}-${nextOrder}`;
-      const jobOptions: JobsOptions = {
-        jobId,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 60_000 },
-        removeOnComplete: 1000,
-        removeOnFail: 1000
-      };
-
-      try {
-        await this.queue.add(
-          OUTREACH_JOB_NAME,
-          {
-            enrollmentId: enrollment.id,
-            stepOrder: nextOrder
-          },
-          jobOptions
-        );
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('jobId')) {
-          this.log.debug(
-            `Job already scheduled for enrollment ${enrollment.id} step ${nextOrder}`
-          );
-          continue;
-        }
-        throw error;
-      }
-    }
+    await this.queue.add('draft-next-step', { tenantId, leadId }, options);
   }
 }

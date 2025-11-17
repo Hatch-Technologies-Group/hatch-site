@@ -50,6 +50,8 @@ jobs:
           pnpm run typecheck --if-present
       - name: Tests
         run: pnpm run test -- --coverage
+      - name: AI evals
+        run: pnpm --filter @hatch/api ts-node apps/api/ai-evals/run-evals.ts
       - name: OpenAPI drift check
         run: ./scripts/check-openapi-drift.sh
       - name: Verify committed OpenAPI specs

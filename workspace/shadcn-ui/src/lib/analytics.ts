@@ -1,0 +1,29 @@
+import { apiFetch } from '@/lib/api/hatch';
+
+type AnalyticsEventPayload = {
+  name: string;
+  category?: string;
+  tenantId?: string;
+  userId?: string;
+  properties?: Record<string, unknown>;
+};
+
+export async function trackEvent(payload: AnalyticsEventPayload) {
+  const body = JSON.stringify({
+    ...payload,
+    timestamp: new Date().toISOString()
+  });
+
+  try {
+    await apiFetch('analytics/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true
+    });
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Analytics trackEvent failed', error);
+    }
+  }
+}

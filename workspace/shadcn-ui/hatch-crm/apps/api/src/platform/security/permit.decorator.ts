@@ -9,5 +9,13 @@ export interface PermitMetadata {
   action: PermitAction;
 }
 
-export const Permit = (object: string, action: PermitAction) =>
-  SetMetadata<string, PermitMetadata>(PERMIT_METADATA_KEY, { object, action });
+const PERMISSIONS_DISABLED =
+  process.env.NODE_ENV !== 'production' &&
+  (process.env.DISABLE_PERMISSIONS_GUARD ?? 'true').toLowerCase() === 'true';
+
+export const Permit = (object: string, action: PermitAction) => {
+  if (PERMISSIONS_DISABLED) {
+    return () => undefined;
+  }
+  return SetMetadata<string, PermitMetadata>(PERMIT_METADATA_KEY, { object, action });
+};

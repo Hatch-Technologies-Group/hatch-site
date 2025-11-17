@@ -1,105 +1,57 @@
-import { BadRequestException, Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { IsString } from 'class-validator';
 
-import {
-  CampaignEnrollmentStatus,
-  ConsentChannel,
-  ConsentStatus
-} from '@hatch/db';
-
-import { PrismaService } from '@/shared/prisma.service';
-import { OutreachQueueService } from './outreach.queue';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { OutreachService } from './outreach.service';
+import { OutreachProducer } from './outreach.queue';
 
 class EnrollLeadDto {
+  @IsString()
+  leadId!: string;
+
+  @IsString()
+  sequenceId!: string;
+}
+
+class DraftLeadDto {
   @IsString()
   leadId!: string;
 }
 
 @Controller('outreach')
+@UseGuards(JwtAuthGuard)
 export class OutreachController {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly queueService: OutreachQueueService
+    private readonly outreach: OutreachService,
+    private readonly producer: OutreachProducer
   ) {}
 
-  @Post('campaigns/:campaignId/enroll')
-  async enroll(@Param('campaignId') campaignId: string, @Body() body: EnrollLeadDto) {
-    if (!body?.leadId) {
-      throw new BadRequestException('leadId is required');
-    }
+  @Get('sequences')
+  async listSequences(@Req() req: any) {
+    const tenantId = req.user?.tenantId;
+    return this.outreach.listSequences(tenantId);
+  }
 
-    const campaign = await this.prisma.campaign.findUnique({
-      where: { id: campaignId },
-      include: {
-        steps: {
-          orderBy: { order: 'asc' }
-        }
-      }
+  @Post('enroll')
+  async enrollLead(@Req() req: any, @Body() body: EnrollLeadDto) {
+    const tenantId = req.user?.tenantId;
+    return this.outreach.enrollLeadInSequence({
+      tenantId,
+      leadId: body.leadId,
+      sequenceId: body.sequenceId
     });
+  }
 
-    if (!campaign || !campaign.isActive) {
-      throw new BadRequestException('Campaign not found or inactive');
-    }
+  @Post('draft-next')
+  async draftNext(@Req() req: any, @Body() body: DraftLeadDto) {
+    const tenantId = req.user?.tenantId;
+    return this.outreach.draftNextStepForLead(tenantId, body.leadId);
+  }
 
-    const firstStep = campaign.steps[0];
-    if (!firstStep) {
-      throw new BadRequestException('Campaign has no steps');
-    }
-
-    const lead = await this.prisma.person.findUnique({
-      where: { id: body.leadId },
-      select: { id: true, tenantId: true, organizationId: true }
-    });
-
-    if (!lead) {
-      throw new BadRequestException('Lead not found');
-    }
-
-    if (lead.tenantId !== campaign.tenantId) {
-      throw new BadRequestException('Lead and campaign tenants do not match');
-    }
-
-    const hasEmailConsent = await this.prisma.consent.findFirst({
-      where: {
-        personId: lead.id,
-        channel: ConsentChannel.EMAIL,
-        status: ConsentStatus.GRANTED
-      }
-    });
-
-    if (!hasEmailConsent) {
-      throw new BadRequestException('Lead must have email consent before enrollment');
-    }
-
-    const existingEnrollment = await this.prisma.campaignEnrollment.findFirst({
-      where: {
-        campaignId,
-        leadId: lead.id,
-        status: { in: [CampaignEnrollmentStatus.ACTIVE, CampaignEnrollmentStatus.PAUSED] }
-      }
-    });
-
-    if (existingEnrollment) {
-      throw new BadRequestException('Lead is already enrolled in this campaign');
-    }
-
-    const nextRunAt = new Date(Date.now() + firstStep.delayHours * 3600 * 1000);
-
-    const enrollment = await this.prisma.campaignEnrollment.create({
-      data: {
-        tenantId: lead.tenantId,
-        organizationId: lead.organizationId,
-        campaignId,
-        leadId: lead.id,
-        status: CampaignEnrollmentStatus.ACTIVE,
-        startedAt: new Date(),
-        lastStepSent: 0,
-        nextRunAt
-      }
-    });
-
-    await this.queueService.scheduleDueEnrollments();
-
-    return enrollment;
+  @Post('draft-next/queue')
+  async draftNextQueued(@Req() req: any, @Body() body: DraftLeadDto) {
+    const tenantId = req.user?.tenantId;
+    await this.producer.enqueueDraft(tenantId, body.leadId);
+    return { ok: true };
   }
 }

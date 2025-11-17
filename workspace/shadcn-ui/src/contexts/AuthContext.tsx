@@ -148,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [supabaseSession, setSupabaseSession] = useState<SessionResponse | null>(null)
   const [devSession, setDevSession] = useState<SessionResponse | null>(null)
   const listenerRef = useRef<ReturnType<typeof supabase.auth.onAuthStateChange> | null>(null)
+  const lastSignInEmailRef = useRef<string>('dev@local.dev')
 
   const effectiveSession = devSession ?? supabaseSession
 
@@ -205,9 +206,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       applySupabaseSession(response)
     } catch (error) {
       console.warn('Failed to refresh session', error)
+      if (import.meta.env.DEV) {
+        const cached = readDevAuth()
+        if (cached) {
+          setDevAuth(cached)
+          return
+        }
+        const email = lastSignInEmailRef.current ?? 'dev@local.dev'
+        const fallbackSession = buildDevSession(email)
+        setDevAuth(fallbackSession)
+        return
+      }
       applySupabaseSession(null)
     }
-  }, [applySupabaseSession, devSession])
+  }, [applySupabaseSession, devSession, setDevAuth])
 
   const setActiveOrg = useCallback(async (orgId: string | null) => {
     if (devSession) {
@@ -219,7 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return
     }
     if (!userId) return
-    const { error } = await supabase.from('profiles').update({ active_org_id: orgId }).eq('id', userId)
+    const { error } = await supabase.from('Profile').update({ active_org_id: orgId }).eq('id', userId)
     if (error) {
       console.error('Failed to update active org', error)
       throw error
@@ -230,6 +242,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = useCallback(async (email: string, password: string, options?: { allowDevFallback?: boolean }) => {
     const allowDevFallback = options?.allowDevFallback ?? true
     setStatus('loading')
+    lastSignInEmailRef.current = email || lastSignInEmailRef.current
 
     const fallback = () => {
       if (import.meta.env.DEV && allowDevFallback) {

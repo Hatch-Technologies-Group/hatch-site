@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 
 import AccountOpportunitiesTable from '@/components/account-opportunities-table';
 import AttachmentsPanel from '@/components/files/attachments-panel';
+import { ReindexEntityButton } from '@/components/copilot/ReindexEntityButton';
 import { applyLayout } from '@/lib/layouts/applyLayout';
 import { resolveLayout } from '@/lib/api/admin.layouts';
 import { FIELD_MAP } from '@hatch/shared/layout';
@@ -87,6 +88,7 @@ export default async function AccountDetailPage({ params }: AccountPageProps) {
             <h1 className="text-2xl font-semibold text-slate-900">{account.name ?? 'Untitled account'}</h1>
             <p className="text-sm text-slate-500">Owner-managed organisation record.</p>
           </div>
+          <ReindexEntityButton entityType="client" entityId={id} />
         </div>
         <dl className="mt-6 grid gap-4 text-sm text-slate-600 md:grid-cols-2">
           {orderedFields.map((field) => (

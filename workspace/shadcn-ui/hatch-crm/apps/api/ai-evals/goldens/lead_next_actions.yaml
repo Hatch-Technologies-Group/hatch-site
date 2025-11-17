@@ -1,0 +1,17 @@
+name: lead_next_actions
+description: Copilot should propose concrete, actionable next steps for a lead.
+context:
+  page: "/broker/crm/leads/lead_test_1"
+  entityType: "lead"
+  entityId: "lead_test_1"
+inputs:
+  messages:
+    - role: user
+      content: "What should I do next with this lead?"
+expect:
+  must_include:
+    - "call"
+    - "email"
+  must_not_include:
+    - "nothing you can do"
+    - "no information available"

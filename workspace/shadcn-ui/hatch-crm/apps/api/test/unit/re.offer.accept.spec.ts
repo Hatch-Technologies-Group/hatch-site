@@ -63,7 +63,17 @@ describe('OffersService – accept idempotency', () => {
       offer: {
         findMany: jest.fn(),
         create: jest.fn(),
-        findUnique: jest.fn()
+        findUnique: jest.fn().mockImplementation(() => ({
+          ...offerState,
+          listing,
+          metadata: offerState.metadata ?? {},
+          deal: offerState.deal
+            ? {
+                id: offerState.deal.id,
+                stage: DealStage.UNDER_CONTRACT
+              }
+            : null
+        }))
       }
     } as any;
 

@@ -21,6 +21,8 @@ import { FIELD_MAP } from '@hatch/shared/layout';
 
 import ActivityFeed, { type ActivityItem } from '@/components/activity/activity-feed';
 import ContactActions from '@/components/contact-actions';
+import { ReindexEntityButton } from '@/components/copilot/ReindexEntityButton';
+import { CopilotContextEmitter } from '@/components/copilot/CopilotContextEmitter';
 import { Section } from '@/components/ui/section';
 import { type LeadDetail, getLead, getPipelines } from '@/lib/api';
 import { resolveLayout } from '@/lib/api/admin.layouts';
@@ -158,6 +160,21 @@ export default async function LeadProfilePage({ params }: { params: { id: string
           .join(' · ')
       : 'No consent captured';
 
+  const leadCopilotContext = {
+    surface: 'lead' as const,
+    entityType: 'lead' as const,
+    entityId: lead.id,
+    summary: `${displayName} · ${stageName}`,
+    metadata: {
+      pipeline: pipelineName,
+      owner: ownerName,
+      touchesLast7Days,
+      openTasks: openTasks.length,
+      consentSummary,
+      quickStats
+    }
+  };
+
   const infoGroups: InfoGroupConfig[] = [
     {
       title: 'Contact info',
@@ -268,7 +285,9 @@ export default async function LeadProfilePage({ params }: { params: { id: string
   ];
 
   return (
-    <div className="space-y-8">
+    <>
+      <CopilotContextEmitter context={leadCopilotContext} />
+      <div className="space-y-8">
       <header className="sticky top-0 z-10 overflow-hidden rounded-3xl bg-gradient-to-r from-[#1F5FFF] via-[#396CFF] to-[#2A47FF] px-6 py-7 text-white/95 shadow-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.22),transparent_52%)]" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -310,6 +329,7 @@ export default async function LeadProfilePage({ params }: { params: { id: string
           {quickActions.map((action) => (
             <QuickActionButton key={action.label} {...action} />
           ))}
+          <ReindexEntityButton entityType="lead" entityId={lead.id} />
         </div>
       </header>
 
@@ -419,7 +439,8 @@ export default async function LeadProfilePage({ params }: { params: { id: string
           </Section>
         </aside>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

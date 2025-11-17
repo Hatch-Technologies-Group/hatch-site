@@ -8,6 +8,10 @@ export type ContactListSort = 'updatedAt:desc' | 'updatedAt:asc' | 'score:desc' 
 export class ContactListQueryDto {
   @IsOptional()
   @IsString()
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   q?: string;
 
   @IsOptional()

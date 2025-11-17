@@ -19,6 +19,7 @@ type TouchpointCreatedPayload = {
 @Injectable()
 export class InsightsRefreshListener {
   private readonly logger = new Logger(InsightsRefreshListener.name);
+  private readonly logsMuted = process.env.NODE_ENV === 'test';
 
   constructor(private readonly insights: InsightsService) {}
 
@@ -39,7 +40,13 @@ export class InsightsRefreshListener {
       await enqueueInsightsRefresh(tenantId, 60_000);
       this.insights.purgeTenantCache(tenantId);
     } catch (error) {
-      this.logger.warn(`Failed to enqueue insights refresh for ${tenantId} via ${source}: ${error instanceof Error ? error.message : error}`);
+      if (!this.logsMuted) {
+        this.logger.warn(
+          `Failed to enqueue insights refresh for ${tenantId} via ${source}: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
     }
   }
 }

@@ -33,13 +33,21 @@ import {
   LeadTouchpointDto
 } from './dto/lead-response.dto';
 import { LeadsService } from './leads.service';
+import { LeadScoringService } from './scoring.service';
+import { LeadScoringProducer } from './lead-scoring.queue';
+import { PrismaService } from '../prisma/prisma.service';
 
 @ApiModule('Leads')
 @ApiStandardErrors()
 @Controller('leads')
 @UseInterceptors(AuditInterceptor)
 export class LeadsController {
-  constructor(private readonly leads: LeadsService) {}
+  constructor(
+    private readonly leads: LeadsService,
+    private readonly prisma: PrismaService,
+    private readonly scoring: LeadScoringService,
+    private readonly scoringProducer: LeadScoringProducer
+  ) {}
 
   @Get()
   @Permit('leads', 'read')
@@ -195,5 +203,44 @@ export class LeadsController {
   ) {
     const ctx = resolveRequestContext(req);
     return this.leads.identify(id, dto, ctx);
+  }
+
+  @Get(':id/score/v2')
+  @Permit('leads', 'read')
+  async getLeadScoreV2(@Param('id') id: string, @Req() req: FastifyRequest) {
+    const ctx = resolveRequestContext(req);
+    if (!ctx.tenantId) {
+      throw new UnauthorizedException('tenantId header (x-tenant-id) is required');
+    }
+
+    const existing = await this.prisma.leadScoreV2.findUnique({
+      where: { leadId: id }
+    });
+
+    if (existing) {
+      return { score: existing.score, factors: existing.factors };
+    }
+
+    return this.scoring.scoreLead(ctx.tenantId, id);
+  }
+
+  @Post(':id/score/v2/recalc')
+  @Permit('leads', 'update')
+  async recalcLeadScoreV2(
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+    @Body() body?: { async?: boolean }
+  ) {
+    const ctx = resolveRequestContext(req);
+    if (!ctx.tenantId) {
+      throw new UnauthorizedException('tenantId header (x-tenant-id) is required');
+    }
+
+    if (body?.async) {
+      await this.scoringProducer.enqueue(ctx.tenantId, id);
+      return { queued: true };
+    }
+
+    return this.scoring.scoreLead(ctx.tenantId, id);
   }
 }

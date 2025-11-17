@@ -1,0 +1,767 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+
+import { CopilotPanel } from './CopilotPanel';
+import { PersonaSelector } from './PersonaSelector';
+import { useAiEmployees, type AiPersona } from '@/hooks/useAiEmployees';
+import { useAiActions } from '@/hooks/useAiActions';
+import { useToast } from '@/components/ui/use-toast';
+import type {
+  AiEmployeeAction,
+  AiEmployeeTemplate,
+  AiEmployeeUsageStats
+} from '@/lib/api/hatch';
+import { getAiEmployeeUsageStats } from '@/lib/api/hatch';
+import type { CopilotContext } from '@/lib/copilot/events';
+import { PERSONAS, type PersonaConfig, type PersonaId } from '@/lib/ai/aiPersonas';
+import { cn, resolveUserIdentity } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+
+const TOOL_CATALOG: Record<
+  string,
+  { label: string; description: string; comingSoon?: boolean }
+> = {
+  lead_add_note: {
+    label: 'Add note to lead',
+    description: 'Logs conversational context after each call.'
+  },
+  lead_assign: {
+    label: 'Reassign lead',
+    description: 'Moves ownership to another teammate.'
+  },
+  lead_follow_up_task: {
+    label: 'Create follow-up task',
+    description: 'Books a reminder if touchpoints are overdue.'
+  },
+  send_email: {
+    label: 'Send branded email',
+    description: 'Lets Copilot send outreach without review yet.',
+    comingSoon: true
+  }
+};
+
+export function CopilotDock({ debug = false }: { debug?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [context, setContext] = useState<CopilotContext | undefined>(undefined);
+  const [usageStats, setUsageStats] = useState<AiEmployeeUsageStats[] | null>(null);
+  const [selectedKey, setSelectedKey] = useState<PersonaId | null>(PERSONAS[0]?.id ?? null);
+  const {
+    personas,
+    loading: personaLoading,
+    error: personaError,
+    refresh: refreshPersonas
+  } = useAiEmployees();
+  const {
+    actions,
+    loading: actionsLoading,
+    error: actionsError,
+    refresh: refreshActions,
+    approveAction,
+    rejectAction
+  } = useAiActions();
+  const { toast } = useToast();
+  const { session, user } = useAuth();
+
+  const senderName = useMemo(() => {
+    const { displayName } = resolveUserIdentity(session?.profile ?? {}, user?.email ?? undefined, 'Your Account');
+    return displayName || undefined;
+  }, [session?.profile, user?.email]);
+  const isRefreshing = personaLoading || actionsLoading;
+  const personaMap = useMemo(() => {
+    return new Map<PersonaId, AiPersona>(
+      personas.map((persona) => [persona.template.key as PersonaId, persona])
+    );
+  }, [personas]);
+  const personaStatuses = useMemo(() => {
+    const result: Partial<Record<PersonaId, 'ready' | 'provisioning'>> = {};
+    PERSONAS.forEach((config) => {
+      const instance = personaMap.get(config.id)?.instance;
+      result[config.id] = instance ? 'ready' : 'provisioning';
+    });
+    return result;
+  }, [personaMap]);
+
+  useEffect(() => {
+    const openHandler = () => setOpen(true);
+    const closeHandler = () => setOpen(false);
+    const toggleHandler = () => setOpen((prev) => !prev);
+    const onContext = (event: Event) => {
+      const detail = (event as CustomEvent<CopilotContext | undefined>).detail ?? undefined;
+      setContext(detail);
+    };
+    window.addEventListener('copilot:context', onContext);
+    window.addEventListener('copilot:open', openHandler);
+    window.addEventListener('copilot:close', closeHandler);
+    window.addEventListener('copilot:toggle', toggleHandler);
+    return () => {
+      window.removeEventListener('copilot:context', onContext);
+      window.removeEventListener('copilot:open', openHandler);
+      window.removeEventListener('copilot:close', closeHandler);
+      window.removeEventListener('copilot:toggle', toggleHandler);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showDetails) {
+          setShowDetails(false);
+          return;
+        }
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, showDetails]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getAiEmployeeUsageStats()
+      .then((data) => {
+        if (isMounted) {
+          setUsageStats(data);
+        }
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+        console.error('Failed to load AI usage stats', error);
+        setUsageStats([]);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedKey) {
+      return;
+    }
+    const preferred = PERSONAS.find((config) => personaMap.has(config.id));
+    if (preferred) {
+      setSelectedKey(preferred.id);
+    } else if (PERSONAS[0]) {
+      setSelectedKey(PERSONAS[0].id);
+    }
+  }, [personaMap, selectedKey]);
+
+  const refreshAll = useCallback(() => {
+    refreshPersonas();
+    refreshActions();
+  }, [refreshPersonas, refreshActions]);
+
+  const notifyExecution = useCallback(
+    (action: AiEmployeeAction) => {
+      const status = (action.status ?? '').toLowerCase();
+      if (status === 'executed') {
+        toast({
+          title: 'Action executed',
+          description: 'The AI tool ran successfully.'
+        });
+      } else if (status === 'failed') {
+        toast({
+          variant: 'destructive',
+          title: 'Action failed',
+          description: action.errorMessage ?? 'Tool execution failed.'
+        });
+      } else {
+        toast({
+          title: 'Action approved',
+          description: `Status: ${action.status}`
+        });
+      }
+    },
+    [toast]
+  );
+
+  const handleApproveAction = useCallback(
+    async (actionId: string) => {
+      try {
+        const updated = await approveAction(actionId);
+        notifyExecution(updated);
+        return updated;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to approve action.';
+        toast({
+          variant: 'destructive',
+          title: 'Approval failed',
+          description: message
+        });
+        throw error;
+      }
+    },
+    [approveAction, notifyExecution, toast]
+  );
+
+  const handleRejectAction = useCallback(
+    async (actionId: string) => {
+      try {
+        const updated = await rejectAction(actionId);
+        toast({
+          title: 'Action rejected',
+          description: 'The AI suggestion was dismissed.'
+        });
+        return updated;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to reject action.';
+        toast({
+          variant: 'destructive',
+          title: 'Rejection failed',
+          description: message
+        });
+        throw error;
+      }
+    },
+    [rejectAction, toast]
+  );
+
+  const selectedConfig = useMemo(
+    () => PERSONAS.find((persona) => persona.id === selectedKey) ?? PERSONAS[0] ?? null,
+    [selectedKey]
+  );
+
+  const selectedPersona = useMemo(() => {
+    if (!selectedConfig) {
+      return null;
+    }
+    return personaMap.get(selectedConfig.id) ?? buildStubPersona(selectedConfig);
+  }, [personaMap, selectedConfig]);
+
+  const personaUsage = useMemo(() => {
+    if (!selectedConfig || !usageStats) {
+      return undefined;
+    }
+    return usageStats.find((stat) => stat.personaKey === selectedConfig.id);
+  }, [selectedConfig, usageStats]);
+
+  return (
+    <>
+      {!open && (
+        <button
+          type="button"
+          aria-label="Open Hatch Copilot"
+          className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg"
+          onClick={() => setOpen(true)}
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-lg font-semibold tracking-tight">
+            AI
+          </span>
+        </button>
+      )}
+
+      {open && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30" onClick={() => setOpen(false)}>
+          <div className="pointer-events-auto w-full max-w-3xl px-4 pb-8" onClick={(event) => event.stopPropagation()}>
+            <div className="flex max-h-[80vh] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+              <ChatHeader
+                persona={selectedPersona}
+                personaConfig={selectedConfig ?? undefined}
+                context={context}
+                onClose={() => setOpen(false)}
+                onRefresh={refreshAll}
+                onViewDetails={() => setShowDetails(true)}
+                isRefreshing={isRefreshing}
+                personaError={personaError}
+              />
+
+              <>
+                <div className="border-b border-slate-100 bg-slate-50/40 px-5 py-3">
+                  <PersonaSelector
+                    activeId={selectedConfig?.id ?? null}
+                    onSelect={(id) => setSelectedKey(id)}
+                    statuses={personaStatuses}
+                  />
+                </div>
+
+                {context && <ContextBanner context={context} />}
+                {personaUsage && <PersonaStatsStrip usage={personaUsage} />}
+
+                <div className="flex-1 overflow-hidden px-4 pb-4 pt-2">
+                  {selectedPersona && selectedConfig ? (
+                    <CopilotPanel
+                      persona={selectedPersona}
+                      personaConfig={selectedConfig}
+                      context={context}
+                      className="h-full"
+                    senderName={senderName}
+                  />
+                  ) : (
+                    <EmptyState loading={personaLoading} />
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 px-4 py-3 text-[11px] text-slate-500">
+                  <p>Agent Copilot may make mistakes. Verify important details before acting.</p>
+                  {debug && selectedPersona && (
+                    <div className="mt-2">
+                      <PromptDebug persona={selectedPersona} />
+                    </div>
+                  )}
+                </div>
+              </>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDetails && (
+        <ToolsDrawer
+          persona={selectedPersona}
+          actions={actions}
+          loading={actionsLoading}
+          error={actionsError}
+          onApprove={handleApproveAction}
+          onReject={handleRejectAction}
+          onRefresh={refreshActions}
+          onClose={() => setShowDetails(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function ChatHeader({
+  persona,
+  personaConfig,
+  context,
+  onClose,
+  onRefresh,
+  onViewDetails,
+  isRefreshing,
+  personaError
+}: {
+  persona: AiPersona | null;
+  personaConfig?: PersonaConfig;
+  context?: CopilotContext;
+  onClose: () => void;
+  onRefresh: () => void;
+  onViewDetails: () => void;
+  isRefreshing: boolean;
+  personaError: string | null;
+}) {
+  const contextLabel = getContextLabel(context) ?? 'Workspace · tenant scoped';
+  const personaLabel = personaConfig?.name ?? persona?.template.displayName ?? 'AI Employee';
+  return (
+    <header className="flex items-start justify-between border-b border-slate-100 bg-white/90 px-5 py-4">
+      <div className="pr-4">
+        <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Agent Copilot</p>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-slate-900">{personaLabel}</h2>
+            {personaError && <span className="text-xs text-red-600">{personaError}</span>}
+          </div>
+          <p className="text-xs text-slate-500">{contextLabel}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? <Loader2 className="mr-2 inline h-3 w-3 animate-spin" /> : null}
+          Sync
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          onClick={onViewDetails}
+        >
+          View tools & approvals
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function ContextBanner({ context }: { context: CopilotContext }) {
+  const label = getContextLabel(context);
+  if (!label) return null;
+  return (
+    <div className="border-b border-slate-100 bg-white/70 px-5 py-2 text-xs text-slate-600">
+      <span className="font-semibold text-slate-800">Context:</span> {label}
+    </div>
+  );
+}
+
+function PersonaStatsStrip({ usage }: { usage: AiEmployeeUsageStats }) {
+  const stats = buildWorkspaceStats(usage);
+  return (
+    <div className="border-b border-slate-100 bg-white/90 px-5 py-3">
+      <div className="grid grid-cols-3 gap-3 text-sm">
+        {stats.map((stat) => (
+          <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {stat.label}
+            </p>
+            <p className="mt-1 text-lg font-semibold text-slate-900">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ToolsDrawer({
+  persona,
+  actions,
+  loading,
+  error,
+  onApprove,
+  onReject,
+  onRefresh,
+  onClose
+}: {
+  persona: AiPersona | null;
+  actions: AiEmployeeAction[];
+  loading: boolean;
+  error: string | null;
+  onApprove: (id: string) => Promise<AiEmployeeAction | void>;
+  onReject: (id: string) => Promise<AiEmployeeAction | void>;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="pointer-events-auto w-full max-w-md rounded-3xl border border-slate-200 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">AI workspace</p>
+            <h3 className="text-lg font-semibold text-slate-900">Tools & approvals</h3>
+          </div>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto px-5 py-5 text-sm">
+          <ToolsList persona={persona} />
+          <ApprovalsList
+            actions={actions}
+            loading={loading}
+            error={error}
+            onApprove={onApprove}
+            onReject={onReject}
+            onRefresh={onRefresh}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolsList({ persona }: { persona: AiPersona | null }) {
+  const allowed = persona?.template.allowedTools ?? [];
+  const keys = Array.from(new Set([...Object.keys(TOOL_CATALOG), ...allowed]));
+
+  return (
+    <section>
+      <header className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400">
+          Tools this persona can use
+        </p>
+        <p className="text-xs text-slate-500">Each tool is scoped to this tenant’s CRM data.</p>
+      </header>
+      {persona ? (
+        <div className="space-y-2">
+          {keys.map((key) => {
+            const meta = TOOL_CATALOG[key] ?? {
+              label: key,
+              description: 'Custom automation'
+            };
+            const enabled = allowed.includes(key) && !meta.comingSoon;
+            return (
+              <div
+                key={key}
+                className={cn(
+                  'rounded-2xl border px-3 py-2',
+                  enabled
+                    ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                    : 'border-slate-200 bg-white text-slate-600'
+                )}
+              >
+                <div className="flex items-center justify-between text-sm font-semibold">
+                  <span>{meta.label}</span>
+                  <CheckCircle2
+                    className={cn(
+                      'h-4 w-4',
+                      enabled ? 'text-emerald-500' : 'text-slate-300'
+                    )}
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  {meta.description}
+                  {meta.comingSoon && ' · coming soon'}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-slate-500">Select a persona to view its toolset.</p>
+      )}
+    </section>
+  );
+}
+
+function ApprovalsList({
+  actions,
+  loading,
+  error,
+  onApprove,
+  onReject,
+  onRefresh
+}: {
+  actions: AiEmployeeAction[];
+  loading: boolean;
+  error: string | null;
+  onApprove: (id: string) => Promise<AiEmployeeAction | void>;
+  onReject: (id: string) => Promise<AiEmployeeAction | void>;
+  onRefresh: () => void;
+}) {
+  return (
+    <section>
+      <header className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400">
+            Approvals
+          </p>
+          <p className="text-xs text-slate-500">
+            Review pending AI actions before they execute.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Refresh
+        </button>
+      </header>
+      {error && <p className="mb-2 text-[11px] text-red-600">{error}</p>}
+      {actions.length === 0 ? (
+        <p className="text-xs text-slate-500">No pending AI actions.</p>
+      ) : (
+        <div className="space-y-3">
+          {actions.map((action) => (
+            <ActionCard
+              key={action.id}
+              action={action}
+              onApprove={onApprove}
+              onReject={onReject}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ActionCard({
+  action,
+  onApprove,
+  onReject
+}: {
+  action: AiEmployeeAction;
+  onApprove: (id: string) => Promise<AiEmployeeAction | void>;
+  onReject: (id: string) => Promise<AiEmployeeAction | void>;
+}) {
+  const [pending, setPending] = useState<'approve' | 'reject' | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const normalizedStatus = (action.status ?? '').toLowerCase();
+  const actionable = normalizedStatus === 'proposed' || normalizedStatus === 'requires-approval';
+
+  const run = async (kind: 'approve' | 'reject') => {
+    setPending(kind);
+    try {
+      if (kind === 'approve') {
+        await onApprove(action.id);
+      } else {
+        await onReject(action.id);
+      }
+    } catch {
+      // toast handled upstream
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{action.actionType}</p>
+          <p className="text-xs text-slate-500">
+            Session {action.sessionId ? action.sessionId.slice(0, 6) : 'N/A'}
+          </p>
+        </div>
+        <ActionStatusBadge status={action.status} />
+      </div>
+
+      {expanded && (
+        <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-950/5 p-2 text-[11px] text-slate-600">
+          {JSON.stringify(action.payload, null, 2)}
+        </pre>
+      )}
+
+      {action.errorMessage && (
+        <p className="mt-2 text-[11px] text-red-600">{action.errorMessage}</p>
+      )}
+      {action.executedAt && (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Executed {new Date(action.executedAt).toLocaleString()}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <button
+          type="button"
+          className="text-blue-600 hover:text-blue-500"
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded ? 'Hide payload' : 'View payload'}
+        </button>
+        {actionable && (
+          <div className="ml-auto flex gap-2">
+            <button
+              type="button"
+              className="rounded-full bg-blue-600 px-3 py-1.5 font-semibold text-white disabled:opacity-60"
+              onClick={() => run('approve')}
+              disabled={pending !== null}
+            >
+              {pending === 'approve' ? <Loader2 className="mx-auto h-3 w-3 animate-spin" /> : 'Approve'}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-200 px-3 py-1.5 font-semibold text-slate-600 disabled:opacity-60"
+              onClick={() => run('reject')}
+              disabled={pending !== null}
+            >
+              {pending === 'reject' ? <Loader2 className="mx-auto h-3 w-3 animate-spin" /> : 'Reject'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActionStatusBadge({ status }: { status: string }) {
+  const normalized = (status ?? '').toLowerCase();
+  const variants: Record<string, { label: string; className: string }> = {
+    executed: { label: 'Executed', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    failed: { label: 'Failed', className: 'bg-red-50 text-red-600 border-red-200' },
+    approved: { label: 'Approved', className: 'bg-blue-50 text-blue-700 border-blue-200' },
+    rejected: { label: 'Rejected', className: 'bg-red-50 text-red-600 border-red-200' },
+    'requires-approval': {
+      label: 'Needs approval',
+      className: 'bg-amber-50 text-amber-700 border-amber-200'
+    },
+    proposed: { label: 'Proposed', className: 'bg-slate-100 text-slate-600 border-slate-200' }
+  };
+  const variant = variants[normalized] ?? {
+    label: status,
+    className: 'bg-slate-100 text-slate-600 border-slate-200'
+  };
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${variant.className}`}>
+      {variant.label}
+    </span>
+  );
+}
+
+function PromptDebug({ persona }: { persona: AiPersona }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-[11px] text-slate-100">
+      <div className="mb-2 font-semibold uppercase tracking-wide text-slate-400">
+        System prompt ({persona.template.key})
+      </div>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap leading-relaxed">
+        {persona.template.systemPrompt}
+      </pre>
+    </div>
+  );
+}
+
+function EmptyState({ loading }: { loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-slate-500">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Loading AI employees…
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-6 text-center text-sm text-slate-500">
+      <p>Connect AI employees to this workspace to start chatting in real time.</p>
+    </div>
+  );
+}
+
+
+function getContextLabel(context?: CopilotContext) {
+  if (!context) return null;
+  if (context.entityType && context.entityId) {
+    return `${context.entityType} · ${context.entityId}`;
+  }
+  if (context.entityId) {
+    return context.entityId;
+  }
+  return context.surface ? `Surface · ${context.surface}` : null;
+}
+
+function buildWorkspaceStats(usage: AiEmployeeUsageStats) {
+  const draftTool = usage.toolsUsed.find((tool) => tool.toolKey.includes('email') || tool.toolKey.includes('draft'));
+  return [
+    { label: 'New leads today', value: formatNumber(usage.totalActions) },
+    { label: 'Overdue follow-ups', value: formatNumber(usage.failedActions) },
+    { label: 'Draft emails pending', value: formatNumber(draftTool?.count ?? 0) }
+  ];
+}
+
+function formatNumber(value: number | undefined) {
+  if (value === undefined) return '—';
+  if (value > 999) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return value.toLocaleString();
+}
+
+function buildStubPersona(config: PersonaConfig): AiPersona {
+  const template: AiEmployeeTemplate = {
+    id: `stub-${config.id}`,
+    key: config.id,
+    displayName: config.name,
+    description: config.specialty,
+    systemPrompt: '',
+    defaultSettings: {},
+    allowedTools: []
+  };
+  return {
+    template,
+    instance: undefined
+  };
+}
