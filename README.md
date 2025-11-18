@@ -39,11 +39,13 @@ pnpm --filter @hatch/db seed
 ```
 
 # 6. Start services
+# http://localhost:4000
 ```
-pnpm --filter @hatch/api dev    # http://localhost:4000
+pnpm --filter @hatch/api dev   
 ```
+# http://localhost:3000
 ```
-pnpm --filter @hatch/web dev    # http://localhost:3000
+pnpm --filter @hatch/web dev    
 ```
 
 Seeded demo showcases:
