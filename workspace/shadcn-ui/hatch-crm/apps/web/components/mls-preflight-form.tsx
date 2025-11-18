@@ -42,8 +42,10 @@ export default function MlsPreflightForm({ tenantId, profiles }: MlsPreflightFor
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="text-xs font-semibold uppercase text-slate-500">MLS Profile</label>
+        <label htmlFor="mls-profile" className="text-xs font-semibold uppercase text-slate-500">MLS Profile</label>
         <select
+          id="mls-profile"
+          name="mlsProfile"
           className="mt-1 w-full rounded border border-slate-200 bg-white p-2 text-slate-900"
           value={profileId}
           onChange={(event) => {
@@ -95,9 +97,11 @@ export default function MlsPreflightForm({ tenantId, profiles }: MlsPreflightFor
       </div>
 
       <div>
-        <label className="text-xs font-semibold uppercase text-slate-500">Disclaimer</label>
+        <label htmlFor="disclaimer" className="text-xs font-semibold uppercase text-slate-500">Disclaimer</label>
         <textarea
-          className="mt-1 w-full rounded border border-slate-200 bg-white p-2 text-slate-900"
+          id="disclaimer"
+          name="disclaimer"
+          className="mt-1 w-full rounded border border-slate-200 bg-white p-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-opacity-50 transition-colors"
           rows={3}
           value={disclaimer}
           onChange={(event) => setDisclaimer(event.target.value)}

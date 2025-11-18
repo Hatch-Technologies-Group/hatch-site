@@ -66,9 +66,11 @@ export default function ContactActions({ contact, tenantId }: ContactActionsProp
       <h2 className="text-sm font-semibold text-slate-700">Quick Actions</h2>
       <div className="mt-4 space-y-4 text-sm">
         <div>
-          <label className="text-xs font-semibold uppercase text-slate-500">SMS Message</label>
+          <label htmlFor="sms-message" className="text-xs font-semibold uppercase text-slate-500">SMS Message</label>
           <textarea
-            className="mt-1 w-full rounded border border-slate-200 bg-white p-2 text-slate-900"
+            id="sms-message"
+            name="smsMessage"
+            className="mt-1 w-full rounded border border-slate-200 bg-white p-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-opacity-50 transition-colors"
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             rows={4}
@@ -85,9 +87,11 @@ export default function ContactActions({ contact, tenantId }: ContactActionsProp
 
         {!smsConsent && (
           <div className="rounded border border-dashed border-amber-400 p-3">
-            <p className="text-xs font-semibold uppercase text-amber-600">Consent Needed</p>
+            <label htmlFor="consent-text" className="text-xs font-semibold uppercase text-amber-600">Consent Needed</label>
             <textarea
-              className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-slate-900"
+              id="consent-text"
+              name="consentText"
+              className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-opacity-50 transition-colors"
               value={consentText}
               onChange={(event) => setConsentText(event.target.value)}
             />
