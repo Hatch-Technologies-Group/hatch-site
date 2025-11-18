@@ -36,6 +36,7 @@ pnpm --filter @hatch/web dev    # http://localhost:3000
 ## Documentation
 
 - **[SETUP.md](SETUP.md)** — Complete setup guide for local development
+- **[MONOREPO_ARCHITECTURE.md](MONOREPO_ARCHITECTURE.md)** — Detailed explanation of monorepo structure, apps organization, and how components connect
 - [Architecture](docs/architecture.md) — System architecture and module overview
 - [Data Model](docs/data-model.md) — Prisma schema notes and entity descriptions
 - [Compliance Guardrails](docs/compliance.md) — Consent, MLS, and audit guardrails reference
