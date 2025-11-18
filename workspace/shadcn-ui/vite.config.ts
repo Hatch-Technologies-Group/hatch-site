@@ -1,16 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-// Temporarily disabled to check CSP issue
-// import { viteSourceLocator } from "@metagptx/vite-plugin-source-locator";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [
-    // Temporarily disabled - this plugin might be setting strict CSP
-    // viteSourceLocator({
-    //   prefix: "mgx",
-    // }),
     react(),
   ],
   resolve: {
@@ -24,8 +22,10 @@ export default defineConfig(({ mode }) => ({
   esbuild: {
     legalComments: 'none',
   },
-  // Remove CSP headers completely for dev
+
   server: {
-    headers: {}
+    headers: {
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:* https://*.supabase.co wss://*.supabase.co; object-src 'none';"
+    }
   }
 }));

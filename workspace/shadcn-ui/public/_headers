@@ -1,7 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://public-frontend-cos.metadl.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://api.stripe.com https://public-frontend-cos.metadl.com wss://*.supabase.co ws://localhost:* http://localhost:*; frame-src https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';
-  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://js.stripe.com https://public-frontend-cos.metadl.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://api.stripe.com https://public-frontend-cos.metadl.com wss://*.supabase.co ws://localhost:* http://localhost:*; frame-src https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';  X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   X-XSS-Protection: 1; mode=block
-  Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
