@@ -54,3 +54,26 @@ export async function listCases(params: CaseListParams = {}): Promise<CaseListRe
     nextCursor: response.nextCursor ?? null
   };
 }
+
+export interface CaseDetail extends CaseSummary {
+  description?: string | null;
+  ownerId?: string | null;
+}
+
+export interface CaseFileLink {
+  id: string;
+  fileId: string;
+  file?: {
+    name?: string | null;
+    mimeType?: string | null;
+  } | null;
+}
+
+export async function getCase(caseId: string): Promise<CaseDetail> {
+  return apiFetch<CaseDetail>(`cases/${caseId}`);
+}
+
+export async function listCaseFiles(caseId: string): Promise<CaseFileLink[]> {
+  const response = await apiFetch<{ items?: CaseFileLink[] }>(`cases/${caseId}/files`);
+  return response.items ?? [];
+}

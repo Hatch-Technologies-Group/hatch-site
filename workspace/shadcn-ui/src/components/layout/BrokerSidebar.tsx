@@ -13,29 +13,43 @@ import {
   Home,
   ShieldCheck,
   Percent,
-  Megaphone
+  Megaphone,
+  Radar,
+  Shuffle
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { HatchLogo } from '@/components/HatchLogo'
+import { useUserRole, userHasRole, type UserRole } from '@/lib/auth/roles'
 
 export default function BrokerSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const { signOut } = useAuth()
+  const role = useUserRole()
 
-  const menuItems = [
-    { icon: Home, label: 'Dashboard', path: '/broker/dashboard' },
-    { icon: Building2, label: 'Properties', path: '/broker/properties' },
-    { icon: NotebookPen, label: 'CRM', path: '/broker/crm' },
-    { icon: Megaphone, label: 'Marketing', path: '/broker/marketing' },
-    { icon: ShieldCheck, label: 'Compliance', path: '/broker/compliance' },
-    { icon: UserCheck, label: 'Team', path: '/broker/team' },
-    { icon: Percent, label: 'Commission Plans', path: '/broker/commission-plans' },
-    { icon: GitBranch, label: 'Lead Routing', path: '/broker/lead-routing' },
-    { icon: BarChart3, label: 'Analytics', path: '/broker/analytics' },
-    { icon: FileText, label: 'Draft Listings', path: '/broker/draft-listings' },
+  type NavItem = {
+    icon: React.ElementType
+    label: string
+    path: string
+    roles: UserRole[]
+  }
+
+  const menuItems: NavItem[] = [
+    { icon: Home, label: 'Dashboard', path: '/broker/dashboard', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: Radar, label: 'Mission Control', path: '/broker/mission-control', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: UserCheck, label: 'Team', path: '/broker/team', roles: ['BROKER', 'ADMIN'] },
+    { icon: ShieldCheck, label: 'Compliance', path: '/broker/compliance', roles: ['BROKER', 'ADMIN'] },
+    { icon: Building2, label: 'Properties', path: '/broker/properties', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: Shuffle, label: 'Transactions', path: '/broker/transactions', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: NotebookPen, label: 'CRM', path: '/broker/crm', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: Megaphone, label: 'Marketing', path: '/broker/marketing', roles: ['BROKER', 'ADMIN'] },
+    { icon: Percent, label: 'Commission Plans', path: '/broker/commission-plans', roles: ['BROKER', 'ADMIN'] },
+    { icon: GitBranch, label: 'Lead Routing', path: '/broker/lead-routing', roles: ['BROKER', 'ADMIN'] },
+    { icon: BarChart3, label: 'Analytics', path: '/broker/analytics', roles: ['BROKER', 'ADMIN'] },
+    { icon: FileText, label: 'Draft Listings', path: '/broker/draft-listings', roles: ['BROKER', 'ADMIN'] },
   ]
 
+  const visibleMenuItems = menuItems.filter((item) => userHasRole(role, item.roles))
   const isActive = (path: string) => location.pathname === path
 
   const handleSignOut = useCallback(async () => {
@@ -62,7 +76,7 @@ export default function BrokerSidebar() {
       {/* Navigation Menu */}
       <nav className="flex-1 p-4">
         <div className="space-y-2">
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <Button
               key={item.path}
               variant={isActive(item.path) ? "default" : "ghost"}

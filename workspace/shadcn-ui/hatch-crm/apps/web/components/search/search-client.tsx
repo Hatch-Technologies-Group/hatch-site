@@ -44,7 +44,6 @@ export default function SearchClient({ initialFilters }: { initialFilters: Filte
   const [inputValue, setInputValue] = useState(initialFilters.q ?? '');
   const [facets, setFacets] = useState<Record<string, number>>({});
   const { banner, showError, clearError } = useApiError();
-  const typesKey = useMemo(() => (filters.types ?? []).join(','), [filters.types]);
 
   const fetchPage = useMemo(
     () => async (cursor: string | null, signal?: AbortSignal) => {
@@ -102,7 +101,7 @@ export default function SearchClient({ initialFilters }: { initialFilters: Filte
 
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-  }, [filters.q, filters.ownerId, filters.stage, filters.status, typesKey, router, pathname]);
+  }, [filters.q, filters.ownerId, filters.stage, filters.status, filters.types, router, pathname]);
 
   useEffect(() => {
     reset([], null);

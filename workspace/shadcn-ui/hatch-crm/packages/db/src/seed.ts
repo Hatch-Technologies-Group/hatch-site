@@ -1,5 +1,5 @@
 import { LeadScoreTier, Prisma } from '@prisma/client';
-import { addHours } from 'date-fns';
+import { addDays, addHours, subDays } from 'date-fns';
 
 import { prisma } from './index';
 import { seedAiEmployees as seedAiEmployeeTemplates } from '../prisma/seed/ai-employees.seed';
@@ -229,6 +229,1147 @@ async function seedAiEmployeeInstances(params: {
       }
     });
   }
+}
+
+async function seedMissionControlData({
+  organization,
+  tenant,
+  broker,
+  agent,
+  isa
+}: {
+  organization: { id: string };
+  tenant: { id: string };
+  broker: { id: string };
+  agent: { id: string };
+  isa: { id: string };
+}) {
+  const now = new Date();
+  const optionalSeed = async <T>(operationName: string, fn: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021') {
+        console.warn(`[mission-control-seed] skipped ${operationName}; table missing`);
+        return null;
+      }
+      throw error;
+    }
+  };
+
+  const additionalAgent = await prisma.user.upsert({
+    where: { id: 'user-agent-nova' },
+    update: {
+      email: 'nova.agent@hatchcrm.test'
+    },
+    create: {
+      id: 'user-agent-nova',
+      organizationId: organization.id,
+      tenantId: tenant.id,
+      email: 'nova.agent@hatchcrm.test',
+      firstName: 'Nova',
+      lastName: 'North',
+      role: 'AGENT'
+    }
+  });
+
+  await prisma.userOrgMembership.upsert({
+    where: { id: 'uom-agent-nova' },
+    update: {
+      userId: additionalAgent.id,
+      orgId: organization.id
+    },
+    create: {
+      id: 'uom-agent-nova',
+      userId: additionalAgent.id,
+      orgId: organization.id,
+      isOrgAdmin: false
+    }
+  });
+
+  const consumer = await prisma.user.upsert({
+    where: { id: 'user-consumer-jordan' },
+    update: {
+      email: 'jordan.consumer@hatchcrm.test'
+    },
+    create: {
+      id: 'user-consumer-jordan',
+      organizationId: organization.id,
+      tenantId: tenant.id,
+      email: 'jordan.consumer@hatchcrm.test',
+      firstName: 'Jordan',
+      lastName: 'Consumer',
+      role: 'CONSUMER'
+    }
+  });
+
+  const [ariaProfile, novaProfile, isaProfile] = await Promise.all([
+    prisma.agentProfile.upsert({
+      where: { id: 'agent-profile-aria' },
+      update: {
+        licenseNumber: 'FL-AR-100',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 240),
+        isCompliant: true,
+        requiresAction: false,
+        riskLevel: 'LOW',
+        riskScore: 18,
+        lifecycleStage: 'ACTIVE',
+        ceCycleStartAt: subDays(now, 90),
+        ceCycleEndAt: addDays(now, 275),
+        ceHoursRequired: 14,
+        ceHoursCompleted: 11
+      },
+      create: {
+        id: 'agent-profile-aria',
+        organizationId: organization.id,
+        userId: agent.id,
+        licenseNumber: 'FL-AR-100',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 240),
+        title: 'Senior Advisor',
+        isCompliant: true,
+        requiresAction: false,
+        riskLevel: 'LOW',
+        riskScore: 18,
+        lifecycleStage: 'ACTIVE',
+        ceCycleStartAt: subDays(now, 90),
+        ceCycleEndAt: addDays(now, 275),
+        ceHoursRequired: 14,
+        ceHoursCompleted: 11
+      }
+    }),
+    prisma.agentProfile.upsert({
+      where: { id: 'agent-profile-nova' },
+      update: {
+        licenseNumber: 'FL-NN-200',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 60),
+        isCompliant: false,
+        requiresAction: true,
+        riskLevel: 'HIGH',
+        riskScore: 72,
+        lifecycleStage: 'ONBOARDING',
+        ceCycleStartAt: subDays(now, 30),
+        ceCycleEndAt: addDays(now, 60),
+        ceHoursRequired: 14,
+        ceHoursCompleted: 2
+      },
+      create: {
+        id: 'agent-profile-nova',
+        organizationId: organization.id,
+        userId: additionalAgent.id,
+        licenseNumber: 'FL-NN-200',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 60),
+        title: 'Associate',
+        isCompliant: false,
+        requiresAction: true,
+        riskLevel: 'HIGH',
+        riskScore: 72,
+        lifecycleStage: 'ONBOARDING',
+        ceCycleStartAt: subDays(now, 30),
+        ceCycleEndAt: addDays(now, 60),
+        ceHoursRequired: 14,
+        ceHoursCompleted: 2
+      }
+    }),
+    prisma.agentProfile.upsert({
+      where: { id: 'agent-profile-isa' },
+      update: {
+        licenseNumber: 'FL-IS-300',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 400),
+        lifecycleStage: 'OFFBOARDING',
+        riskLevel: 'MEDIUM',
+        riskScore: 35
+      },
+      create: {
+        id: 'agent-profile-isa',
+        organizationId: organization.id,
+        userId: isa.id,
+        licenseNumber: 'FL-IS-300',
+        licenseState: 'FL',
+        licenseExpiresAt: addDays(now, 400),
+        title: 'ISA',
+        isCompliant: true,
+        requiresAction: false,
+        riskLevel: 'MEDIUM',
+        riskScore: 35,
+        lifecycleStage: 'OFFBOARDING',
+        ceCycleStartAt: subDays(now, 180),
+        ceCycleEndAt: addDays(now, 180),
+        ceHoursRequired: 14,
+        ceHoursCompleted: 14
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.agentMembership.upsert({
+      where: { id: 'agent-membership-aria-mls' },
+      update: {
+        expiresAt: addDays(now, 120)
+      },
+      create: {
+        id: 'agent-membership-aria-mls',
+        agentProfileId: ariaProfile.id,
+        type: 'MLS',
+        name: 'Miami Realtors',
+        status: 'ACTIVE',
+        startedAt: subDays(now, 365),
+        expiresAt: addDays(now, 120)
+      }
+    }),
+    prisma.agentMembership.upsert({
+      where: { id: 'agent-membership-nova-mls' },
+      update: {
+        status: 'PENDING'
+      },
+      create: {
+        id: 'agent-membership-nova-mls',
+        agentProfileId: novaProfile.id,
+        type: 'MLS',
+        name: 'Stellar MLS',
+        status: 'PENDING',
+        startedAt: subDays(now, 15),
+        expiresAt: addDays(now, 30)
+      }
+    })
+  ]);
+
+  await prisma.agentInvite.upsert({
+    where: { id: 'agent-invite-newcomer' },
+    update: {
+      status: 'PENDING',
+      expiresAt: addDays(now, 7)
+    },
+    create: {
+      id: 'agent-invite-newcomer',
+      organizationId: organization.id,
+      email: 'future.agent@hatchcrm.test',
+      token: 'invite-token-command-center',
+      status: 'PENDING',
+      invitedByUserId: broker.id,
+      expiresAt: addDays(now, 7)
+    }
+  });
+
+  const [complianceFile, marketingFile] = await Promise.all([
+    prisma.fileObject.upsert({
+      where: { id: 'file-compliance-manual' },
+      update: {
+        fileName: 'Compliance Handbook.pdf'
+      },
+      create: {
+        id: 'file-compliance-manual',
+        orgId: organization.id,
+        ownerId: broker.id,
+        fileName: 'Compliance Handbook.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 1250000,
+        storageKey: 'org-hatch/compliance-handbook.pdf'
+      }
+    }),
+    prisma.fileObject.upsert({
+      where: { id: 'file-marketing-kit' },
+      update: {
+        fileName: 'Spring Marketing Kit.zip'
+      },
+      create: {
+        id: 'file-marketing-kit',
+        orgId: organization.id,
+        ownerId: broker.id,
+        fileName: 'Spring Marketing Kit.zip',
+        mimeType: 'application/zip',
+        byteSize: 2300000,
+        storageKey: 'org-hatch/marketing-kit.zip'
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.orgFile.upsert({
+      where: { id: 'orgfile-compliance-manual' },
+      update: {
+        fileId: complianceFile.id
+      },
+      create: {
+        id: 'orgfile-compliance-manual',
+        orgId: organization.id,
+        tenantId: tenant.id,
+        name: 'Compliance Handbook',
+        description: 'Updated DBPR requirements',
+        category: 'COMPLIANCE',
+        fileId: complianceFile.id,
+        uploadedByUserId: broker.id
+      }
+    }),
+    prisma.orgFile.upsert({
+      where: { id: 'orgfile-marketing-kit' },
+      update: {
+        fileId: marketingFile.id
+      },
+      create: {
+        id: 'orgfile-marketing-kit',
+        orgId: organization.id,
+        tenantId: tenant.id,
+        name: 'Spring Marketing Kit',
+        description: 'Templates for luxury listings',
+        category: 'MARKETING',
+        fileId: marketingFile.id,
+        uploadedByUserId: agent.id
+      }
+    })
+  ]);
+
+  const [complianceModule, marketingModule] = await Promise.all([
+    prisma.agentTrainingModule.upsert({
+      where: { id: 'training-compliance-foundations' },
+      update: {},
+      create: {
+        id: 'training-compliance-foundations',
+        organizationId: organization.id,
+        title: 'Compliance Foundations',
+        description: 'Florida CE refresher',
+        required: true,
+        estimatedMinutes: 60,
+        createdByUserId: broker.id
+      }
+    }),
+    prisma.agentTrainingModule.upsert({
+      where: { id: 'training-digital-marketing' },
+      update: {},
+      create: {
+        id: 'training-digital-marketing',
+        organizationId: organization.id,
+        title: 'Digital Marketing Playbook',
+        description: 'Social + nurture strategy',
+        required: false,
+        estimatedMinutes: 45,
+        createdByUserId: broker.id
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.agentTrainingProgress.upsert({
+      where: {
+        agentProfileId_moduleId: { agentProfileId: ariaProfile.id, moduleId: complianceModule.id }
+      },
+      update: {
+        status: 'COMPLETED',
+        completedAt: subDays(now, 5),
+        score: 95
+      },
+      create: {
+        id: 'training-progress-aria-compliance',
+        agentProfileId: ariaProfile.id,
+        moduleId: complianceModule.id,
+        status: 'COMPLETED',
+        completedAt: subDays(now, 5),
+        score: 95
+      }
+    }),
+    prisma.agentTrainingProgress.upsert({
+      where: {
+        agentProfileId_moduleId: { agentProfileId: ariaProfile.id, moduleId: marketingModule.id }
+      },
+      update: {
+        status: 'IN_PROGRESS'
+      },
+      create: {
+        id: 'training-progress-aria-marketing',
+        agentProfileId: ariaProfile.id,
+        moduleId: marketingModule.id,
+        status: 'IN_PROGRESS'
+      }
+    }),
+    prisma.agentTrainingProgress.upsert({
+      where: {
+        agentProfileId_moduleId: { agentProfileId: novaProfile.id, moduleId: complianceModule.id }
+      },
+      update: {
+        status: 'IN_PROGRESS'
+      },
+      create: {
+        id: 'training-progress-nova-compliance',
+        agentProfileId: novaProfile.id,
+        moduleId: complianceModule.id,
+        status: 'IN_PROGRESS'
+      }
+    }),
+    prisma.agentTrainingProgress.upsert({
+      where: {
+        agentProfileId_moduleId: { agentProfileId: novaProfile.id, moduleId: marketingModule.id }
+      },
+      update: {
+        status: 'NOT_STARTED'
+      },
+      create: {
+        id: 'training-progress-nova-marketing',
+        agentProfileId: novaProfile.id,
+        moduleId: marketingModule.id,
+        status: 'NOT_STARTED'
+      }
+    })
+  ]);
+
+  const [channelConversation, directConversation] = await Promise.all([
+    prisma.orgConversation.upsert({
+      where: { id: 'org-conversation-ops' },
+      update: {},
+      create: {
+        id: 'org-conversation-ops',
+        organizationId: organization.id,
+        tenantId: tenant.id,
+        type: 'CHANNEL',
+        name: 'Brokerage Ops',
+        createdByUserId: broker.id
+      }
+    }),
+    prisma.orgConversation.upsert({
+      where: { id: 'org-conversation-direct-coaching' },
+      update: {},
+      create: {
+        id: 'org-conversation-direct-coaching',
+        organizationId: organization.id,
+        tenantId: tenant.id,
+        type: 'DIRECT',
+        name: 'Coaching thread',
+        createdByUserId: broker.id
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.orgMessage.upsert({
+      where: { id: 'org-message-ops-1' },
+      update: {
+        content: 'Reminder: upload CE certificates by Friday.'
+      },
+      create: {
+        id: 'org-message-ops-1',
+        organizationId: organization.id,
+        conversationId: channelConversation.id,
+        senderId: broker.id,
+        content: 'Reminder: upload CE certificates by Friday.',
+        createdAt: subDays(now, 2)
+      }
+    }),
+    prisma.orgMessage.upsert({
+      where: { id: 'org-message-ops-2' },
+      update: {
+        content: 'AI compliance flagged two listings for review.'
+      },
+      create: {
+        id: 'org-message-ops-2',
+        organizationId: organization.id,
+        conversationId: channelConversation.id,
+        senderId: broker.id,
+        content: 'AI compliance flagged two listings for review.',
+        createdAt: subDays(now, 1)
+      }
+    }),
+    prisma.orgMessage.upsert({
+      where: { id: 'org-message-direct-1' },
+      update: {
+        content: 'Let us know once onboarding paperwork is done.'
+      },
+      create: {
+        id: 'org-message-direct-1',
+        organizationId: organization.id,
+        conversationId: directConversation.id,
+        senderId: broker.id,
+        content: 'Let us know once onboarding paperwork is done.',
+        createdAt: subDays(now, 3)
+      }
+    })
+  ]);
+
+  const listingOcean = await prisma.orgListing.upsert({
+    where: { id: 'org-listing-ocean' },
+    update: {
+      status: 'ACTIVE',
+      brokerApproved: true
+    },
+    create: {
+      id: 'org-listing-ocean',
+      organizationId: organization.id,
+      agentProfileId: ariaProfile.id,
+      mlsNumber: 'MC-1001',
+      addressLine1: '801 Ocean Drive',
+      city: 'Miami Beach',
+      state: 'FL',
+      postalCode: '33139',
+      listPrice: 1450000,
+      propertyType: 'Condo',
+      bedrooms: 3,
+      bathrooms: 2,
+      squareFeet: 1800,
+      status: 'ACTIVE',
+      brokerApproved: true,
+      brokerApprovedAt: subDays(now, 1),
+      brokerApprovedByUserId: broker.id,
+      listedAt: subDays(now, 6),
+      expiresAt: addDays(now, 25),
+      createdByUserId: broker.id
+    }
+  });
+
+  const listingPending = await prisma.orgListing.upsert({
+    where: { id: 'org-listing-pending-approval' },
+    update: {
+      status: 'PENDING_BROKER_APPROVAL'
+    },
+    create: {
+      id: 'org-listing-pending-approval',
+      organizationId: organization.id,
+      agentProfileId: novaProfile.id,
+      mlsNumber: 'MC-2002',
+      addressLine1: '55 Brickell Key Dr',
+      city: 'Miami',
+      state: 'FL',
+      postalCode: '33131',
+      listPrice: 980000,
+      propertyType: 'Condo',
+      bedrooms: 2,
+      bathrooms: 2,
+      squareFeet: 1500,
+      status: 'PENDING_BROKER_APPROVAL',
+      createdByUserId: novaProfile.userId ?? additionalAgent.id
+    }
+  });
+
+  const listingExpiring = await prisma.orgListing.upsert({
+    where: { id: 'org-listing-expiring' },
+    update: {
+      expiresAt: addDays(now, 5)
+    },
+    create: {
+      id: 'org-listing-expiring',
+      organizationId: organization.id,
+      agentProfileId: ariaProfile.id,
+      mlsNumber: 'MC-3003',
+      addressLine1: '120 Sunset Blvd',
+      city: 'Miami',
+      state: 'FL',
+      postalCode: '33140',
+      listPrice: 760000,
+      propertyType: 'Single Family',
+      bedrooms: 4,
+      bathrooms: 3,
+      squareFeet: 2200,
+      status: 'ACTIVE',
+      listedAt: subDays(now, 20),
+      expiresAt: addDays(now, 5),
+      createdByUserId: agent.id
+    }
+  });
+
+  const [closedTransaction, upcomingTransaction, reviewTransaction] = await Promise.all([
+    prisma.orgTransaction.upsert({
+      where: { id: 'org-transaction-closed' },
+      update: {},
+      create: {
+        id: 'org-transaction-closed',
+        organizationId: organization.id,
+        listingId: listingOcean.id,
+        agentProfileId: ariaProfile.id,
+        status: 'CLOSED',
+        buyerName: 'Lisa Buyer',
+        sellerName: 'Omar Seller',
+        closingDate: subDays(now, 7),
+        createdByUserId: broker.id
+      }
+    }),
+    prisma.orgTransaction.upsert({
+      where: { id: 'org-transaction-upcoming' },
+      update: {
+        closingDate: addDays(now, 14)
+      },
+      create: {
+        id: 'org-transaction-upcoming',
+        organizationId: organization.id,
+        listingId: listingExpiring.id,
+        agentProfileId: ariaProfile.id,
+        status: 'UNDER_CONTRACT',
+        buyerName: 'Carmen Contract',
+        sellerName: 'Paula Pending',
+        closingDate: addDays(now, 14),
+        createdByUserId: broker.id
+      }
+    }),
+    prisma.orgTransaction.upsert({
+      where: { id: 'org-transaction-review' },
+      update: {
+        requiresAction: true
+      },
+      create: {
+        id: 'org-transaction-review',
+        organizationId: organization.id,
+        listingId: listingPending.id,
+        agentProfileId: novaProfile.id,
+        status: 'CONTINGENT',
+        buyerName: 'Risky Buyer',
+        sellerName: 'Careful Seller',
+        isCompliant: false,
+        requiresAction: true,
+        closingDate: addDays(now, 45),
+        createdByUserId: broker.id
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.agentWorkflowTask.upsert({
+      where: { id: 'workflow-onboarding-forms' },
+      update: {
+        status: 'COMPLETED',
+        completedAt: subDays(now, 1),
+        completedByUserId: broker.id
+      },
+      create: {
+        id: 'workflow-onboarding-forms',
+        organizationId: organization.id,
+        agentProfileId: novaProfile.id,
+        type: 'ONBOARDING',
+        title: 'Submit onboarding paperwork',
+        assignedToRole: 'Operations',
+        status: 'COMPLETED',
+        completedAt: subDays(now, 1),
+        completedByUserId: broker.id
+      }
+    }),
+    prisma.agentWorkflowTask.upsert({
+      where: { id: 'workflow-onboarding-shadow' },
+      update: {
+        status: 'IN_PROGRESS'
+      },
+      create: {
+        id: 'workflow-onboarding-shadow',
+        organizationId: organization.id,
+        agentProfileId: novaProfile.id,
+        type: 'ONBOARDING',
+        title: 'Shadow experienced agent',
+        assignedToRole: 'Mentor',
+        status: 'IN_PROGRESS',
+        dueAt: addDays(now, 3)
+      }
+    }),
+    prisma.agentWorkflowTask.upsert({
+      where: { id: 'workflow-offboarding-archives' },
+      update: {
+        status: 'PENDING'
+      },
+      create: {
+        id: 'workflow-offboarding-archives',
+        organizationId: organization.id,
+        agentProfileId: isaProfile.id,
+        type: 'OFFBOARDING',
+        title: 'Archive ISA assets',
+        assignedToRole: 'Operations',
+        status: 'PENDING',
+        dueAt: addDays(now, 5)
+      }
+    })
+  ]);
+
+  const leadsData: Array<Prisma.LeadUncheckedCreateInput> = [
+    {
+      id: 'mc-lead-new',
+      organizationId: organization.id,
+      agentProfileId: novaProfile.id,
+      status: 'NEW',
+      source: 'PORTAL_SIGNUP',
+      name: 'Jamie Prospect',
+      email: 'jamie@example.com',
+      phone: '+13055550110',
+      createdByUserId: broker.id
+    },
+    {
+      id: 'mc-lead-contacted',
+      organizationId: organization.id,
+      agentProfileId: ariaProfile.id,
+      status: 'CONTACTED',
+      source: 'LISTING_INQUIRY',
+      name: 'River Client',
+      email: 'river@example.com',
+      phone: '+13055550111',
+      createdByUserId: agent.id
+    },
+    {
+      id: 'mc-lead-qualified',
+      organizationId: organization.id,
+      agentProfileId: ariaProfile.id,
+      status: 'QUALIFIED',
+      source: 'OTHER',
+      name: 'Taylor Ready',
+      email: 'taylor@example.com',
+      phone: '+13055550112',
+      createdByUserId: broker.id
+    },
+    {
+      id: 'mc-lead-appointment',
+      organizationId: organization.id,
+      agentProfileId: novaProfile.id,
+      status: 'APPOINTMENT_SET',
+      source: 'MANUAL',
+      name: 'Sky Appointment',
+      email: 'sky@example.com',
+      phone: '+13055550113',
+      createdByUserId: additionalAgent.id,
+      desiredMoveIn: addDays(now, 45)
+    }
+  ];
+
+  for (const lead of leadsData) {
+    await prisma.lead.upsert({
+      where: { id: lead.id },
+      update: {
+        status: lead.status
+      },
+      create: lead
+    });
+  }
+
+  await Promise.all([
+    prisma.offerIntent.upsert({
+      where: { id: 'offer-intent-harbor' },
+      update: {
+        status: 'SUBMITTED',
+        offeredPrice: 1400000
+      },
+      create: {
+        id: 'offer-intent-harbor',
+        organizationId: organization.id,
+        listingId: listingOcean.id,
+        leadId: 'mc-lead-qualified',
+        status: 'SUBMITTED',
+        offeredPrice: 1400000,
+        financingType: 'CONVENTIONAL',
+        closingTimeline: '30 days'
+      }
+    }),
+    prisma.offerIntent.upsert({
+      where: { id: 'offer-intent-brickell' },
+      update: {
+        status: 'ACCEPTED'
+      },
+      create: {
+        id: 'offer-intent-brickell',
+        organizationId: organization.id,
+        listingId: listingExpiring.id,
+        leadId: 'mc-lead-appointment',
+        status: 'ACCEPTED',
+        offeredPrice: 770000,
+        financingType: 'CASH',
+        contingencies: 'Inspection'
+      }
+    })
+  ]);
+
+  const rentalProperty = await prisma.rentalProperty.upsert({
+    where: { id: 'rental-prop-biscayne' },
+    update: {},
+    create: {
+      id: 'rental-prop-biscayne',
+      organizationId: organization.id,
+      listingId: listingExpiring.id,
+      addressLine1: '88 Bayside Ct',
+      city: 'Miami',
+      state: 'FL',
+      postalCode: '33137',
+      propertyType: 'CONDO',
+      status: 'UNDER_MGMT',
+      ownerName: 'Dana Owner',
+      ownerContact: 'dana@example.com'
+    }
+  });
+
+  const [unitA, unitB] = await Promise.all([
+    prisma.rentalUnit.upsert({
+      where: { id: 'rental-unit-a' },
+      update: {
+        status: 'OCCUPIED'
+      },
+      create: {
+        id: 'rental-unit-a',
+        propertyId: rentalProperty.id,
+        name: 'Unit 12A',
+        bedrooms: 2,
+        bathrooms: 2,
+        squareFeet: 1250,
+        status: 'OCCUPIED'
+      }
+    }),
+    prisma.rentalUnit.upsert({
+      where: { id: 'rental-unit-b' },
+      update: {},
+      create: {
+        id: 'rental-unit-b',
+        propertyId: rentalProperty.id,
+        name: 'Unit 12B',
+        bedrooms: 3,
+        bathrooms: 2,
+        squareFeet: 1500,
+        status: 'VACANT'
+      }
+    })
+  ]);
+
+  const [seasonalLease, annualLease] = await Promise.all([
+    prisma.rentalLease.upsert({
+      where: { id: 'rental-lease-seasonal' },
+      update: {
+        rentAmount: 7800
+      },
+      create: {
+        id: 'rental-lease-seasonal',
+        organizationId: organization.id,
+        unitId: unitA.id,
+        tenancyType: 'SEASONAL',
+        tenantName: 'Olivia Snowbird',
+        tenantContact: 'olivia@example.com',
+        startDate: subDays(now, 15),
+        endDate: addDays(now, 90),
+        rentAmount: 7800,
+        requiresTaxFiling: true
+      }
+    }),
+    prisma.rentalLease.upsert({
+      where: { id: 'rental-lease-annual' },
+      update: {},
+      create: {
+        id: 'rental-lease-annual',
+        organizationId: organization.id,
+        unitId: unitB.id,
+        tenancyType: 'ANNUAL',
+        tenantName: 'Carter Longstay',
+        tenantContact: 'carter@example.com',
+        startDate: subDays(now, 60),
+        endDate: addDays(now, 305),
+        rentAmount: 4200,
+        requiresTaxFiling: false
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.rentalTaxSchedule.upsert({
+      where: { id: 'rental-tax-upcoming' },
+      update: {
+        dueDate: addDays(now, 20),
+        status: 'PENDING'
+      },
+      create: {
+        id: 'rental-tax-upcoming',
+        leaseId: seasonalLease.id,
+        periodLabel: 'Q1',
+        dueDate: addDays(now, 20),
+        amountDue: 1200,
+        status: 'PENDING'
+      }
+    }),
+    prisma.rentalTaxSchedule.upsert({
+      where: { id: 'rental-tax-overdue' },
+      update: {
+        status: 'OVERDUE'
+      },
+      create: {
+        id: 'rental-tax-overdue',
+        leaseId: annualLease.id,
+        periodLabel: 'Q4',
+        dueDate: subDays(now, 10),
+        amountDue: 900,
+        status: 'OVERDUE'
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.transactionAccountingRecord.upsert({
+      where: { transactionId: closedTransaction.id },
+      update: {
+        syncStatus: 'SYNCED',
+        lastSyncAt: subDays(now, 1)
+      },
+      create: {
+        id: 'accounting-record-closed',
+        organizationId: organization.id,
+        transactionId: closedTransaction.id,
+        provider: 'QUICKBOOKS',
+        syncStatus: 'SYNCED',
+        lastSyncAt: subDays(now, 1)
+      }
+    }),
+    prisma.transactionAccountingRecord.upsert({
+      where: { transactionId: upcomingTransaction.id },
+      update: {
+        syncStatus: 'FAILED',
+        errorMessage: 'Token expired'
+      },
+      create: {
+        id: 'accounting-record-upcoming',
+        organizationId: organization.id,
+        transactionId: upcomingTransaction.id,
+        provider: 'QUICKBOOKS',
+        syncStatus: 'FAILED',
+        errorMessage: 'Token expired'
+      }
+    })
+  ]);
+
+  await Promise.all([
+    prisma.rentalLeaseAccountingRecord.upsert({
+      where: { leaseId: seasonalLease.id },
+      update: {
+        syncStatus: 'SYNCED'
+      },
+      create: {
+        id: 'rental-accounting-seasonal',
+        organizationId: organization.id,
+        leaseId: seasonalLease.id,
+        provider: 'QUICKBOOKS',
+        syncStatus: 'SYNCED'
+      }
+    }),
+    prisma.rentalLeaseAccountingRecord.upsert({
+      where: { leaseId: annualLease.id },
+      update: {
+        syncStatus: 'FAILED',
+        errorMessage: 'Missing class mapping'
+      },
+      create: {
+        id: 'rental-accounting-annual',
+        organizationId: organization.id,
+        leaseId: annualLease.id,
+        provider: 'QUICKBOOKS',
+        syncStatus: 'FAILED',
+        errorMessage: 'Missing class mapping'
+      }
+    })
+  ]);
+
+  const listingSearchIndexes = await optionalSeed('listingSearchIndex', () =>
+    Promise.all([
+      prisma.listingSearchIndex.upsert({
+        where: { id: 'search-index-ocean' },
+        update: {
+          listPrice: listingOcean.listPrice ?? 1450000
+        },
+        create: {
+          id: 'search-index-ocean',
+          organizationId: organization.id,
+          listingId: listingOcean.id,
+          mlsNumber: 'MC-1001',
+          addressLine1: listingOcean.addressLine1,
+          city: listingOcean.city,
+          state: listingOcean.state,
+          postalCode: listingOcean.postalCode,
+          propertyType: 'Condo',
+          listPrice: listingOcean.listPrice ?? 1450000,
+          bedrooms: listingOcean.bedrooms ?? 3,
+          bathrooms: listingOcean.bathrooms ?? 2,
+          squareFeet: listingOcean.squareFeet ?? 1800,
+          isActive: true,
+          isRental: false,
+          searchText: '801 Ocean Drive Miami Beach FL'
+        }
+      }),
+      prisma.listingSearchIndex.upsert({
+        where: { id: 'search-index-expiring' },
+        update: {},
+        create: {
+          id: 'search-index-expiring',
+          organizationId: organization.id,
+          listingId: listingExpiring.id,
+          mlsNumber: 'MC-3003',
+          addressLine1: listingExpiring.addressLine1,
+          city: listingExpiring.city,
+          state: listingExpiring.state,
+          postalCode: listingExpiring.postalCode,
+          propertyType: 'Single Family',
+          listPrice: listingExpiring.listPrice ?? 760000,
+          bedrooms: listingExpiring.bedrooms ?? 4,
+          bathrooms: listingExpiring.bathrooms ?? 3,
+          squareFeet: listingExpiring.squareFeet ?? 2200,
+          isActive: true,
+          isRental: false,
+          searchText: '120 Sunset Blvd Miami FL'
+        }
+      }),
+      prisma.listingSearchIndex.upsert({
+        where: { id: 'search-index-rental' },
+        update: {
+          isRental: true
+        },
+        create: {
+          id: 'search-index-rental',
+          organizationId: organization.id,
+          listingId: listingPending.id,
+          mlsNumber: 'MC-2002',
+          addressLine1: listingPending.addressLine1,
+          city: listingPending.city,
+          state: listingPending.state,
+          postalCode: listingPending.postalCode,
+          propertyType: 'Condo',
+          listPrice: 6500,
+          bedrooms: listingPending.bedrooms ?? 2,
+          bathrooms: listingPending.bathrooms ?? 2,
+          squareFeet: listingPending.squareFeet ?? 1500,
+          isActive: true,
+          isRental: true,
+          searchText: '55 Brickell Key Dr Miami FL'
+        }
+      })
+    ])
+  );
+  const saleIndex = listingSearchIndexes?.[0] ?? null;
+  const rentalIndex = listingSearchIndexes?.[2] ?? null;
+
+  await optionalSeed('savedSearch', () =>
+    Promise.all([
+      prisma.savedSearch.upsert({
+        where: { id: 'saved-search-daily' },
+        update: {
+          criteria: { city: 'Miami Beach', minBeds: 2 } as Prisma.JsonObject
+        },
+        create: {
+          id: 'saved-search-daily',
+          organizationId: organization.id,
+          consumerId: consumer.id,
+          name: 'Waterfront Condos',
+          criteria: { city: 'Miami Beach', minBeds: 2 } as Prisma.JsonObject,
+          alertsEnabled: true,
+          frequency: 'DAILY'
+        }
+      }),
+      prisma.savedSearch.upsert({
+        where: { id: 'saved-search-weekly' },
+        update: {
+          alertsEnabled: false
+        },
+        create: {
+          id: 'saved-search-weekly',
+          organizationId: organization.id,
+          consumerId: consumer.id,
+          name: 'Brickell Rentals',
+          criteria: { city: 'Miami', maxPrice: 7000 } as Prisma.JsonObject,
+          alertsEnabled: false,
+          frequency: 'WEEKLY'
+        }
+      })
+    ])
+  );
+
+  if (saleIndex && rentalIndex) {
+    await optionalSeed('savedListing', () =>
+      Promise.all([
+        prisma.savedListing.upsert({
+          where: { id: 'saved-listing-ocean' },
+          update: {},
+          create: {
+            id: 'saved-listing-ocean',
+            organizationId: organization.id,
+            consumerId: consumer.id,
+            searchIndexId: saleIndex.id
+          }
+        }),
+        prisma.savedListing.upsert({
+          where: { id: 'saved-listing-rental' },
+          update: {},
+          create: {
+            id: 'saved-listing-rental',
+            organizationId: organization.id,
+            consumerId: consumer.id,
+            searchIndexId: rentalIndex.id
+          }
+        })
+      ])
+    );
+  }
+
+  await optionalSeed('mlsFeedConfig', () =>
+    prisma.mlsFeedConfig.upsert({
+      where: { organizationId: organization.id },
+      update: {
+        provider: 'MATRIX',
+        boardName: 'Miami Association of Realtors',
+        lastFullSyncAt: subDays(now, 1),
+        lastIncrementalSyncAt: now
+      },
+      create: {
+        id: 'mls-config-hatch',
+        organizationId: organization.id,
+        provider: 'MATRIX',
+        boardName: 'Miami Association of Realtors',
+        boardUrl: 'https://www.miamirealtors.com',
+        lastFullSyncAt: subDays(now, 1),
+        lastIncrementalSyncAt: now
+      }
+    })
+  );
+
+  await Promise.all([
+    prisma.orgEvent.upsert({
+      where: { id: 'org-event-listing-risk' },
+      update: {
+        payload: {
+          riskLevel: 'HIGH',
+          listingId: listingPending.id
+        } as Prisma.JsonObject
+      },
+      create: {
+        id: 'org-event-listing-risk',
+        organizationId: organization.id,
+        tenantId: tenant.id,
+        actorId: broker.id,
+        type: 'ORG_LISTING_EVALUATED',
+        message: 'AI flagged Brickell Key listing as high risk.',
+        payload: {
+          riskLevel: 'HIGH',
+          listingId: listingPending.id
+        } as Prisma.JsonObject,
+        createdAt: subDays(now, 1)
+      }
+    }),
+    prisma.orgEvent.upsert({
+      where: { id: 'org-event-transaction-risk' },
+      update: {
+        payload: {
+          riskLevel: 'HIGH',
+          transactionId: reviewTransaction.id
+        } as Prisma.JsonObject
+      },
+      create: {
+        id: 'org-event-transaction-risk',
+        organizationId: organization.id,
+        tenantId: tenant.id,
+        actorId: broker.id,
+        type: 'ORG_TRANSACTION_EVALUATED',
+        message: 'Transaction review required for contingency issues.',
+        payload: {
+          riskLevel: 'HIGH',
+          transactionId: reviewTransaction.id
+        } as Prisma.JsonObject,
+        createdAt: subDays(now, 2)
+      }
+    }),
+    prisma.orgEvent.upsert({
+      where: { id: 'org-event-new-agent' },
+      update: {},
+      create: {
+        id: 'org-event-new-agent',
+        organizationId: organization.id,
+        tenantId: tenant.id,
+        actorId: broker.id,
+        type: 'AGENT_INVITE_CREATED',
+        message: 'Invited new agent to join brokerage.',
+        createdAt: subDays(now, 3)
+      }
+    })
+  ]);
 }
 
 async function main() {
@@ -850,6 +1991,14 @@ async function main() {
       postCapFeesYtd: new Prisma.Decimal(0),
       lastDealId: 'deal-sample'
     }
+  });
+
+  await seedMissionControlData({
+    organization,
+    tenant,
+    broker,
+    agent,
+    isa
   });
 
   await seedAiEmployeeInstances({

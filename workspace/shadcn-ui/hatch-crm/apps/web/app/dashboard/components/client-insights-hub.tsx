@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,14 +20,8 @@ import {
   startJourney
 } from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
-import {
-  EngagementHeatmap,
-  ConversionChart,
-  Leaderboard,
-  ReengagementList
-} from '@/components/crm/ClientInsights';
+import { EngagementHeatmap, ConversionChart, Leaderboard, ReengagementList } from '@/components/crm/ClientInsights';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
@@ -91,10 +85,9 @@ export function ClientInsightsHub({ tenantId }: ClientInsightsHubProps) {
 
   const isRateLimitedError = (error: unknown) => error instanceof ApiError && error.status === 429;
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, refetch, isFetching, error, isError } = useQuery({
     queryKey,
     queryFn: () => getClientInsights(queryParams),
-    keepPreviousData: true,
     staleTime: 60_000,
     refetchInterval: 30_000,
     retry: (failureCount, error) => {
@@ -102,16 +95,17 @@ export function ClientInsightsHub({ tenantId }: ClientInsightsHubProps) {
         return false;
       }
       return failureCount < 2;
-    },
-    onError: (error) => {
-      if (isRateLimitedError(error)) {
-        toast({
-          title: 'Too many refreshes',
-          description: 'Please wait a moment before refreshing again.'
-        });
-      }
     }
   });
+
+  useEffect(() => {
+    if (isError && error && isRateLimitedError(error)) {
+      toast({
+        title: 'Too many refreshes',
+        description: 'Please wait a moment before refreshing again.'
+      });
+    }
+  }, [isError, error, toast]);
 
   const payload = data ?? ({} as ClientInsightsPayload);
   const router = useRouter();
@@ -219,18 +213,17 @@ export function ClientInsightsHub({ tenantId }: ClientInsightsHubProps) {
               Stale data (refreshing…)
             </Badge>
           )}
-          <Select value={filters.period} onValueChange={(value) => handleSelect('period', value)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Period" />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIOD_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select
+            className="w-32 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            value={filters.period}
+            onChange={(event) => handleSelect('period', event.target.value)}
+          >
+            {PERIOD_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCcw className={clsx('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
             Refresh
@@ -350,21 +343,28 @@ function FilterSelect({
   onValueChange: (value?: string) => void;
 }) {
   return (
-    <Select value={value ?? 'ALL'} onValueChange={(next) => onValueChange(next === 'ALL' ? undefined : next)}>
-      <SelectTrigger className="w-48">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="ALL">All</SelectItem>
-        {options.map((option) => (
-          <SelectItem key={option.id} value={option.id}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <select
+      className="w-48 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+      value={value ?? 'ALL'}
+      onChange={(event) => onValueChange(event.target.value === 'ALL' ? undefined : event.target.value)}
+    >
+      <option value="ALL">All</option>
+      {options.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }
+
+type TrendCardRender = {
+  key: string;
+  label: string;
+  value: string;
+  delta?: string;
+  sparkValue?: number;
+};
 
 function TrendCards({
   cards,
@@ -375,7 +375,7 @@ function TrendCards({
   summary?: ClientInsightsSummary;
   loading: boolean;
 }) {
-  const summaryCards =
+  const summaryCards: TrendCardRender[] =
     summary !== undefined
       ? [
           {
@@ -398,9 +398,9 @@ function TrendCards({
         ]
       : [];
 
-  const displayCards = [
+  const displayCards: TrendCardRender[] = [
     ...summaryCards,
-    ...cards.map((card) => ({
+    ...cards.map<TrendCardRender>((card) => ({
       key: card.key,
       label: card.label,
       value: card.value,

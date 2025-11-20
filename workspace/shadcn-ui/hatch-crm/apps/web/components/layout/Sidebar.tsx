@@ -2,23 +2,21 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  BadgeDollarSign,
   BarChart3,
-  Calendar,
+  Building2,
   ChevronLeft,
-  FileText,
-  Globe,
+  Handshake,
   LayoutGrid,
-  LifeBuoy,
   LogOut,
   Map,
-  MessageCircle,
+  Radar,
   Route,
-  Search,
+  Settings,
   ShieldCheck,
+  TrendingUp,
   UserCircle2,
   Users,
-  Webhook
+  Wallet
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -27,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState, type FocusEvent } from 'reac
 
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useUserRole, userHasRole, type UserRole } from '@/lib/auth/roles';
 import { cn } from '@/lib/utils';
 
 import { useSidebar } from './sidebar-context';
@@ -35,24 +34,23 @@ type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
+  roles: UserRole[];
 };
 
 const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Cohort Hub', icon: LayoutGrid },
-  { href: '/search', label: 'Search', icon: Search },
-  { href: '/people', label: 'Pipeline', icon: Users },
-  { href: '/contacts', label: 'Contacts', icon: UserCircle2 },
-  { href: '/opportunities', label: 'Opportunities', icon: BarChart3 },
-  { href: '/messages', label: 'Messaging', icon: MessageCircle },
-  { href: '/routing', label: 'Lead Routing', icon: Route },
-  { href: '/journeys', label: 'Journeys', icon: Map },
-  { href: '/webhooks', label: 'Webhooks', icon: Webhook },
-  { href: '/tour-booker', label: 'Tour Booker', icon: Calendar },
-  { href: '/agreements/buyer-rep', label: 'Compliance', icon: FileText },
-  { href: '/mls/preflight', label: 'Publishing Check', icon: Globe },
-  { href: '/cases', label: 'Cases', icon: LifeBuoy },
-  { href: '/payouts', label: 'Commission Plans', icon: BadgeDollarSign },
-  { href: '/admin/audit', label: 'Audit', icon: ShieldCheck }
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/mission-control', label: 'Mission Control', icon: Radar, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/team', label: 'Team', icon: Users, roles: ['BROKER', 'ADMIN'] },
+  { href: '/dashboard/compliance', label: 'Compliance', icon: ShieldCheck, roles: ['BROKER', 'ADMIN'] },
+  { href: '/dashboard/properties', label: 'Properties', icon: Building2, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/transactions', label: 'Transactions', icon: Handshake, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/leads', label: 'Leads', icon: UserCircle2, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/offer-intents', label: 'Offer Intents', icon: Route, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/rentals', label: 'Rentals / PM', icon: Map, roles: ['BROKER', 'AGENT', 'ADMIN'] },
+  { href: '/dashboard/financials', label: 'Financials', icon: Wallet, roles: ['BROKER', 'ADMIN'] },
+  { href: '/dashboard/marketing', label: 'Marketing', icon: TrendingUp, roles: ['BROKER', 'ADMIN'] },
+  { href: '/dashboard/reporting', label: 'Reporting', icon: BarChart3, roles: ['BROKER', 'ADMIN'] },
+  { href: '/dashboard/settings', label: 'Settings', icon: Settings, roles: ['BROKER', 'ADMIN'] }
 ];
 
 type SidebarProps = {
@@ -65,6 +63,7 @@ const COLLAPSED_WIDTH = 72;
 export function Sidebar({ activeHref }: SidebarProps) {
   const pathname = usePathname();
   const { mobileOpen, closeMobile } = useSidebar();
+  const role = useUserRole();
 
   const active = activeHref ?? pathname ?? '';
 
@@ -109,9 +108,11 @@ export function Sidebar({ activeHref }: SidebarProps) {
     </div>
   );
 
+  const visibleNav = useMemo(() => NAV.filter((item) => userHasRole(role, item.roles)), [role]);
+
   const navItems = useMemo(
     () =>
-      NAV.map(({ href, label, icon: Icon }) => {
+      visibleNav.map(({ href, label, icon: Icon }) => {
         const isActive = active.startsWith(href);
         const icon = (
           <Icon
@@ -158,7 +159,7 @@ export function Sidebar({ activeHref }: SidebarProps) {
           </Tooltip>
         );
       }),
-    [active, closeMobile, expanded]
+    [active, closeMobile, expanded, visibleNav]
   );
 
   return (
@@ -184,7 +185,7 @@ export function Sidebar({ activeHref }: SidebarProps) {
               {brand}
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon"
                 className={cn('h-8 w-8 text-gray-500', !expanded && 'pointer-events-none opacity-0')}
                 onClick={() => setPinned((prev) => !prev)}
                 aria-pressed={pinned}
@@ -244,7 +245,7 @@ export function Sidebar({ activeHref }: SidebarProps) {
                 {brand}
                 <Button
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon"
                   className="h-8 w-8 text-gray-500"
                   onClick={closeMobile}
                   aria-label="Close navigation"
@@ -253,7 +254,7 @@ export function Sidebar({ activeHref }: SidebarProps) {
                 </Button>
               </div>
               <div className="mt-4 flex-1 space-y-1 overflow-y-auto">
-                {NAV.map(({ href, label, icon: Icon }) => (
+                {visibleNav.map(({ href, label, icon: Icon }) => (
                   <Link
                     key={href}
                     href={href}

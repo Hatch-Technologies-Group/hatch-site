@@ -29,6 +29,26 @@ type ChatMessage = {
   createdAt: Date;
 };
 
+// Thinking Indicator Component
+const ThinkingIndicator: React.FC<{ isThinking: boolean }> = ({ isThinking }) => {
+  if (!isThinking) return null;
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 mt-1">
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+        <div className="h-5 w-5 rounded-full bg-primary/80 animate-pulse" />
+      </div>
+      <div className="flex items-center gap-2 rounded-full bg-muted px-3 py-1">
+        <div className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" />
+        </div>
+        <span className="text-xs text-muted-foreground/80">Thinking...</span>
+      </div>
+    </div>
+  );
+};
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
@@ -133,6 +153,7 @@ export function AiEmployeeChatPanel(props: {
                     </div>
                   </div>
                 ))}
+                <ThinkingIndicator isThinking={isSending} />
               </div>
             )}
           </div>

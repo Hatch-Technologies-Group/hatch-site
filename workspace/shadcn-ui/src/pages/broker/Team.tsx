@@ -1,574 +1,308 @@
-import React, { useMemo, useState } from 'react'
-import { format } from 'date-fns'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { useToast } from '@/components/ui/use-toast'
-import { Separator } from '@/components/ui/separator'
-import { Skeleton } from '@/components/ui/skeleton'
-import { useBroker, type TeamMember } from '@/contexts/BrokerContext'
-import { Users, Phone, Mail, UserPlus, Star, BarChart3 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Users, Shield, Sparkles } from 'lucide-react';
 
-export default function Team() {
-  const {
-    teamMembers,
-    teamMembersLoading,
-    teamMembersError,
-    refreshTeamMembers,
-    addTeamMember,
-    updateTeamMember,
-    removeTeamMember,
-    getTeamSummary,
-    getMemberPerformance
-  } = useBroker()
-  const { toast } = useToast()
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { fetchMissionControlAgents, type MissionControlAgentRow } from '@/lib/api/mission-control';
 
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'pending'>('all')
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isRemovingMember, setIsRemovingMember] = useState(false)
-  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
+const DEFAULT_ORG_ID = import.meta.env.VITE_ORG_ID ?? 'org-hatch';
 
-  interface AddMemberFormState {
-    name: string
-    email: string
-    phone: string
-    role: string
-    status: 'active' | 'inactive' | 'pending'
-    experienceYears: string
-    rating: string
-    totalSales: string
-    dealsInProgress: string
-    openLeads: string
-    responseTimeHours: string
-    notes: string
+const onboardingFilters = [
+  { id: 'ALL', label: 'All stages' },
+  { id: 'ONBOARDING', label: 'Onboarding' },
+  { id: 'ACTIVE', label: 'Active' },
+  { id: 'OFFBOARDING', label: 'Offboarding' }
+] as const;
+
+const riskFilters = [
+  { id: 'ALL', label: 'All risk' },
+  { id: 'LOW', label: 'Low' },
+  { id: 'MEDIUM', label: 'Medium' },
+  { id: 'HIGH', label: 'High' }
+] as const;
+
+export default function BrokerTeam() {
+  const { activeOrgId } = useAuth();
+  const orgId = activeOrgId ?? DEFAULT_ORG_ID;
+  if (!orgId) {
+    return <div className="p-8 text-sm text-gray-600">Select an organization to view team analytics.</div>;
   }
+  return (
+    <div className="space-y-6 p-6">
+      <TeamOverviewPanel orgId={orgId} />
+      <TeamRosterTable orgId={orgId} />
+    </div>
+  );
+}
 
-  const initialFormState: AddMemberFormState = {
-    name: '',
-    email: '',
-    phone: '',
-    role: 'Agent',
-    status: 'active',
-    experienceYears: '0',
-    rating: '4.8',
-    totalSales: '0',
-    dealsInProgress: '0',
-    openLeads: '0',
-    responseTimeHours: '24',
-    notes: ''
-  }
+const numberFormatter = new Intl.NumberFormat('en-US');
 
-  const [formState, setFormState] = useState<AddMemberFormState>(initialFormState)
+function useTeamData(orgId: string) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['mission-control', 'team', orgId],
+    queryFn: () => fetchMissionControlAgents(orgId),
+    staleTime: 30_000
+  });
+  return { agents: data ?? [], isLoading, error };
+}
 
-  const filterMembers = (members: TeamMember[]) => {
-    if (statusFilter === 'all') return members
-    return members.filter((member) => member.status === statusFilter)
-  }
-
-  const filteredMembers = useMemo(() => filterMembers(teamMembers), [statusFilter, teamMembers])
-
-  const summary = useMemo(() => getTeamSummary(), [getTeamSummary, teamMembers])
-
-  const performanceMember = selectedMember ? getMemberPerformance(selectedMember.id) : null
-
-  const resetForm = () => setFormState(initialFormState)
-
-  const handleAddMember = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setIsSaving(true)
-    try {
-      const member = await addTeamMember({
-        name: formState.name,
-        email: formState.email,
-        phone: formState.phone,
-        role: formState.role,
-        status: formState.status,
-        experienceYears: Number(formState.experienceYears) || 0,
-        rating: Number(formState.rating) || 0,
-        totalSales: Number(formState.totalSales) || 0,
-        dealsInProgress: Number(formState.dealsInProgress) || 0,
-        openLeads: Number(formState.openLeads) || 0,
-        responseTimeHours: Number(formState.responseTimeHours) || 0,
-        notes: formState.notes
-      })
-      toast({ title: 'Team member added', description: `${member.name} was added to your roster.` })
-      resetForm()
-      setAddDialogOpen(false)
-    } catch (error) {
-      toast({
-        title: 'Failed to add team member',
-        description: error instanceof Error ? error.message : 'Unexpected error',
-        variant: 'destructive'
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const handleRemoveMember = async (member: TeamMember) => {
-    try {
-      setIsRemovingMember(true)
-      await removeTeamMember(member.id)
-      toast({ title: 'Team member removed', description: `${member.name} was removed from your roster.` })
-      setSelectedMember(null)
-    } catch (error) {
-      toast({
-        title: 'Failed to remove team member',
-        description: error instanceof Error ? error.message : 'Unexpected error',
-        variant: 'destructive'
-      })
-    } finally {
-      setIsRemovingMember(false)
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800'
-      case 'inactive': return 'bg-gray-100 text-gray-800'
-      case 'pending': return 'bg-yellow-100 text-yellow-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
+function TeamOverviewPanel({ orgId }: { orgId: string }) {
+  const { agents, isLoading } = useTeamData(orgId);
+  const metrics = useMemo(() => {
+    const onboarding = agents.filter((agent) => agent.lifecycleStage === 'ONBOARDING').length;
+    const active = agents.filter((agent) => agent.lifecycleStage === 'ACTIVE').length;
+    const offboarding = agents.filter((agent) => agent.lifecycleStage === 'OFFBOARDING').length;
+    const highRisk = agents.filter((agent) => agent.riskLevel === 'HIGH').length;
+    const requiresAction = agents.filter((agent) => agent.requiresAction).length;
+    return { total: agents.length, onboarding, active, offboarding, highRisk, requiresAction };
+  }, [agents]);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <Card className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Team</h1>
-          <p className="text-gray-600">Manage your team members and track performance</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Mission Control</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Team readiness</h1>
+          <p className="text-sm text-slate-500">
+            Track onboarding progress, compliance risk, and link into detailed profiles.
+          </p>
         </div>
         <div className="flex gap-3">
-          <Select value={statusFilter} onValueChange={(value: typeof statusFilter) => setStatusFilter(value)}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="Filter status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={() => setAddDialogOpen(true)}>
-            <UserPlus className="w-4 h-4 mr-2" />
-            Add Team Member
+          <Button variant="outline" asChild>
+            <Link to="/broker/team-advanced">Advanced manager</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/broker/mission-control">Mission Control</Link>
           </Button>
         </div>
       </div>
 
-      {teamMembersError && (
-        <Card className="border-red-200 bg-red-50 text-red-700">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <p>{teamMembersError}</p>
-              <Button variant="outline" size="sm" onClick={() => void refreshTeamMembers()}>
-                Retry
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Total agents" value={isLoading ? '—' : numberFormatter.format(metrics.total)} />
+        <KpiCard label="Onboarding" value={numberFormatter.format(metrics.onboarding)} helper={`${metrics.active} active`} />
+        <KpiCard label="High risk" value={numberFormatter.format(metrics.highRisk)} helper={`${metrics.requiresAction} need action`} />
+        <KpiCard label="Offboarding" value={numberFormatter.format(metrics.offboarding)} />
+      </div>
+    </Card>
+  );
+}
 
-      {teamMembers.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total team members</CardDescription>
-              <CardTitle>{summary.totalMembers}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Active members</CardDescription>
-              <CardTitle>{summary.activeMembers}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Average rating</CardDescription>
-              <CardTitle>{summary.averageRating.toFixed(2)}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total sales closed</CardDescription>
-              <CardTitle>{summary.totalSales}</CardTitle>
-            </CardHeader>
-          </Card>
-        </div>
-      )}
+function TeamRosterTable({ orgId }: { orgId: string }) {
+  const { agents, isLoading, error } = useTeamData(orgId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  type StageFilter = (typeof onboardingFilters)[number]['id'];
+  type RiskFilter = (typeof riskFilters)[number]['id'];
 
-      {/* Team grid */}
-      {teamMembersLoading && teamMembers.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <Skeleton key={`team-skeleton-${index}`} className="h-48 w-full" />
-          ))}
+  const parseStage = (value: string | null): StageFilter => {
+    if (!value) return 'ALL';
+    const match = onboardingFilters.find((filter) => filter.id === value.toUpperCase());
+    return (match?.id ?? 'ALL') as StageFilter;
+  };
+
+  const parseRisk = (value: string | null): RiskFilter => {
+    if (!value) return 'ALL';
+    const match = riskFilters.find((filter) => filter.id === value.toUpperCase());
+    return (match?.id ?? 'ALL') as RiskFilter;
+  };
+
+  const [stageFilter, setStageFilter] = useState<StageFilter>(() => parseStage(searchParams.get('stage')));
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>(() => parseRisk(searchParams.get('risk')));
+
+  useEffect(() => {
+    const nextStage = parseStage(searchParams.get('stage'));
+    if (nextStage !== stageFilter) {
+      setStageFilter(nextStage);
+    }
+  }, [searchParams, stageFilter]);
+
+  useEffect(() => {
+    const nextRisk = parseRisk(searchParams.get('risk'));
+    if (nextRisk !== riskFilter) {
+      setRiskFilter(nextRisk);
+    }
+  }, [searchParams, riskFilter]);
+
+  const updateSearchParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (!value || value === 'ALL') {
+      next.delete(key);
+    } else {
+      next.set(key, value);
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  const handleStageChange = (value: StageFilter) => {
+    setStageFilter(value);
+    updateSearchParam('stage', value);
+  };
+
+  const handleRiskChange = (value: RiskFilter) => {
+    setRiskFilter(value);
+    updateSearchParam('risk', value);
+  };
+
+  const filteredAgents = useMemo(() => {
+    return agents.filter((agent) => {
+      if (stageFilter !== 'ALL' && agent.lifecycleStage !== stageFilter) return false;
+      if (riskFilter !== 'ALL' && agent.riskLevel !== riskFilter) return false;
+      return true;
+    });
+  }, [agents, stageFilter, riskFilter]);
+
+  return (
+    <Card className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Agent roster</h2>
+          <p className="text-sm text-slate-500">Lifecycle, compliance, and training snapshot.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <select
+            className="rounded-full border border-slate-200 px-3 py-1 text-sm"
+            value={stageFilter}
+            onChange={(event) => handleStageChange(event.target.value as StageFilter)}
+          >
+            {onboardingFilters.map((filter) => (
+              <option key={filter.id} value={filter.id}>
+                {filter.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-full border border-slate-200 px-3 py-1 text-sm"
+            value={riskFilter}
+            onChange={(event) => handleRiskChange(event.target.value as RiskFilter)}
+          >
+            {riskFilters.map((filter) => (
+              <option key={filter.id} value={filter.id}>
+                {filter.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error ? (
+        <p className="py-6 text-sm text-rose-500">Unable to load team data.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredMembers.map((agent) => (
-            <Card key={agent.id} className="flex flex-col hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{agent.name}</CardTitle>
-                  <Badge className={getStatusColor(agent.status)}>
-                    {agent.status}
-                  </Badge>
-                </div>
-                <CardDescription>
-                  {agent.role}
-                  {typeof agent.experienceYears === 'number' && agent.experienceYears > 0
-                    ? ` • ${agent.experienceYears} ${agent.experienceYears === 1 ? 'year' : 'years'}`
-                    : null}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1">
-                <div className="flex h-full flex-col gap-3">
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Mail className="w-4 h-4 mr-2" />
-                    {agent.email}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Phone className="w-4 h-4 mr-2" />
-                    {agent.phone || 'Phone not available'}
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Star className="w-4 h-4 mr-1 text-yellow-500" />
-                      <span>{agent.rating?.toFixed(1) ?? 'N/A'}</span>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {agent.totalSales ?? 0} sales
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 min-w-[140px] sm:flex-none"
-                      onClick={async () => {
-                        setSelectedMember(agent)
-                        try {
-                          const updated = await updateTeamMember(agent.id, { lastActiveAt: new Date().toISOString() })
-                          setSelectedMember(updated)
-                      } catch (error) {
-                        toast({
-                          title: 'Unable to load performance',
-                          description: error instanceof Error ? error.message : 'Unexpected error',
-                          variant: 'destructive'
-                        })
-                      }
-                    }}
-                  >
-                    <BarChart3 className="w-4 h-4 mr-1" />
-                    Performance
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 min-w-[140px] sm:flex-none"
-                    onClick={() => window.open(`mailto:${agent.email}`)}
-                  >
-                      <Mail className="w-4 h-4 mr-1" />
-                      Contact
-                    </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          ))}
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-100 text-sm text-slate-700">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2 text-left">Agent</th>
+                <th className="px-4 py-2 text-left">Lifecycle</th>
+                <th className="px-4 py-2 text-left">Risk</th>
+                <th className="px-4 py-2 text-left">Training</th>
+                <th className="px-4 py-2 text-left">Listings</th>
+                <th className="px-4 py-2 text-left">Transactions</th>
+                <th className="px-4 py-2 text-left">Workflow</th>
+                <th className="px-4 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                    Loading roster…
+                  </td>
+                </tr>
+              ) : filteredAgents.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                    No agents match the selected filters.
+                  </td>
+                </tr>
+              ) : (
+                filteredAgents.map((agent) => <TeamRow key={agent.agentProfileId} agent={agent} />)
+              )}
+            </tbody>
+          </table>
         </div>
       )}
+    </Card>
+  );
+}
 
-      {/* Empty state - only show if no mock data and no real agents */}
-      {teamMembers.length === 0 && (
-        <div className="text-center py-12">
-          <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No team members yet</h3>
-          <p className="text-gray-600 mb-6">Start building your team to grow your business</p>
-          <Button onClick={() => setAddDialogOpen(true)}>
-            <UserPlus className="w-4 h-4 mr-2" />
-            Add Your First Team Member
+function KpiCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
+  return (
+    <Card className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-3xl font-semibold text-slate-900">{value}</p>
+      {helper ? <p className="text-xs text-slate-500">{helper}</p> : null}
+    </Card>
+  );
+}
+
+const riskBadgeVariant: Record<string, string> = {
+  LOW: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  MEDIUM: 'bg-amber-50 text-amber-700 border-amber-100',
+  HIGH: 'bg-rose-50 text-rose-700 border-rose-100'
+};
+
+function TeamRow({ agent }: { agent: MissionControlAgentRow }) {
+  const complianceLabel = agent.requiresAction ? 'Action required' : agent.isCompliant ? 'Compliant' : 'Monitoring';
+  const complianceTone = agent.requiresAction
+    ? 'bg-rose-50 text-rose-700 border-rose-100'
+    : agent.isCompliant
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+      : 'bg-amber-50 text-amber-700 border-amber-100';
+
+  return (
+    <tr className="hover:bg-slate-50">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+            <Users className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">{agent.name}</p>
+            <p className="text-xs text-slate-500">{agent.email ?? 'No email'}</p>
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <Badge className="border bg-slate-50 capitalize text-slate-700">{agent.lifecycleStage?.toLowerCase() ?? 'unknown'}</Badge>
+      </td>
+      <td className="px-4 py-3">
+        <Badge className={`border ${riskBadgeVariant[agent.riskLevel] ?? 'bg-slate-100 text-slate-600'}`}>{agent.riskLevel}</Badge>
+      </td>
+      <td className="px-4 py-3">
+        <p className="font-medium text-slate-900">
+          {agent.trainingCompleted}/{agent.trainingAssigned}
+        </p>
+        <p className="text-xs text-slate-500">
+          Required: {agent.requiredTrainingCompleted}/{agent.requiredTrainingAssigned}
+        </p>
+      </td>
+      <td className="px-4 py-3">
+        <p className="font-medium text-slate-900">{agent.activeListingCount}</p>
+        <p className="text-xs text-slate-500">{agent.listingCount} total</p>
+      </td>
+      <td className="px-4 py-3">
+        <p className="font-medium text-slate-900">{agent.transactionCount}</p>
+        <p className="text-xs text-slate-500">{agent.nonCompliantTransactionCount} flagged</p>
+      </td>
+      <td className="px-4 py-3">
+        <Badge className={`border ${complianceTone}`}>{complianceLabel}</Badge>
+        <p className="text-xs text-slate-500">
+          Onboarding: {agent.onboardingTasksOpenCount} open · {agent.onboardingTasksCompletedCount} done
+        </p>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" asChild>
+            <Link to={`/broker/mission-control?agent=${agent.agentProfileId}`}>Mission Control</Link>
+          </Button>
+          <Button size="sm" variant="ghost" asChild>
+            <Link to={`/broker/compliance?agent=${agent.agentProfileId}`}>Compliance</Link>
           </Button>
         </div>
-      )}
-
-      {teamMembers.length > 0 && filteredMembers.length === 0 && (
-        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-gray-600">
-          No team members match the selected filter.
-        </div>
-      )}
-
-      <Dialog open={addDialogOpen} onOpenChange={(open) => {
-        setAddDialogOpen(open)
-        if (!open) {
-          resetForm()
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add team member</DialogTitle>
-            <DialogDescription>Capture the basics so you can track performance later.</DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={handleAddMember}>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="member-name">Name</Label>
-                <Input
-                  id="member-name"
-                  value={formState.name}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-email">Email</Label>
-                <Input
-                  id="member-email"
-                  type="email"
-                  value={formState.email}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, email: event.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-phone">Phone</Label>
-                <Input
-                  id="member-phone"
-                  value={formState.phone}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, phone: event.target.value }))}
-                  placeholder="(305) 555-0123"
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-role">Role</Label>
-                <Input
-                  id="member-role"
-                  value={formState.role}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, role: event.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <Label>Status</Label>
-                <Select
-                  value={formState.status}
-                  onValueChange={(value: AddMemberFormState['status']) =>
-                    setFormState((prev) => ({ ...prev, status: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="member-experience">Experience (years)</Label>
-                <Input
-                  id="member-experience"
-                  type="number"
-                  min="0"
-                  value={formState.experienceYears}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, experienceYears: event.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-rating">Average rating</Label>
-                <Input
-                  id="member-rating"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="5"
-                  value={formState.rating}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, rating: event.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-sales">Total sales</Label>
-                <Input
-                  id="member-sales"
-                  type="number"
-                  min="0"
-                  value={formState.totalSales}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, totalSales: event.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-deals">Deals in progress</Label>
-                <Input
-                  id="member-deals"
-                  type="number"
-                  min="0"
-                  value={formState.dealsInProgress}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, dealsInProgress: event.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-leads">Open leads</Label>
-                <Input
-                  id="member-leads"
-                  type="number"
-                  min="0"
-                  value={formState.openLeads}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, openLeads: event.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="member-response">Avg. response time (hours)</Label>
-                <Input
-                  id="member-response"
-                  type="number"
-                  min="0"
-                  value={formState.responseTimeHours}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, responseTimeHours: event.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="member-notes">Notes</Label>
-              <Textarea
-                id="member-notes"
-                value={formState.notes}
-                onChange={(event) => setFormState((prev) => ({ ...prev, notes: event.target.value }))}
-                placeholder="Optional context for this teammate"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => {
-                resetForm()
-                setAddDialogOpen(false)
-              }}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving…' : 'Add member'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(performanceMember)} onOpenChange={(open) => {
-        if (!open) setSelectedMember(null)
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {performanceMember?.name ?? 'Team member'} performance
-            </DialogTitle>
-            <DialogDescription>Snapshot of activity and pipeline health.</DialogDescription>
-          </DialogHeader>
-          {performanceMember && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardDescription>Total sales</CardDescription>
-                    <CardTitle>{performanceMember.totalSales}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardDescription>Deals in progress</CardDescription>
-                    <CardTitle>{performanceMember.dealsInProgress}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardDescription>Open leads</CardDescription>
-                    <CardTitle>{performanceMember.openLeads}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardDescription>Avg. response time</CardDescription>
-                    <CardTitle>{performanceMember.responseTimeHours} hrs</CardTitle>
-                  </CardHeader>
-                </Card>
-              </div>
-
-              <Separator />
-
-              <div className="grid grid-cols-1 gap-2 text-sm text-gray-600 sm:grid-cols-2">
-                <div>
-                  <span className="font-medium text-gray-800">Role:</span> {performanceMember.role}
-                </div>
-                <div>
-                  <span className="font-medium text-gray-800">Status:</span> {performanceMember.status}
-                </div>
-                <div>
-                  <span className="font-medium text-gray-800">Rating:</span> {performanceMember.rating.toFixed(1)} / 5
-                </div>
-                <div>
-                  <span className="font-medium text-gray-800">Experience:</span>{' '}
-                  {typeof performanceMember.experienceYears === 'number' && performanceMember.experienceYears > 0
-                    ? `${performanceMember.experienceYears} ${performanceMember.experienceYears === 1 ? 'year' : 'years'}`
-                    : 'Not specified'}
-                </div>
-              </div>
-
-              {performanceMember.notes && (
-                <div>
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium text-gray-800">Notes:</span> {performanceMember.notes}
-                  </p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase text-gray-500">Joined</p>
-                  <p className="text-sm font-medium text-gray-800">
-                    {format(new Date(performanceMember.joinedAt), 'MMM d, yyyy')}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-gray-500">Last activity</p>
-                  <p className="text-sm font-medium text-gray-800">
-                    {format(new Date(performanceMember.lastActiveAt), 'MMM d, yyyy')}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => setSelectedMember(null)}>
-                  Close
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="text-red-600"
-                  disabled={!selectedMember || isRemovingMember}
-                  onClick={async () => {
-                    if (selectedMember) {
-                      await handleRemoveMember(selectedMember)
-                    }
-                  }}
-                >
-                  Remove member
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
+      </td>
+    </tr>
+  );
 }

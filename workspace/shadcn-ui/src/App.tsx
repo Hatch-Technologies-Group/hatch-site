@@ -30,6 +30,8 @@ import Pricing from './pages/broker/Pricing'
 import Payment from './pages/broker/Payment'
 import ComplianceCenter from './pages/broker/Compliance'
 import Messages from './pages/Messages'
+import BrokerMissionControl from './pages/broker/MissionControl'
+import BrokerTransactions from './pages/broker/Transactions'
 
 // Customer Pages
 import CustomerDashboard from './pages/customer/Dashboard'
@@ -65,9 +67,11 @@ function App() {
                 {/* Broker Routes with Layout */}
                 <Route path="/broker" element={<BrokerLayout />}>
                   <Route path="dashboard" element={<BrokerDashboard />} />
+                  <Route path="mission-control" element={<BrokerMissionControl />} />
                   <Route path="crm" element={<CRM />} />
                   <Route path="crm/leads/:id" element={<LeadDetailPage />} />
                   <Route path="properties" element={<BrokerProperties />} />
+                  <Route path="transactions" element={<BrokerTransactions />} />
                   <Route path="leads" element={<BrokerLeads />} />
                   <Route path="team" element={<BrokerTeam />} />
                   <Route path="compliance" element={<ComplianceCenter />} />

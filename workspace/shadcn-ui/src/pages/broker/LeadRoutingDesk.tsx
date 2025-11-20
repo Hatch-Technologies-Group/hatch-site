@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   fetchRoutingCapacity,
   fetchRoutingEvents,
@@ -128,6 +129,61 @@ const statusVariant = (status: string) => {
   if (status === 'BREACHED') return 'destructive'
   if (status === 'PENDING') return 'secondary'
   return 'outline'
+}
+
+const offerStatusFilters = [
+  { id: 'ALL', label: 'All decisions' },
+  { id: 'SUBMITTED', label: 'Submitted' },
+  { id: 'UNDER_REVIEW', label: 'Under review' },
+  { id: 'ACCEPTED', label: 'Accepted' },
+  { id: 'DECLINED', label: 'Declined' }
+] as const
+
+type OfferStatusFilter = (typeof offerStatusFilters)[number]['id']
+type OfferStatus = Exclude<OfferStatusFilter, 'ALL'> | 'UNKNOWN'
+
+type EventPayloadEnvelope = {
+  status?: string | null
+  offerStatus?: string | null
+  workflowStatus?: string | null
+  decision?: { status?: string | null }
+  context?: {
+    offerIntent?: { status?: string | null }
+    offer?: { status?: string | null }
+    workflowStatus?: string | null
+  }
+}
+
+const normalizeOfferStatus = (value?: string | null): OfferStatus => {
+  if (!value) return 'UNKNOWN'
+  const normalized = value.toUpperCase()
+  if (normalized === 'SUBMITTED') return 'SUBMITTED'
+  if (normalized === 'UNDER_REVIEW' || normalized === 'IN_REVIEW') return 'UNDER_REVIEW'
+  if (normalized === 'ACCEPTED' || normalized === 'APPROVED') return 'ACCEPTED'
+  if (normalized === 'DECLINED' || normalized === 'REJECTED') return 'DECLINED'
+  return 'UNKNOWN'
+}
+
+const getEventOfferStatus = (event: LeadRouteEventRecord): OfferStatus => {
+  const payload = (event.payload ?? {}) as EventPayloadEnvelope
+  const status =
+    payload.status ??
+    payload.offerStatus ??
+    payload.workflowStatus ??
+    payload.decision?.status ??
+    payload.context?.offerIntent?.status ??
+    payload.context?.workflowStatus ??
+    payload.context?.offer?.status
+  return normalizeOfferStatus(status)
+}
+
+const offerStatusLabel = (status: OfferStatus | OfferStatusFilter) => {
+  if (status === 'UNDER_REVIEW') return 'Under review'
+  if (status === 'SUBMITTED') return 'Submitted'
+  if (status === 'ACCEPTED') return 'Accepted'
+  if (status === 'DECLINED') return 'Declined'
+  if (status === 'ALL') return 'All decisions'
+  return 'Unknown'
 }
 
 function RuleDialog({ open, onOpenChange, initialRule, onSubmit }: RuleDialogProps) {
@@ -484,6 +540,38 @@ function LeadRoutingDesk() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<LeadRoutingRule | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const parseStatus = (value: string | null): OfferStatusFilter => {
+    if (!value) return 'ALL'
+    const normalized = value.toUpperCase()
+    return offerStatusFilters.some((filter) => filter.id === normalized) ? (normalized as OfferStatusFilter) : 'ALL'
+  }
+
+  const [statusFilter, setStatusFilter] = useState<OfferStatusFilter>(() => parseStatus(searchParams.get('status')))
+
+  useEffect(() => {
+    const nextStatus = parseStatus(searchParams.get('status'))
+    if (nextStatus !== statusFilter) {
+      setStatusFilter(nextStatus)
+    }
+  }, [searchParams, statusFilter])
+
+  const handleStatusFilterChange = (value: OfferStatusFilter) => {
+    setStatusFilter(value)
+    const next = new URLSearchParams(searchParams)
+    if (value === 'ALL') {
+      next.delete('status')
+    } else {
+      next.set('status', value)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  const filteredEvents = useMemo(() => {
+    if (statusFilter === 'ALL') return events
+    return events.filter((event) => getEventOfferStatus(event) === statusFilter)
+  }, [events, statusFilter])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -904,21 +992,40 @@ function LeadRoutingDesk() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>Decision viewer</CardTitle>
             <CardDescription>Recent routing events with candidate transparency.</CardDescription>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {offerStatusFilters.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => handleStatusFilterChange(option.id)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  statusFilter === option.id
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {events.length === 0 ? (
+          {filteredEvents.length === 0 ? (
             <div className="flex items-center gap-2 rounded-md border border-dashed p-6 text-sm text-muted-foreground">
               <AlertTriangle className="h-4 w-4" />
-              No routing events captured yet.
+              {statusFilter === 'ALL'
+                ? 'No routing events captured yet.'
+                : `No routing events with ${offerStatusLabel(statusFilter)} status.`}
             </div>
           ) : (
-            events.map((event) => {
+            filteredEvents.map((event) => {
               const ruleName = event.matchedRuleId ? ruleNameById.get(event.matchedRuleId) ?? event.matchedRuleId : 'No rule matched'
+              const offerStatus = getEventOfferStatus(event)
               return (
                 <div key={event.id} className="rounded-lg border p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -928,7 +1035,8 @@ function LeadRoutingDesk() {
                         Lead {event.leadId} • {new Date(event.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{offerStatusLabel(offerStatus)}</Badge>
                       <Badge variant={event.fallbackUsed ? 'secondary' : 'default'}>
                         {event.fallbackUsed ? 'Fallback' : 'Direct assignment'}
                       </Badge>

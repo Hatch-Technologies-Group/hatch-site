@@ -34,8 +34,11 @@ export default async function AccountDetailPage({ params }: AccountPageProps) {
     notFound();
   }
 
+  const resolvedAccount = account;
+  const accountRecord = resolvedAccount as unknown as Record<string, unknown>;
+
   const baseline = FIELD_MAP['accounts'] ?? [];
-  const allowedFields = Object.keys(account ?? {});
+  const allowedFields = Object.keys(resolvedAccount ?? {});
   const manifestFields = layoutManifest?.fields ??
     baseline.map((field, index) => ({ field: field.field, label: field.label, order: index, width: field.width }));
   const orderedFields = applyLayout({ fields: manifestFields }, allowedFields, baseline);
@@ -43,28 +46,30 @@ export default async function AccountDetailPage({ params }: AccountPageProps) {
   const renderFieldValue = (field: string) => {
     switch (field) {
       case 'website':
-        return account.website ? (
-          <a href={account.website} className="text-brand-600 hover:underline" rel="noreferrer" target="_blank">
-            {account.website}
+        return resolvedAccount.website ? (
+          <a href={resolvedAccount.website} className="text-brand-600 hover:underline" rel="noreferrer" target="_blank">
+            {resolvedAccount.website}
           </a>
         ) : (
           '—'
         );
       case 'industry':
-        return account.industry ?? '—';
+        return resolvedAccount.industry ?? '—';
       case 'phone':
-        return account.phone ?? '—';
+        return resolvedAccount.phone ?? '—';
       case 'owner':
-        return account.owner?.name ?? account.ownerId ?? 'Unassigned';
+        return resolvedAccount.owner?.name ?? resolvedAccount.ownerId ?? 'Unassigned';
       case 'annualRevenue':
-        return typeof account.annualRevenue === 'number' ? `$${account.annualRevenue.toLocaleString()}` : '—';
+        return typeof resolvedAccount.annualRevenue === 'number'
+          ? `$${resolvedAccount.annualRevenue.toLocaleString()}`
+          : '—';
       case 'createdAt':
       case 'updatedAt': {
-        const value = (account as Record<string, unknown>)[field];
+        const value = accountRecord[field];
         return typeof value === 'string' ? new Date(value).toLocaleString() : '—';
       }
       default: {
-        const value = (account as Record<string, unknown>)[field];
+        const value = accountRecord[field];
         if (value === null || value === undefined || value === '') {
           return '—';
         }
@@ -85,7 +90,7 @@ export default async function AccountDetailPage({ params }: AccountPageProps) {
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900">{account.name ?? 'Untitled account'}</h1>
+            <h1 className="text-2xl font-semibold text-slate-900">{resolvedAccount.name ?? 'Untitled account'}</h1>
             <p className="text-sm text-slate-500">Owner-managed organisation record.</p>
           </div>
           <ReindexEntityButton entityType="client" entityId={id} />

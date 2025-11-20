@@ -51,6 +51,7 @@
     "@vercel/node": "^3.0.35",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "bcryptjs": "^3.0.3",
     "bullmq": "^5.12.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -72,6 +73,7 @@
     "prom-client": "^15.1.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
+    "twilio": "^4.23.0",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
   },

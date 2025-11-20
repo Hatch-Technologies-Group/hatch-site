@@ -24,7 +24,7 @@ import ContactActions from '@/components/contact-actions';
 import { ReindexEntityButton } from '@/components/copilot/ReindexEntityButton';
 import { CopilotContextEmitter } from '@/components/copilot/CopilotContextEmitter';
 import { Section } from '@/components/ui/section';
-import { type LeadDetail, getLead, getPipelines } from '@/lib/api';
+import { type LeadDetail, type LeadStageSummary, getLead, getPipelines } from '@/lib/api';
 import { resolveLayout } from '@/lib/api/admin.layouts';
 import { applyLayout } from '@/lib/layouts/applyLayout';
 import { LeadSectionNav } from './LeadSectionNav';
@@ -139,7 +139,9 @@ export default async function LeadProfilePage({ params }: { params: { id: string
       label: field.label ?? field.field,
       value: renderFieldValue(field.field, {
         lead,
-        stageName
+        stageName,
+        leadStatus,
+        leadSource
       })
     }))
     .filter((tile) => tile.value && tile.value !== '—');
@@ -175,6 +177,24 @@ export default async function LeadProfilePage({ params }: { params: { id: string
     }
   };
 
+  const leadSource = (lead as { source?: string | null }).source ?? undefined;
+  const rawStatus = (lead as { status?: string | LeadStageSummary | null }).status;
+  const leadStatus: string | null = (() => {
+    if (typeof rawStatus === 'string') {
+      return rawStatus;
+    }
+    if (rawStatus && typeof rawStatus === 'object' && typeof (rawStatus as LeadStageSummary).name === 'string') {
+      return (rawStatus as LeadStageSummary).name ?? null;
+    }
+    if (typeof lead.stage === 'string') {
+      return lead.stage;
+    }
+    if (typeof lead.stageId === 'string') {
+      return lead.stageId;
+    }
+    return null;
+  })();
+
   const infoGroups: InfoGroupConfig[] = [
     {
       title: 'Contact info',
@@ -189,7 +209,7 @@ export default async function LeadProfilePage({ params }: { params: { id: string
       icon: Users,
       items: [
         { label: 'Owner', icon: Users, value: ownerName },
-        { label: 'Source', icon: Target, value: lead.source ?? '—' },
+        { label: 'Source', icon: Target, value: leadSource ?? '—' },
         { label: 'Pipeline', icon: Sparkles, value: pipelineName }
       ]
     },
@@ -222,7 +242,7 @@ export default async function LeadProfilePage({ params }: { params: { id: string
         {
           label: 'Status',
           icon: Sparkles,
-          value: lead.status ?? 'Not specified'
+          value: leadStatus ?? 'Not specified'
         },
         {
           label: 'Created',
@@ -578,14 +598,17 @@ function renderFieldValue(
   context: {
     lead: LeadDetail;
     stageName: string;
+    leadStatus: string | null;
+    leadSource?: string;
   }
 ) {
-  const { lead, stageName } = context;
+  const { lead, stageName, leadStatus, leadSource } = context;
   switch (field) {
     case 'status':
-      return lead.status ?? stageName;
-    case 'source':
-      return lead.source ?? '—';
+      return leadStatus ?? stageName;
+    case 'source': {
+      return leadSource ?? '—';
+    }
     case 'owner':
       return lead.owner?.name ?? 'Unassigned';
     case 'email':

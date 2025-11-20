@@ -14,6 +14,7 @@ export class SessionController {
   async getSession(@Req() req: FastifyRequest) {
     const ctx = resolveRequestContext(req);
 
+    const orgId = ctx.orgId ?? ctx.tenantId;
     const [user, tenant] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: ctx.userId },
@@ -57,14 +58,14 @@ export class SessionController {
       memberships: [
         {
           id: `${ctx.tenantId}-membership`,
-          org_id: ctx.tenantId,
+          org_id: orgId,
           role: membershipRole,
           status: 'active',
           can_manage_billing: membershipRole === 'BROKER_OWNER',
           metadata: null,
           org: tenant
             ? {
-                id: tenant.id,
+                id: orgId,
                 name: tenant.name,
                 type: 'BROKERAGE',
                 status: 'active',
@@ -74,7 +75,7 @@ export class SessionController {
                 metadata: { slug: tenant.slug }
               }
             : {
-                id: ctx.tenantId,
+                id: orgId,
                 name: 'Hatch Brokerage',
                 type: 'BROKERAGE',
                 status: 'active',
@@ -85,7 +86,7 @@ export class SessionController {
               }
         }
       ],
-      activeOrgId: ctx.tenantId,
+      activeOrgId: orgId,
       policies: []
     };
   }

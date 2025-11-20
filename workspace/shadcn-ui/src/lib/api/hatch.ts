@@ -767,12 +767,36 @@ export async function getLeads(params: ListLeadsParams = {}) {
 export const getLead = (leadId: string) => apiFetch<LeadDetail>(`/leads/${leadId}`);
 
 export interface UpdateLeadPayload {
+  // Identity/contact
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  source?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  gclid?: string;
+
+  // Ownership & pipeline
   ownerId?: string | null;
   pipelineId?: string;
   stageId?: string;
+
+  // Communication consent
   consentEmail?: boolean;
   consentSMS?: boolean;
   doNotContact?: boolean;
+
+  // Fit & notes
+  fit?: {
+    preapproved?: boolean;
+    budgetMin?: number | null;
+    budgetMax?: number | null;
+    timeframeDays?: number | null;
+    geo?: string | null;
+  } | null;
+  notes?: string;
 }
 
 export const updateLead = (leadId: string, payload: UpdateLeadPayload) =>
@@ -1999,6 +2023,14 @@ export async function sendCustomerEmail(
   payload: SendCustomerEmailPayload
 ): Promise<SendCustomerEmailResponse> {
   return apiFetch<SendCustomerEmailResponse>('email/send', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// Voice: start an outbound call via Twilio (backend proxy)
+export async function startVoiceCall(payload: { to: string; tenantId?: string }): Promise<{ success: boolean; sid?: string }> {
+  return apiFetch<{ success: boolean; sid?: string }>('voice/call', {
     method: 'POST',
     body: JSON.stringify(payload)
   });

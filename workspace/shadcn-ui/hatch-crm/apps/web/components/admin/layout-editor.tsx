@@ -113,7 +113,7 @@ export function LayoutEditor({
 
   return (
     <div className="space-y-4">
-      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {error && <ErrorBanner title="Layout error" detail={error} />}
       <div className="rounded-md border border-slate-200 bg-white">
         <div className="grid grid-cols-[1fr_auto_auto] border-b border-slate-100 bg-slate-50 p-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
           <span>Field</span>

@@ -72,7 +72,8 @@ export default async function OpportunityDetailPage({ params }: OpportunityPageP
           'No transaction linked yet'
         );
       default: {
-        const value = (opportunity as Record<string, unknown>)[field];
+        const record = opportunity as unknown as Record<string, unknown>;
+        const value = record[field];
         if (value === null || value === undefined || value === '') {
           return '—';
         }

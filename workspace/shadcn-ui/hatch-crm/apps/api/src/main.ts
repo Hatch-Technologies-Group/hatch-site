@@ -71,7 +71,10 @@ export async function createApp(): Promise<NestFastifyApplication> {
     app.setGlobalPrefix('api/v1', {
       exclude: [
         { path: 'sms/status', method: RequestMethod.POST },
-        { path: 'sms/inbound', method: RequestMethod.POST }
+        { path: 'sms/inbound', method: RequestMethod.POST },
+        { path: 'voice/twiml', method: RequestMethod.POST },
+        { path: 'voice/twiml', method: RequestMethod.GET },
+        { path: 'voice/status', method: RequestMethod.POST }
       ]
     });
   }

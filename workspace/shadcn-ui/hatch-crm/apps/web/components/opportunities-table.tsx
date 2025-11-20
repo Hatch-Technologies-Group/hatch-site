@@ -99,6 +99,7 @@ export default function OpportunitiesTable({
   const pagingError = error ? map(error) : null;
 
   const renderCellValue = useCallback((opportunity: Opportunity, field: string) => {
+    const opportunityRecord = opportunity as unknown as Record<string, unknown>;
     switch (field) {
       case 'name':
         return (
@@ -136,7 +137,7 @@ export default function OpportunitiesTable({
           'No transaction linked yet'
         );
       default: {
-        const value = (opportunity as Record<string, unknown>)[field];
+        const value = opportunityRecord[field];
         if (value === null || value === undefined || value === '') {
           return '—';
         }

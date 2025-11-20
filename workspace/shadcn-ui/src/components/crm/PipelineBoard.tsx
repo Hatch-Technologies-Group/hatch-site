@@ -18,7 +18,11 @@ import {
   LeadSummary,
   Pipeline,
   PipelineStage,
-  updateLead
+  updateLead,
+  startVoiceCall,
+  createLeadTouchpoint,
+  type LeadTouchpointType,
+  type MessageChannelType
 } from '@/lib/api/hatch'
 import { getStageDisplay } from '@/lib/stageDisplay'
 import { cn } from '@/lib/utils'
@@ -192,7 +196,7 @@ export default function PipelineBoard({
       }
       if (normalizedSearch) {
         const haystack = [
-          lead.displayName,
+          // displayName not guaranteed; synthesize from available fields
           lead.firstName,
           lead.lastName,
           lead.email,
@@ -365,6 +369,68 @@ export default function PipelineBoard({
     )
   }, [])
 
+  const handleCallLead = useCallback(
+    async (lead: LeadSummary) => {
+      if (!lead.phone) {
+        toast({ title: 'No phone number', description: 'This lead does not have a phone on file.', variant: 'destructive' })
+        return
+      }
+      const e164 = /^\+[1-9]\d{1,14}$/
+      if (!e164.test(lead.phone)) {
+        toast({ title: 'Invalid phone format', description: 'Expected E.164 like +16465550123.', variant: 'destructive' })
+        return
+      }
+
+      const calling = toast({ title: 'Calling…', description: `Dialing ${lead.phone}`, variant: 'default' })
+      try {
+        const res = await startVoiceCall({ to: lead.phone })
+        if (!res?.success) {
+          throw new Error('Failed to start call')
+        }
+        toast({ title: 'Call in progress', description: `Outbound call to ${lead.phone}`, variant: 'default' })
+
+        const occurredAt = new Date().toISOString()
+        try {
+          await createLeadTouchpoint(lead.id, {
+            type: 'CALL' as LeadTouchpointType,
+            channel: 'VOICE' as MessageChannelType,
+            summary: `Outbound call started to ${lead.phone}`,
+            metadata: { sid: res.sid, to: lead.phone },
+            occurredAt
+          })
+        } catch (err) {
+          // Best-effort; don't block the UI
+          console.error('Failed to log call touchpoint', err)
+        }
+
+        // Optimistically update last activity
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id
+              ? {
+                  ...l,
+                  lastActivityAt: occurredAt,
+                  activityRollup: {
+                    last7dListingViews: l.activityRollup?.last7dListingViews ?? 0,
+                    last7dSessions: l.activityRollup?.last7dSessions ?? 0,
+                    lastReplyAt: l.activityRollup?.lastReplyAt ?? null,
+                    lastEmailOpenAt: l.activityRollup?.lastEmailOpenAt ?? null,
+                    lastTouchpointAt: occurredAt
+                  }
+                }
+              : l
+          )
+        )
+      } catch (err) {
+        console.error('Start call failed', err)
+        toast({ title: 'Call failed', description: err instanceof Error ? err.message : 'Unable to start call', variant: 'destructive' })
+      } finally {
+        // no-op
+      }
+    },
+    [toast]
+  )
+
   const handleSelectLead = useCallback((lead: LeadSummary) => {
     setActiveLeadId(lead.id)
     setIsDrawerOpen(true)
@@ -510,10 +576,10 @@ export default function PipelineBoard({
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
               <div
                 className={clsx(
-                  'min-w-[960px] grid gap-6 transition-all duration-200',
-                  'md:grid-cols-2',
-                  visibleStages.length >= 3 ? 'xl:grid-cols-3' : 'xl:grid-cols-2',
-                  visibleStages.length >= 4 && '2xl:grid-cols-4'
+                  // Single-row horizontal layout with scroll
+                  'inline-flex w-max gap-6 transition-all duration-200',
+                  // Smooth snapping as you scroll sideways
+                  'snap-x snap-mandatory px-1'
                 )}
                 aria-busy={isPending}
               >
@@ -531,6 +597,7 @@ export default function PipelineBoard({
                       onSelectLead={handleSelectLead}
                       activeLeadId={activeLeadId}
                       onMessage={handleMessageLead}
+                      onCall={handleCallLead}
                       compactMode={compactMode}
                       onRequestAddLead={onRequestAddLead}
                     />
@@ -595,6 +662,7 @@ interface StageColumnProps {
   stageIndex: number
   totalStages: number
   onMessage: (leadId: string) => void
+  onCall: (lead: LeadSummary) => void
   compactMode: boolean
   onRequestAddLead?: () => void
 }
@@ -608,6 +676,7 @@ function StageColumn({
   onSelectLead,
   activeLeadId,
   onMessage,
+  onCall,
   compactMode,
   onRequestAddLead
 }: StageColumnProps) {
@@ -618,7 +687,13 @@ function StageColumn({
   return (
     <div
       ref={setNodeRef}
-      className="relative flex min-h-[24rem] flex-col rounded-3xl border border-[#E2E8F0] bg-white p-4 shadow-sm"
+      className={clsx(
+        'relative flex min-h-[24rem] flex-col rounded-3xl border border-[#E2E8F0] bg-white p-4 shadow-sm',
+        // Fixed width so columns never wrap; allow horizontal scroll
+        'w-[340px] md:w-[360px] xl:w-[380px] shrink-0',
+        // Align scrolling snaps to each column
+        'snap-start'
+      )}
     >
       {isOver && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-3xl border-4 border-dashed border-hatch-blue/60 bg-hatch-blue/10 text-base font-semibold text-hatch-blue">
@@ -668,6 +743,7 @@ function StageColumn({
               onSelect={onSelectLead}
               isActive={lead.id === activeLeadId}
               onMessage={onMessage}
+              onCall={onCall}
               compactMode={compactMode}
               sequence={index + 1}
             />
@@ -691,6 +767,7 @@ function DraggableLeadCard({
   onSelect,
   isActive,
   onMessage,
+  onCall,
   compactMode,
   sequence
 }: DraggableLeadCardProps) {
@@ -767,6 +844,7 @@ function DraggableLeadCard({
           onSelect={onSelect}
           isActive={isActive}
           onMessage={onMessage}
+          onCall={onCall}
           compactMode={compactMode}
           isDragging={isDragging}
         />
@@ -784,11 +862,12 @@ interface LeadCardProps {
   onSelect: (lead: LeadSummary) => void
   isActive: boolean
   onMessage: (leadId: string) => void
+  onCall: (lead: LeadSummary) => void
   compactMode: boolean
   isDragging?: boolean
 }
 
-function LeadCard({ lead, stage, stageIndex, totalStages, now, onSelect, isActive, onMessage, compactMode, isDragging }: LeadCardProps) {
+function LeadCard({ lead, stage, stageIndex, totalStages, now, onSelect, isActive, onMessage, onCall, compactMode, isDragging }: LeadCardProps) {
 
   const rawStageName = lead.stage?.name ?? stage.name
   const stageDisplay = getStageDisplay(rawStageName)
@@ -875,12 +954,13 @@ function LeadCard({ lead, stage, stageIndex, totalStages, now, onSelect, isActiv
                 <span className="sr-only">Lead actions</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[160px] rounded-xl border border-hatch-neutral/40 bg-white/95 shadow-lg backdrop-blur">
+            <DropdownMenuContent align="end" className="min-w-[180px] rounded-xl border border-hatch-neutral/40 bg-white/95 shadow-lg backdrop-blur">
               <DropdownMenuItem asChild>
                 <Link to={`/broker/crm/leads/${lead.id}`} state={{ lead }}>
                   Open details
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onCall(lead)}>Call lead</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onMessage(lead.id)}>Send message</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onSelect(lead)}>Highlight card</DropdownMenuItem>
             </DropdownMenuContent>

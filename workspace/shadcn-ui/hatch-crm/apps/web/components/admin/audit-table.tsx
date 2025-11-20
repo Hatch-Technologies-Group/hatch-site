@@ -122,7 +122,7 @@ export function AuditTable({ initialItems, initialNextCursor, pageSize }: AuditT
 
   return (
     <div className="space-y-4">
-      {banner}
+      {banner ? <ErrorBanner {...banner} /> : null}
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <label className="flex flex-col gap-1 text-sm text-slate-600">

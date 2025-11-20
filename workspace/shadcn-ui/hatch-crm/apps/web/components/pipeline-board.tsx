@@ -917,6 +917,8 @@ function StageColumn({
   const leadCopy = `${leads.length} ${leads.length === 1 ? 'Lead' : 'Leads'}`;
   const slaCopy = stage.slaMinutes ? formatSla(stage.slaMinutes) : 'No SLA';
   const stageTitle = resolveStageTitle(stage.name);
+  const pipelineLabel =
+    'pipelineName' in stage ? (stage as { pipelineName?: string }).pipelineName : undefined;
 
   return (
     <div
@@ -930,7 +932,7 @@ function StageColumn({
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-              {stage.pipelineName ?? 'Pipeline'}
+              {pipelineLabel ?? 'Pipeline'}
             </p>
             <h2 className="text-lg font-semibold text-slate-900">{stageTitle}</h2>
           </div>
@@ -1058,6 +1060,11 @@ function LeadCard({
     [cardFields]
   );
 
+  const stageTitle = resolveStageTitle(lead.stage?.name ?? stage.name);
+  const stagePipelineName =
+    lead.stage?.pipelineName ??
+    ('pipelineName' in stage ? (stage as { pipelineName?: string }).pipelineName : undefined);
+
   const renderFieldValue = useCallback(
     (field: string) => {
       switch (field) {
@@ -1072,9 +1079,9 @@ function LeadCard({
         case 'stage':
           return stageTitle;
         case 'pipelineName':
-          return lead.pipelineName ?? stage.pipelineName ?? '—';
+          return lead.pipelineName ?? stagePipelineName ?? '—';
         case 'source':
-          return lead.source ?? '—';
+          return (lead as { source?: string | null }).source ?? '—';
         case 'owner':
           return lead.owner?.name ?? 'Unassigned';
         case 'score':
@@ -1103,7 +1110,7 @@ function LeadCard({
         }
       }
     },
-    [lead, stage, stageTitle]
+    [lead, stagePipelineName, stageTitle]
   );
 
   const ownerName = lead.owner?.name ?? 'Unassigned';
@@ -1120,7 +1127,6 @@ function LeadCard({
     lead.phone ? { icon: Phone as LucideIcon, label: lead.phone } : null
   ].filter(Boolean) as Array<{ icon: LucideIcon; label: string }>;
   const visibleContactChips = isCompact ? contactChips.slice(0, 1) : contactChips;
-  const stageTitle = resolveStageTitle(lead.stage?.name ?? stage.name);
 
   return (
     <div
@@ -1132,8 +1138,6 @@ function LeadCard({
         !isDragging && isActive && 'ring-2 ring-brand-500 ring-offset-2',
         isCompact && 'p-3'
       )}
-      role="button"
-      tabIndex={0}
       onClick={() => onSelect(lead)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -1155,7 +1159,7 @@ function LeadCard({
                 {lead.firstName ?? '—'} {lead.lastName ?? ''}
               </p>
               <p className="text-xs text-[var(--hatch-text-muted)]">
-                {lead.stage?.pipelineName ?? stage.pipelineName ?? 'Pipeline'} • {stageTitle}
+                {stagePipelineName ?? 'Pipeline'} • {stageTitle}
               </p>
             </div>
             {visibleContactChips.length > 0 && (

@@ -105,8 +105,8 @@ describeIf(RUN_INTEGRATION)('AI email composer endpoints', () => {
     await app?.close();
   });
 
-  const client = () =>
-    request(app.getHttpServer())
+  const withAuth = (r: request.Test) =>
+    r
       .set('Authorization', authHeader)
       .set('x-tenant-id', tenantId)
       .set('x-org-id', organizationId)
@@ -114,8 +114,7 @@ describeIf(RUN_INTEGRATION)('AI email composer endpoints', () => {
       .set('x-user-role', 'BROKER');
 
   it('creates an AI email draft for hot leads', async () => {
-    const response = await client()
-      .post('/ai/email-draft')
+    const response = await withAuth(request(app.getHttpServer()).post('/ai/email-draft'))
       .send({
         personaId: 'lead_nurse',
         contextType: 'segment',
@@ -131,8 +130,7 @@ describeIf(RUN_INTEGRATION)('AI email composer endpoints', () => {
   });
 
   it('sends a preview email to the hot-lead segment', async () => {
-    const response = await client()
-      .post('/email/send')
+    const response = await withAuth(request(app.getHttpServer()).post('/email/send'))
       .send({
         personaId: 'lead_nurse',
         subject: 'Integration test email',
@@ -145,8 +143,7 @@ describeIf(RUN_INTEGRATION)('AI email composer endpoints', () => {
     expect(response.body.campaign).toBeDefined();
     expect(response.body.campaign.subject).toBe('Integration test email');
 
-    const campaignsResponse = await client()
-      .get('/marketing/campaigns')
+    const campaignsResponse = await withAuth(request(app.getHttpServer()).get('/marketing/campaigns'))
       .expect(200);
 
     expect(campaignsResponse.body.campaigns[0].subject).toBe('Integration test email');

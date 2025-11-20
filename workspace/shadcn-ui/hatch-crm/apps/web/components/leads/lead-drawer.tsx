@@ -160,7 +160,7 @@ export function LeadDrawer({ lead, pipelines, owners, onClose, onLeadUpdated }: 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {error && (
             <div className="mb-4">
-              <ErrorBanner detail={error} onDismiss={clearError} />
+              <ErrorBanner title="Lead update failed" detail={error} onDismiss={clearError} />
             </div>
           )}
 

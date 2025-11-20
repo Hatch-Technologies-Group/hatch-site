@@ -133,7 +133,7 @@ export function CopilotDock({ debug = false, header }: CopilotDockProps) {
   const handleApproveAction = useCallback(
     async (actionId: string) => {
       try {
-        const updated = await approveAction(actionId);
+        const updated = (await approveAction(actionId)) as AiEmployeeAction;
         notifyExecution(updated);
         return updated;
       } catch (error) {
@@ -152,7 +152,7 @@ export function CopilotDock({ debug = false, header }: CopilotDockProps) {
   const handleRejectAction = useCallback(
     async (actionId: string) => {
       try {
-        const updated = await rejectAction(actionId);
+        const updated = (await rejectAction(actionId)) as AiEmployeeAction;
         toast({
           title: 'Action rejected',
           description: 'The AI suggestion was dismissed.'

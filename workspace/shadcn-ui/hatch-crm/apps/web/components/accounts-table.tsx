@@ -109,6 +109,7 @@ export default function AccountsTable({
   const pagingError = error ? map(error) : null;
 
   const renderCellValue = useCallback((account: Account, field: string) => {
+    const accountRecord = account as unknown as Record<string, unknown>;
     switch (field) {
       case 'name':
         return (
@@ -134,11 +135,11 @@ export default function AccountsTable({
         return typeof account.annualRevenue === 'number' ? `$${account.annualRevenue.toLocaleString()}` : '—';
       case 'createdAt':
       case 'updatedAt': {
-        const value = (account as Record<string, unknown>)[field];
+        const value = accountRecord[field];
         return typeof value === 'string' ? new Date(value).toLocaleString() : '—';
       }
       default: {
-        const value = (account as Record<string, unknown>)[field];
+        const value = accountRecord[field];
         if (value === null || value === undefined || value === '') {
           return '—';
         }

@@ -7,6 +7,7 @@ import {
   Filter,
   Search
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -69,6 +70,39 @@ const LeadsPage = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formState, setFormState] = useState<LeadFormState>(emptyFormState)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const stageFilters = ['ALL', 'NEW', 'ACTIVE', 'UNDER_CONTRACT', 'CLOSED', 'NURTURE', 'LOST'] as const
+  type StageFilter = (typeof stageFilters)[number]
+  const parseStageFilter = (value: string | null): StageFilter => {
+    if (!value) return 'ALL'
+    const normalized = value.toUpperCase()
+    return stageFilters.includes(normalized as StageFilter) ? (normalized as StageFilter) : 'ALL'
+  }
+
+  const [stageFilter, setStageFilter] = useState<StageFilter>(() => parseStageFilter(searchParams.get('stage')))
+
+  useEffect(() => {
+    const nextFilter = parseStageFilter(searchParams.get('stage'))
+    if (nextFilter !== stageFilter) {
+      setStageFilter(nextFilter)
+    }
+  }, [searchParams, stageFilter])
+
+  const updateStageParam = (value: StageFilter) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'ALL') {
+      next.delete('stage')
+    } else {
+      next.set('stage', value)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  const handleStageFilterChange = (value: StageFilter) => {
+    setStageFilter(value)
+    updateStageParam(value)
+  }
 
   const loadLeads = async () => {
     try {
@@ -90,16 +124,21 @@ const LeadsPage = () => {
     void loadLeads()
   }, [])
 
-  const filteredLeads = useMemo(() => {
-    if (!searchTerm) return leads
-    return leads.filter((lead) => {
-      const haystack = [lead.firstName, lead.lastName, lead.primaryEmail, lead.primaryPhone]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(searchTerm.toLowerCase())
-    })
-  }, [leads, searchTerm])
+  const visibleLeads = useMemo(() => {
+    return leads
+      .filter((lead) => {
+        if (stageFilter === 'ALL') return true
+        return (lead.stage ?? '').toUpperCase() === stageFilter
+      })
+      .filter((lead) => {
+        if (!searchTerm) return true
+        const haystack = [lead.firstName, lead.lastName, lead.primaryEmail, lead.primaryPhone]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(searchTerm.toLowerCase())
+      })
+  }, [leads, stageFilter, searchTerm])
 
   const resetForm = () => {
     setFormState(emptyFormState)
@@ -278,19 +317,37 @@ const LeadsPage = () => {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>All leads</CardTitle>
-              <CardDescription>Synced from the Hatch back office</CardDescription>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle>All leads</CardTitle>
+                <CardDescription>Synced from the Hatch back office</CardDescription>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  className="pl-9 w-64"
+                  placeholder="Search"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+              </div>
             </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                className="pl-9 w-64"
-                placeholder="Search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
+            <div className="flex flex-wrap gap-2">
+              {stageFilters.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => handleStageFilterChange(option)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    stageFilter === option
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {option === 'ALL' ? 'All leads' : option.replace(/_/g, ' ').toLowerCase()}
+                </button>
+              ))}
             </div>
           </div>
         </CardHeader>
@@ -301,18 +358,22 @@ const LeadsPage = () => {
                 <Skeleton key={`lead-skeleton-${index}`} className="h-20 w-full" />
               ))}
             </div>
-          ) : filteredLeads.length === 0 ? (
+          ) : visibleLeads.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">No leads yet</h3>
-              <p className="text-gray-600 mb-6">Start generating leads to grow your business.</p>
+              <p className="text-gray-600 mb-6">
+                {stageFilter === 'ALL'
+                  ? 'Start generating leads to grow your business.'
+                  : `No leads match the ${stageFilter.replace(/_/g, ' ').toLowerCase()} stage.`}
+              </p>
               <Button onClick={() => setDialogOpen(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add your first lead
               </Button>
             </div>
           ) : (
-            filteredLeads.map((lead) => (
+            visibleLeads.map((lead) => (
               <Card key={lead.id} className="p-4">
                 <div className="flex items-start justify-between">
                   <div>

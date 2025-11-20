@@ -1,4 +1,19 @@
-import type { CopilotCitation, CopilotSnippet } from '@/types/copilot';
+export type CopilotCitation = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  score?: number;
+  meta?: Record<string, unknown> | null;
+};
+
+export type CopilotSnippet = {
+  id?: string;
+  content: string;
+  score?: number;
+  entityType?: string;
+  entityId?: string;
+  meta?: Record<string, unknown> | null;
+};
 
 export type CopilotChatResponse = {
   messages: Array<{ role: string; content: string }>;

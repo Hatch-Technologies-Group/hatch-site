@@ -33,6 +33,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const DEV_TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
+const DEV_ORG_ID = import.meta.env.VITE_ORG_ID || 'org-hatch'
 const SIGN_IN_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_SIGNIN_TIMEOUT_MS ?? 8000)
 const DEV_AUTH_CACHE_KEY = 'hatch_dev_auth'
 
@@ -57,24 +58,24 @@ const buildDevSession = (email: string): SessionResponse => {
     memberships: [
       {
         id: 'dev-membership',
-        org_id: DEV_TENANT_ID,
+        org_id: DEV_ORG_ID,
         role: 'BROKER_OWNER',
         status: 'active',
         can_manage_billing: true,
         metadata: null,
         org: {
-          id: DEV_TENANT_ID,
+          id: DEV_ORG_ID,
           name: 'Dev Brokerage',
           type: 'BROKERAGE',
           status: 'active',
           billing_email: email,
           stripe_customer_id: null,
           grace_period_ends_at: null,
-          metadata: null
+          metadata: { slug: DEV_TENANT_ID }
         }
       }
     ],
-    activeOrgId: DEV_TENANT_ID,
+    activeOrgId: DEV_ORG_ID,
     policies: []
   }
 }

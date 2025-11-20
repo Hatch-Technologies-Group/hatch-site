@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Phone, Pencil } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 
 import {
@@ -8,7 +8,12 @@ import {
   getPipelines,
   type LeadDetail,
   type LeadSummary,
-  type Pipeline
+  type Pipeline,
+  startVoiceCall,
+  createLeadTouchpoint,
+  type LeadTouchpointType,
+  type MessageChannelType,
+  updateLead
 } from '@/lib/api/hatch'
 import {
   listSequences,
@@ -27,6 +32,10 @@ import { Separator } from '@/components/ui/separator'
 import { emitCopilotContext } from '@/lib/copilot/events'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ApiError } from '@/lib/api/errors'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
 
@@ -109,6 +118,20 @@ export default function LeadDetailPage() {
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(
     fallbackLeadDetail ? 'Showing cached lead snapshot while we sync with the CRM…' : null
   )
+  const [calling, setCalling] = useState(false)
+  const [callMsg, setCallMsg] = useState<string | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editBusy, setEditBusy] = useState(false)
+  const [editMsg, setEditMsg] = useState<string | null>(null)
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    consentEmail: false,
+    consentSMS: false,
+    doNotContact: false
+  })
 
   useEffect(() => {
     if (!fallbackLeadDetail) {
@@ -214,7 +237,10 @@ export default function LeadDetailPage() {
     const items: ActivityItem[] = [
       ...lead.touchpoints.map((touchpoint) => ({
         id: `touchpoint-${touchpoint.id}`,
-        title: `Touchpoint · ${touchpoint.type}`,
+        title:
+          touchpoint.type === 'CALL'
+            ? '📞 Outbound call'
+            : `Touchpoint · ${touchpoint.type}`,
         occurredAt: touchpoint.occurredAt,
         description: touchpoint.summary || touchpoint.body || 'Interaction recorded',
         actor: touchpoint.recordedBy?.name
@@ -326,6 +352,116 @@ export default function LeadDetailPage() {
     </Alert>
   ) : null
 
+  const openEdit = () => {
+    if (!lead) return
+    setForm({
+      firstName: lead.firstName ?? '',
+      lastName: lead.lastName ?? '',
+      email: lead.email ?? '',
+      phone: lead.phone ?? '',
+      consentEmail: Boolean(lead.consents.find((c) => c.channel === 'EMAIL' && c.status === 'GRANTED')),
+      consentSMS: Boolean(lead.consents.find((c) => c.channel === 'SMS' && c.status === 'GRANTED')),
+      doNotContact: false
+    })
+    setEditMsg(null)
+    setEditOpen(true)
+  }
+
+  const saveEdit = async () => {
+    if (!lead) return
+    try {
+      setEditBusy(true)
+      setEditMsg('Saving…')
+      const updated = await updateLead(lead.id, {
+        firstName: form.firstName || undefined,
+        lastName: form.lastName || undefined,
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        consentEmail: form.consentEmail,
+        consentSMS: form.consentSMS,
+        doNotContact: form.doNotContact
+      })
+      setLead(updated)
+      setEditMsg('Saved')
+      setTimeout(() => setEditOpen(false), 400)
+    } catch (err) {
+      console.error('Failed to update lead', err)
+      setEditMsg(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  const startCall = async () => {
+    if (!lead?.phone) {
+      setCallMsg('No phone number on file')
+      return
+    }
+    const e164 = /^\+[1-9]\d{1,14}$/
+    if (!e164.test(lead.phone)) {
+      setCallMsg('Invalid phone format. Expected E.164 like +16465550123')
+      return
+    }
+    try {
+      setCalling(true)
+      setCallMsg('Calling…')
+      const res = await startVoiceCall({ to: lead.phone })
+      if (res?.success) {
+        setCallMsg('Call in progress')
+        // Log a touchpoint: Call started
+        try {
+          const summary = `Outbound call started to ${lead.phone}`
+          const metadata: Record<string, unknown> = { sid: res.sid, to: lead.phone, channel: 'VOICE' }
+          const now = new Date().toISOString()
+          const result = await createLeadTouchpoint(lead.id, {
+            type: 'CALL' as LeadTouchpointType,
+            channel: 'VOICE' as MessageChannelType,
+            summary,
+            metadata,
+            occurredAt: now
+          })
+          // Optimistically update activity timeline
+          setLead((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  touchpoints: [result.touchpoint, ...prev.touchpoints]
+                }
+              : prev
+          )
+        } catch (err) {
+          console.error('Failed to record call touchpoint', err)
+        }
+      } else {
+        setCallMsg('Failed to start call')
+      }
+    } catch (err) {
+      console.error('Call failed', err)
+      setCallMsg(err instanceof Error ? err.message : 'Call failed')
+    } finally {
+      setTimeout(() => setCalling(false), 800)
+    }
+  }
+
+  const computeEchoSuggestion = () => {
+    if (!lead) return null
+    const now = Date.now()
+    const last = lead.activityRollup?.lastTouchpointAt
+      ? new Date(lead.activityRollup.lastTouchpointAt).getTime()
+      : lead.lastActivityAt
+        ? new Date(lead.lastActivityAt).getTime()
+        : null
+    const days = last ? Math.floor((now - last) / 86_400_000) : null
+    if (days === null || days >= 3) {
+      return `Echo suggests calling this lead today because there has ${days ? `been no activity for ${days} days` : 'been no recent activity'}.`
+    }
+    if ((lead.scoreTier ?? '').toUpperCase() === 'A') {
+      return 'Echo suggests calling: high-priority A-tier lead.'
+    }
+    return null
+  }
+  const echoSuggestion = computeEchoSuggestion()
+
   return (
     <div className="space-y-6">
       <Link to="/broker/crm" className="inline-flex items-center text-sm text-brand-600 hover:text-brand-700">
@@ -350,6 +486,12 @@ export default function LeadDetailPage() {
               <div className="flex flex-col items-end gap-2 text-right text-xs">
                 <ReindexEntityButton entityType="lead" entityId={lead.id} />
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={openEdit}>
+                    <Pencil className="mr-2 h-4 w-4" /> Edit lead
+                  </Button>
+                  <Button size="sm" onClick={() => void startCall()} disabled={calling}>
+                    <Phone className="mr-2 h-4 w-4" /> {calling ? 'Calling…' : 'Call lead'}
+                  </Button>
                   <select
                     className="rounded border px-2 py-1 text-xs"
                     value={sequenceId}
@@ -381,6 +523,13 @@ export default function LeadDetailPage() {
                   <span className="text-[11px] text-slate-500">
                     {[sequenceMsg, draftMsg].filter(Boolean).join(' · ')}
                   </span>
+                )}
+                {editMsg && <span className="text-[11px] text-slate-500">{editMsg}</span>}
+                {callMsg && <span className="text-[11px] text-slate-500">{callMsg}</span>}
+                {echoSuggestion && (
+                  <div className="mt-1 max-w-[360px] text-[11px] text-slate-500">
+                    {echoSuggestion}
+                  </div>
                 )}
                 <div className="flex items-center gap-2">
                   <LeadScoreBadge leadId={lead.id} />
@@ -534,6 +683,85 @@ export default function LeadDetailPage() {
       <Button asChild variant="secondary">
         <Link to="/broker/crm">Return to pipeline</Link>
       </Button>
+
+      {/* Edit Lead Dialog */}
+      <EditLeadDialog
+        open={editOpen}
+        busy={editBusy}
+        form={form}
+        setForm={setForm}
+        onClose={() => setEditOpen(false)}
+        onSave={() => void saveEdit()}
+      />
     </div>
+  )
+}
+
+function EditLeadDialog({
+  open,
+  busy,
+  form,
+  setForm,
+  onClose,
+  onSave
+}: {
+  open: boolean
+  busy: boolean
+  form: { firstName: string; lastName: string; email: string; phone: string; consentEmail: boolean; consentSMS: boolean; doNotContact: boolean }
+  setForm: React.Dispatch<React.SetStateAction<{ firstName: string; lastName: string; email: string; phone: string; consentEmail: boolean; consentSMS: boolean; doNotContact: boolean }>>
+  onClose: () => void
+  onSave: () => void
+}) {
+  const e164Hint = 'E.164, e.g. +16465550123'
+  return (
+    <Dialog open={open} onOpenChange={(v) => (v ? undefined : onClose())}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Edit lead</DialogTitle>
+          <DialogDescription>Update contact details and preferences.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="firstName">First name</Label>
+              <Input id="firstName" value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="lastName">Last name</Label>
+              <Input id="lastName" value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="phone">Phone</Label>
+              <Input id="phone" placeholder={e164Hint} value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3 pt-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={form.consentEmail} onCheckedChange={(v) => setForm((f) => ({ ...f, consentEmail: v }))} /> Email consent
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={form.consentSMS} onCheckedChange={(v) => setForm((f) => ({ ...f, consentSMS: v }))} /> SMS consent
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={form.doNotContact} onCheckedChange={(v) => setForm((f) => ({ ...f, doNotContact: v }))} /> Do not contact
+            </label>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={busy}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
