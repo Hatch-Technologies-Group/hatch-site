@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,32 +8,42 @@ import { toast } from '@/components/ui/use-toast'
 import { createCheckoutSession } from '@/lib/api/billing'
 import { useAuth } from '@/contexts/AuthContext'
 
-// Animation variants
-const fadeInUp = {
-  initial: { opacity: 0, y: 30 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.5 }
-}
+// Helper function to create accessible animation variants
+const createAnimationVariants = (shouldReduceMotion: boolean) => ({
+  fadeInUp: shouldReduceMotion
+    ? {}
+    : {
+        initial: { opacity: 0, y: 30 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.5 }
+      },
 
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.15
-    }
-  }
-}
+  staggerContainer: shouldReduceMotion
+    ? {}
+    : {
+        animate: {
+          transition: {
+            staggerChildren: 0.15
+          }
+        }
+      },
 
-const cardHover = {
-  scale: 1.03,
-  y: -8,
-  transition: { duration: 0.2, ease: "easeOut" }
-}
+  cardHover: shouldReduceMotion
+    ? {}
+    : {
+        scale: 1.03,
+        y: -8,
+        transition: { duration: 0.2, ease: "easeOut" }
+      },
 
-const priceAnimation = {
-  initial: { scale: 0.95, opacity: 0 },
-  animate: { scale: 1, opacity: 1 },
-  transition: { duration: 0.2, ease: "easeOut" }
-}
+  priceAnimation: shouldReduceMotion
+    ? {}
+    : {
+        initial: { scale: 0.95, opacity: 0 },
+        animate: { scale: 1, opacity: 1 },
+        transition: { duration: 0.2, ease: "easeOut" }
+      }
+})
 
 interface Plan {
   id: string
@@ -130,6 +140,10 @@ export default function PricingPage() {
   const { activeOrgId, activeMembership } = useAuth()
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly')
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null)
+  
+  // Respect user's motion preferences for accessibility
+  const shouldReduceMotion = useReducedMotion()
+  const animations = useMemo(() => createAnimationVariants(shouldReduceMotion), [shouldReduceMotion])
 
   const intervalCopy = useMemo(() => ({
     monthly: {
@@ -176,13 +190,15 @@ export default function PricingPage() {
       className="p-6 space-y-10"
       initial="initial"
       animate="animate"
-      variants={staggerContainer}
+      variants={animations.staggerContainer}
     >
-      <motion.div className="text-center space-y-4" variants={fadeInUp}>
+      <motion.div className="text-center space-y-4" variants={animations.fadeInUp}>
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.4 }}
+          {...(shouldReduceMotion ? {} : {
+            initial: { scale: 0.9, opacity: 0 },
+            animate: { scale: 1, opacity: 1 },
+            transition: { duration: 0.4 }
+          })}
         >
           <Badge variant="outline" className="gap-2 text-sm">
             <ShieldCheck className="h-4 w-4" /> Seat-based subscriptions with Stripe checkout
@@ -190,28 +206,34 @@ export default function PricingPage() {
         </motion.div>
         <motion.h1 
           className="text-4xl font-bold text-gray-900"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1, duration: 0.5 }}
+          {...(shouldReduceMotion ? {} : {
+            initial: { opacity: 0, y: 20 },
+            animate: { opacity: 1, y: 0 },
+            transition: { delay: 0.1, duration: 0.5 }
+          })}
         >
           Choose a plan that fits your brokerage
         </motion.h1>
         <motion.p 
           className="text-lg text-gray-600 max-w-2xl mx-auto"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2, duration: 0.5 }}
+          {...(shouldReduceMotion ? {} : {
+            initial: { opacity: 0 },
+            animate: { opacity: 1 },
+            transition: { delay: 0.2, duration: 0.5 }
+          })}
         >
           Each bundle includes the full Hatch marketing + listings suite. Pick the seat count that matches your team,
           or talk with sales for a tailored rollout.
         </motion.p>
         <motion.div 
           className="inline-flex items-center gap-2 bg-slate-100 rounded-full p-1"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3, duration: 0.4 }}
+          {...(shouldReduceMotion ? {} : {
+            initial: { opacity: 0, scale: 0.95 },
+            animate: { opacity: 1, scale: 1 },
+            transition: { delay: 0.3, duration: 0.4 }
+          })}
         >
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+          <motion.div {...(shouldReduceMotion ? {} : { whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } })}>
             <Button
               size="sm"
               variant={interval === 'monthly' ? 'default' : 'ghost'}
@@ -221,7 +243,7 @@ export default function PricingPage() {
               Monthly
             </Button>
           </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+          <motion.div {...(shouldReduceMotion ? {} : { whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } })}>
             <Button
               size="sm"
               variant={interval === 'yearly' ? 'default' : 'ghost'}
@@ -234,9 +256,11 @@ export default function PricingPage() {
         </motion.div>
         <motion.p 
           className="text-sm text-gray-500"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
+          {...(shouldReduceMotion ? {} : {
+            initial: { opacity: 0 },
+            animate: { opacity: 1 },
+            transition: { delay: 0.4 }
+          })}
         >
           {intervalCopy[interval].helper}
         </motion.p>
@@ -244,7 +268,7 @@ export default function PricingPage() {
 
       <motion.div 
         className="grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-7xl mx-auto"
-        variants={staggerContainer}
+        variants={animations.staggerContainer}
       >
         {plans.map((plan, index) => {
           const badgeTone = plan.badgeTone === 'secondary' ? 'secondary' : 'default'
@@ -252,11 +276,13 @@ export default function PricingPage() {
           return (
             <motion.div
               key={plan.id}
-              variants={fadeInUp}
-              whileHover={cardHover}
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1, duration: 0.5 }}
+              variants={animations.fadeInUp}
+              whileHover={animations.cardHover}
+              {...(shouldReduceMotion ? {} : {
+                initial: { opacity: 0, y: 50 },
+                animate: { opacity: 1, y: 0 },
+                transition: { delay: index * 0.1, duration: 0.5 }
+              })}
             >
               <Card
                 className={`relative h-full flex flex-col transition-all duration-300 ${
@@ -267,18 +293,22 @@ export default function PricingPage() {
                 <div className="flex items-center justify-between">
                   <motion.div 
                     className="flex items-center gap-2 text-sm text-blue-600"
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.2 }}
+                    {...(shouldReduceMotion ? {} : {
+                      initial: { opacity: 0, x: -10 },
+                      animate: { opacity: 1, x: 0 },
+                      transition: { delay: 0.2 }
+                    })}
                   >
                     {plan.product === 'agent_solo' ? <User className="h-4 w-4" /> : <Users2 className="h-4 w-4" />}
                     <span>{plan.seats} seat{plan.seats === 1 ? '' : 's'} included</span>
                   </motion.div>
                   {plan.badge && (
                     <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+                      {...(shouldReduceMotion ? {} : {
+                        initial: { scale: 0 },
+                        animate: { scale: 1 },
+                        transition: { delay: 0.3, type: "spring", stiffness: 200 }
+                      })}
                     >
                       <Badge variant={badgeTone}>{plan.badge}</Badge>
                     </motion.div>
@@ -290,7 +320,7 @@ export default function PricingPage() {
                 </CardDescription>
                 <motion.div
                   key={`${plan.id}-${interval}`}
-                  {...priceAnimation}
+                  {...animations.priceAnimation}
                 >
                   <span className="text-4xl font-bold text-gray-900">{renderPrice(plan)}</span>
                   <span className="text-gray-500 ml-2">{intervalCopy[interval].label}</span>
@@ -302,16 +332,18 @@ export default function PricingPage() {
                     <motion.div 
                       key={feature} 
                       className="flex items-start gap-3 text-sm text-gray-700"
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.3 + (featureIndex * 0.05) }}
+                      {...(shouldReduceMotion ? {} : {
+                        initial: { opacity: 0, x: -10 },
+                        animate: { opacity: 1, x: 0 },
+                        transition: { delay: 0.3 + (featureIndex * 0.05) }
+                      })}
                     >
                       <Check className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
                       <span>{feature}</span>
                     </motion.div>
                   ))}
                 </div>
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <motion.div {...(shouldReduceMotion ? {} : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } })}>
                   <Button
                     className="mt-auto w-full"
                     onClick={() => handleCheckout(plan)}
@@ -334,20 +366,24 @@ export default function PricingPage() {
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.4 }}
+        {...(shouldReduceMotion ? {} : {
+          initial: { opacity: 0, y: 30 },
+          animate: { opacity: 1, y: 0 },
+          transition: { delay: 0.2, duration: 0.4 }
+        })}
       >
         <motion.div 
-          whileHover={{ scale: 1.02, y: -4 }} 
-          transition={{ delay: 0.1, duration: 0.3 }}
+          {...(shouldReduceMotion ? {} : { 
+            whileHover: { scale: 1.02, y: -4 },
+            transition: { delay: 0.1, duration: 0.3 }
+          })}
           className="max-w-5xl mx-auto"
         >
           <Card className="border-2 border-dashed border-gray-300 transition-all shadow-md hover:shadow-xl hover:border-blue-500">
             <CardContent className="p-8 flex flex-col md:flex-row items-start md:items-center gap-6">
             <motion.div 
               className="flex items-center justify-center w-14 h-14 rounded-full bg-blue-100 text-blue-700"
-              whileHover={{ rotate: 15, scale: 1.1 }}
+              {...(shouldReduceMotion ? {} : { whileHover: { rotate: 15, scale: 1.1 } })}
               transition={{ type: "spring", stiffness: 300 }}
             >
               <Megaphone className="h-6 w-6" />
@@ -356,7 +392,7 @@ export default function PricingPage() {
               <h2 className="text-2xl font-semibold text-gray-900">{contactSales.heading}</h2>
               <p className="text-gray-600">{contactSales.body}</p>
             </div>
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <motion.div {...(shouldReduceMotion ? {} : { whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } })}>
               <Button asChild variant="outline" className="whitespace-nowrap">
                 <a href={contactSales.actionHref}>{contactSales.actionText}</a>
               </Button>
@@ -368,3 +404,5 @@ export default function PricingPage() {
     </motion.div>
   )
 }
+
+
