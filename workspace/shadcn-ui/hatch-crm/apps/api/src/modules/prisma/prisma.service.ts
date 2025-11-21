@@ -10,7 +10,6 @@ export class PrismaService
   constructor(private readonly config: ConfigService) {
     const databaseUrl = config.get<string>('database.url');
     const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true';
-    const connectionLimit = parseInt(process.env.DB_CONNECTION_LIMIT || '20', 10);
     
     super({
       datasources: databaseUrl
@@ -21,7 +20,6 @@ export class PrismaService
       log: enableQueryLogging 
         ? ['query', 'warn', 'error'] 
         : process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-      connectionLimit,
     });
   }
 

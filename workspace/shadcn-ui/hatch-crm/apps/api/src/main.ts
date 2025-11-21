@@ -19,11 +19,10 @@ async function createApp(): Promise<NestFastifyApplication> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ 
-      logger: false,
+      logger: enableRequestLogging,
       disableRequestLogging: !enableRequestLogging,
       trustProxy: true,
-    })
-  );
+    })  );
 
   app.setGlobalPrefix('api');
 
