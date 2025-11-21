@@ -11,6 +11,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "baseUrl": "./",
+    "incremental": true,
+    "removeComments": true,
     "paths": {
       "@hatch/db": [
         "../../packages/db/src"

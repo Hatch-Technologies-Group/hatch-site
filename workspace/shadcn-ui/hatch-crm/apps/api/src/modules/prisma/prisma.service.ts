@@ -9,13 +9,17 @@ export class PrismaService
 {
   constructor(private readonly config: ConfigService) {
     const databaseUrl = config.get<string>('database.url');
+    const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true';
+    
     super({
       datasources: databaseUrl
         ? {
             db: { url: databaseUrl }
           }
         : undefined,
-      log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error']
+      log: enableQueryLogging 
+        ? ['query', 'warn', 'error'] 
+        : process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
     });
   }
 
