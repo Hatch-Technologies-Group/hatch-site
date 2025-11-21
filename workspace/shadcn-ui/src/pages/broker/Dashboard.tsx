@@ -72,6 +72,10 @@ export default function BrokerDashboard() {
     transition: prefersReducedMotion ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 17 }
   })
 
+  const cardHoverVariant = prefersReducedMotion ? {} : {
+    whileHover: { scale: 1.02, y: -5, transition: { duration: 0.2 } }
+  }
+
   const getSlideVariant = (index: number, xOffset = 5) => ({
     initial: prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: -20 },
     animate: { opacity: 1, x: 0 },
@@ -217,8 +221,8 @@ export default function BrokerDashboard() {
           initial="initial"
           animate="animate"
         >
-          <motion.div {...fadeInUp}>
-            <Card className="border-l-4 border-l-blue-500 shadow-md hover:shadow-xl transition-shadow">
+          <motion.div {...fadeInUp} {...cardHoverVariant}>
+            <Card className="border-l-4 border-l-blue-500 shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Total Properties</CardTitle>
                 <Building2 className="h-5 w-5 text-blue-500" />
@@ -232,8 +236,8 @@ export default function BrokerDashboard() {
             </Card>
           </motion.div>
 
-          <motion.div {...fadeInUp}>
-            <Card className="border-l-4 border-l-green-500 shadow-md hover:shadow-xl transition-shadow">
+          <motion.div {...fadeInUp} {...cardHoverVariant}>
+            <Card className="border-l-4 border-l-green-500 shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Active Leads</CardTitle>
                 <Users className="h-5 w-5 text-green-500" />
@@ -247,8 +251,8 @@ export default function BrokerDashboard() {
             </Card>
           </motion.div>
 
-          <motion.div {...fadeInUp}>
-            <Card className="border-l-4 border-l-purple-500 shadow-md hover:shadow-xl transition-shadow">
+          <motion.div {...fadeInUp} {...cardHoverVariant}>
+            <Card className="border-l-4 border-l-purple-500 shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Team Members</CardTitle>
                 <Users className="h-5 w-5 text-purple-500" />
@@ -262,8 +266,8 @@ export default function BrokerDashboard() {
             </Card>
           </motion.div>
 
-          <motion.div {...fadeInUp}>
-            <Card className="border-l-4 border-l-orange-500 shadow-md hover:shadow-xl transition-shadow">
+          <motion.div {...fadeInUp} {...cardHoverVariant}>
+            <Card className="border-l-4 border-l-orange-500 shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Monthly Revenue</CardTitle>
                 <DollarSign className="h-5 w-5 text-orange-500" />
@@ -288,7 +292,7 @@ export default function BrokerDashboard() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <motion.div {...getScaleVariant(1.05, -5)}>
+                <motion.div {...getScaleVariant(1.03, -3)}>
                   <Button
                     variant="outline"
                     className="h-24 w-full flex flex-col items-center justify-center shadow-sm hover:shadow-lg hover:border-blue-500 transition-all"
@@ -298,7 +302,7 @@ export default function BrokerDashboard() {
                     <span className="text-sm font-medium">Bulk Upload</span>
                   </Button>
                 </motion.div>
-                <motion.div {...getScaleVariant(1.05, -5)}>
+                <motion.div {...getScaleVariant(1.03, -3)}>
                   <Button
                     variant="outline"
                     className="h-24 w-full flex flex-col items-center justify-center shadow-sm hover:shadow-lg hover:border-green-500 transition-all"
@@ -307,7 +311,7 @@ export default function BrokerDashboard() {
                     <span className="text-sm font-medium">Schedule</span>
                   </Button>
                 </motion.div>
-                <motion.div {...getScaleVariant(1.05, -5)}>
+                <motion.div {...getScaleVariant(1.03, -3)}>
                   <Button
                     variant="outline"
                     className="h-24 w-full flex flex-col items-center justify-center shadow-sm hover:shadow-lg hover:border-purple-500 transition-all"
@@ -316,7 +320,7 @@ export default function BrokerDashboard() {
                     <span className="text-sm font-medium">Analytics</span>
                   </Button>
                 </motion.div>
-                <motion.div {...getScaleVariant(1.05, -5)}>
+                <motion.div {...getScaleVariant(1.03, -3)}>
                   <Button
                     variant="outline"
                     className="h-24 w-full flex flex-col items-center justify-center shadow-sm hover:shadow-lg hover:border-orange-500 transition-all"
