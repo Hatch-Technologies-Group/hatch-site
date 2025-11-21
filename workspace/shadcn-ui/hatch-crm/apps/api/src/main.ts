@@ -13,9 +13,16 @@ let cachedServer: any = null;
 let appPromise: Promise<NestFastifyApplication> | null = null;
 
 async function createApp(): Promise<NestFastifyApplication> {
+  const enableRequestLogging = process.env.ENABLE_REQUEST_LOGGING === 'true';
+  const enableSwagger = process.env.DISABLE_SWAGGER !== 'true';
+  
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false })
+    new FastifyAdapter({ 
+      logger: false,
+      disableRequestLogging: !enableRequestLogging,
+      trustProxy: true,
+    })
   );
 
   app.setGlobalPrefix('api');
@@ -37,18 +44,23 @@ async function createApp(): Promise<NestFastifyApplication> {
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     })
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Hatch CRM API')
-    .setDescription('API surface for Hatch CRM MVP')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+  if (enableSwagger && process.env.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Hatch CRM API')
+      .setDescription('API surface for Hatch CRM MVP')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   await app.init();
 
