@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,7 +21,8 @@ import {
   BarChart3,
   Upload,
   UserPlus,
-  Home as HomeIcon
+  Home as HomeIcon,
+  Loader2
 } from 'lucide-react'
 
 // Animation variants
@@ -43,6 +44,13 @@ const cardHover = {
 export default function Home() {
   const navigate = useNavigate()
   const { user, isBroker, session } = useAuth()
+  const [loadingStates, setLoadingStates] = useState({
+    searchProperties: false,
+    forBrokers: false,
+    viewPricing: false,
+    startSearching: false,
+    accountAction: false
+  })
   const identity = useMemo(
     () => resolveUserIdentity(session?.profile, user?.email ?? null),
     [session?.profile, user?.email]
@@ -58,31 +66,69 @@ export default function Home() {
     : null
 
   const handleAccountNavigation = () => {
-    if (isAuthenticated) {
-      navigate(dashboardPath)
-      return
-    }
-    navigate('/register')
+    setLoadingStates(prev => ({ ...prev, accountAction: true }))
+    setTimeout(() => {
+      if (isAuthenticated) {
+        navigate(dashboardPath)
+      } else {
+        navigate('/register')
+      }
+      setLoadingStates(prev => ({ ...prev, accountAction: false }))
+    }, 300)
   }
 
   const handleBrokerNavigation = () => {
-    if (isBroker) {
-      navigate('/broker/dashboard')
-      return
-    }
-    navigate('/broker/pricing')
+    setLoadingStates(prev => ({ ...prev, forBrokers: true }))
+    setTimeout(() => {
+      if (isBroker) {
+        navigate('/broker/dashboard')
+      } else {
+        navigate('/broker/pricing')
+      }
+      setLoadingStates(prev => ({ ...prev, forBrokers: false }))
+    }, 300)
+  }
+
+  const handlePropertiesNavigation = () => {
+    setLoadingStates(prev => ({ ...prev, searchProperties: true }))
+    setTimeout(() => {
+      navigate('/properties')
+      setLoadingStates(prev => ({ ...prev, searchProperties: false }))
+    }, 300)
+  }
+
+  const handleStartSearching = () => {
+    setLoadingStates(prev => ({ ...prev, startSearching: true }))
+    setTimeout(() => {
+      navigate('/properties')
+      setLoadingStates(prev => ({ ...prev, startSearching: false }))
+    }, 300)
+  }
+
+  const handleViewPricing = () => {
+    setLoadingStates(prev => ({ ...prev, viewPricing: true }))
+    setTimeout(() => {
+      if (isBroker) {
+        navigate('/broker/dashboard')
+      } else {
+        navigate('/broker/pricing')
+      }
+      setLoadingStates(prev => ({ ...prev, viewPricing: false }))
+    }, 300)
   }
 
   const handleBrokerLoginLink = () => {
-    if (isBroker) {
-      navigate('/broker/dashboard')
-      return
-    }
-    if (isAuthenticated) {
-      navigate('/broker/pricing')
-      return
-    }
-    navigate('/login')
+    setLoadingStates(prev => ({ ...prev, accountAction: true }))
+    setTimeout(() => {
+      if (isBroker) {
+        navigate('/broker/dashboard')
+      } else if (isAuthenticated) {
+        navigate('/broker/pricing')
+      } else {
+        navigate('/login')
+      }
+      setLoadingStates(prev => ({ ...prev, accountAction: false }))
+    }, 300)
   }
 
   const features = [
@@ -184,11 +230,12 @@ export default function Home() {
               Find your dream home or grow your real estate business with powerful tools and insights.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button 
-                size="lg" 
-                onClick={() => navigate('/properties')}
-                className="bg-blue-600 hover:bg-blue-700 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-shadow font-medium"
-                style={{ 
+              <Button
+                size="lg"
+                onClick={handlePropertiesNavigation}
+                disabled={loadingStates.searchProperties}
+                className="bg-blue-600 hover:bg-blue-700 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-shadow font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
                   fontWeight: 500,
                   WebkitFontSmoothing: 'antialiased',
                   MozOsxFontSmoothing: 'grayscale',
@@ -197,15 +244,25 @@ export default function Home() {
                   transform: 'translateZ(0)'
                 }}
               >
-                <Search className="w-5 h-5 mr-2" />
-                Search Properties
+                {loadingStates.searchProperties ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-5 h-5 mr-2" />
+                    Search Properties
+                  </>
+                )}
               </Button>
-              <Button 
-                size="lg" 
+              <Button
+                size="lg"
                 variant="outline"
                 onClick={handleBrokerNavigation}
-                className="text-lg px-8 py-3 border-2 hover:border-blue-600 hover:text-blue-600 shadow-md hover:shadow-lg transition-all font-medium"
-                style={{ 
+                disabled={loadingStates.forBrokers}
+                className="text-lg px-8 py-3 border-2 hover:border-blue-600 hover:text-blue-600 shadow-md hover:shadow-lg transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
                   fontWeight: 500,
                   WebkitFontSmoothing: 'antialiased',
                   MozOsxFontSmoothing: 'grayscale',
@@ -214,8 +271,17 @@ export default function Home() {
                   transform: 'translateZ(0)'
                 }}
               >
-                <Building2 className="w-5 h-5 mr-2" />
-                {isBroker ? 'View Broker Dashboard' : 'For Brokers'}
+                {loadingStates.forBrokers ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <Building2 className="w-5 h-5 mr-2" />
+                    {isBroker ? 'View Broker Dashboard' : 'For Brokers'}
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -306,8 +372,7 @@ export default function Home() {
               <div className="mt-8">
                 <Button 
                   size="lg"
-                  onClick={handleBrokerNavigation}
-                  className="bg-green-600 hover:bg-green-700 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-shadow font-medium"
+                  onClick={handleViewPricing} disabled={loadingStates.viewPricing} className="bg-green-600 hover:bg-green-700 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-shadow font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ 
                     fontWeight: 500,
                     WebkitFontSmoothing: 'antialiased',
@@ -317,9 +382,7 @@ export default function Home() {
                     transform: 'translateZ(0)'
                   }}
                 >
-                  <DollarSign className="w-5 h-5 mr-2" />
-                  {isBroker ? 'Open Broker Dashboard' : 'View Pricing Plans'}
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                  {loadingStates.viewPricing ? (<><Loader2 className="w-5 h-5 mr-2 animate-spin" />Loading...</>) : (<><DollarSign className="w-5 h-5 mr-2" />{isBroker ? 'Open Broker Dashboard' : 'View Pricing Plans'}<ArrowRight className="w-5 h-5 ml-2" /></>)}
                 </Button>
               </div>
             </div>
@@ -416,9 +479,7 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button 
               size="lg" 
-              variant="secondary"
-              onClick={() => navigate('/properties')}
-              className="text-lg px-8 py-3 shadow-xl hover:shadow-2xl transition-shadow font-medium"
+              variant="secondary" onClick={handleStartSearching} disabled={loadingStates.startSearching} className="text-lg px-8 py-3 shadow-xl hover:shadow-2xl transition-shadow font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ 
                 fontWeight: 500,
                 WebkitFontSmoothing: 'antialiased',
@@ -428,14 +489,12 @@ export default function Home() {
                 transform: 'translateZ(0)'
               }}
             >
-              <Search className="w-5 h-5 mr-2" />
-              Start Searching
+              {loadingStates.startSearching ? (<><Loader2 className="w-5 h-5 mr-2 animate-spin" />Loading...</>) : (<><Search className="w-5 h-5 mr-2" />Start Searching</>)}
             </Button>
             {isAuthenticated ? (
               <Button 
                 size="lg" 
-                onClick={handleAccountNavigation}
-                className="text-lg px-8 py-3 bg-white text-blue-600 border-white hover:bg-blue-50 hover:text-blue-700 shadow-xl hover:shadow-2xl transition-all font-medium"
+                onClick={handleAccountNavigation} disabled={loadingStates.accountAction} className="text-lg px-8 py-3 bg-white text-blue-600 border-white hover:bg-blue-50 hover:text-blue-700 shadow-xl hover:shadow-2xl transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ 
                   fontWeight: 500,
                   WebkitFontSmoothing: 'antialiased',
@@ -445,14 +504,12 @@ export default function Home() {
                   transform: 'translateZ(0)'
                 }}
               >
-                <ArrowRight className="w-5 h-5 mr-2" />
-                Go to {dashboardLabel}
+                {loadingStates.accountAction ? (<><Loader2 className="w-5 h-5 mr-2 animate-spin" />Loading...</>) : (<><ArrowRight className="w-5 h-5 mr-2" />Go to {dashboardLabel}</>)}
               </Button>
             ) : (
               <Button 
                 size="lg" 
-                onClick={handleAccountNavigation}
-                className="text-lg px-8 py-3 bg-white text-blue-600 border-white hover:bg-blue-50 hover:text-blue-700 shadow-xl hover:shadow-2xl transition-all font-medium"
+                onClick={handleAccountNavigation} disabled={loadingStates.accountAction} className="text-lg px-8 py-3 bg-white text-blue-600 border-white hover:bg-blue-50 hover:text-blue-700 shadow-xl hover:shadow-2xl transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ 
                   fontWeight: 500,
                   WebkitFontSmoothing: 'antialiased',
@@ -462,8 +519,7 @@ export default function Home() {
                   transform: 'translateZ(0)'
                 }}
               >
-                <UserPlus className="w-5 h-5 mr-2" />
-                Create Account
+                {loadingStates.accountAction ? (<><Loader2 className="w-5 h-5 mr-2 animate-spin" />Loading...</>) : (<><UserPlus className="w-5 h-5 mr-2" />Create Account</>)}
               </Button>
             )}
           </div>
@@ -543,3 +599,11 @@ export default function Home() {
     </div>
   )
 }
+
+
+
+
+
+
+
+
