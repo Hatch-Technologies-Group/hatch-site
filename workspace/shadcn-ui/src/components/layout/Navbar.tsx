@@ -14,6 +14,7 @@ import { HatchLogo } from '@/components/HatchLogo'
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
   const [isAtTop, setIsAtTop] = useState(true)
+  const [isLightBehind, setIsLightBehind] = useState(true)
   const { user, signOut, isBroker, session } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -37,9 +38,84 @@ export function Navbar() {
     []
   )
 
+  // Reusable canvas for color conversion (Bug 2 fix)
+  const canvasRef = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    return canvas
+  }, [])
+
+  // Helper to check if color is transparent (Bug 3 fix)
+  const isTransparent = (color: string): boolean => {
+    if (color === 'transparent' || color === '') return true
+    
+    // Check for rgba with 0 alpha
+    const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
+    if (rgbaMatch) {
+      const alpha = rgbaMatch[4]
+      // If alpha channel exists and is 0, it's transparent
+      if (alpha !== undefined && parseFloat(alpha) === 0) return true
+    }
+    
+    return false
+  }
+
+  // Helper function to convert any color format to RGB (Bug 1 & 2 fix)
+  const getRGBFromColor = useCallback((color: string): [number, number, number] | null => {
+    // Try to parse RGB/RGBA directly first (now handles alpha - Bug 1 fix)
+    const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+    if (rgbMatch) {
+      return [parseInt(rgbMatch[1]), parseInt(rgbMatch[2]), parseInt(rgbMatch[3])]
+    }
+    
+    // For hex, HSL, named colors, use reusable canvas (Bug 2 fix)
+    const ctx = canvasRef.getContext('2d')
+    if (!ctx) return null
+    
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, 1, 1)
+    const imageData = ctx.getImageData(0, 0, 1, 1).data
+    return [imageData[0], imageData[1], imageData[2]]
+  }, [canvasRef])
+
   useEffect(() => {
     const handleScroll = () => {
-      setIsAtTop(window.scrollY < 24)
+      const scrollY = window.scrollY
+      setIsAtTop(scrollY < 24)
+      
+      // Check if there's a light/dark element behind navbar
+      // Look BELOW the navbar (after its height + some padding)
+      const navHeight = 80 // Navbar is about 64px + padding
+      const elementBehind = document.elementFromPoint(window.innerWidth / 2, navHeight)
+      
+      if (elementBehind) {
+        const computedStyle = window.getComputedStyle(elementBehind)
+        const bgColor = computedStyle.backgroundColor
+        
+        // If transparent, check parent
+        let actualBgColor = bgColor
+        let currentElement: Element | null = elementBehind
+        
+        // Walk up the DOM tree to find actual background color (Bug 3 fix)
+        while (isTransparent(actualBgColor) && currentElement) {
+          currentElement = currentElement.parentElement
+          if (!currentElement) break
+          actualBgColor = window.getComputedStyle(currentElement).backgroundColor
+        }
+        
+        // Only process if we found a valid non-transparent color (Bug 3 fix)
+        if (!isTransparent(actualBgColor)) {
+          // Convert color to RGB and check brightness
+          const rgb = getRGBFromColor(actualBgColor)
+          if (rgb) {
+            const [r, g, b] = rgb
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000
+            // Light background = brightness > 128
+            setIsLightBehind(brightness > 128)
+          }
+        }
+        // If no valid color found, keep current state (don't change isLightBehind)
+      }
     }
 
     handleScroll()
@@ -93,10 +169,12 @@ export function Navbar() {
               <Link
                 key={item.name}
                 to={item.href}
-                className={`rounded-full px-3 py-2 text-sm font-medium transition-all ${
+                className={`rounded-full px-3 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 active:scale-95 ${
                   isActive(item.href)
                     ? 'bg-brand-blue-600/12 text-brand-blue-600'
-                    : 'text-ink-500 hover:bg-ink-75 hover:text-ink-900'
+                    : isLightBehind 
+                      ? 'text-ink-800 hover:bg-ink-75 hover:text-ink-900'
+                      : 'text-white hover:bg-white/10 hover:text-white'
                 }`}
               >
                 {item.name}
@@ -109,25 +187,55 @@ export function Navbar() {
             {isAuthenticated ? (
               <div className="flex items-center space-x-3">
                 <div className="flex items-center space-x-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-blue-600/15 text-brand-blue-600 font-semibold">
+                  <div className={cn(
+                    "flex h-9 w-9 items-center justify-center rounded-full font-semibold transition-colors",
+                    isLightBehind 
+                      ? "bg-brand-blue-600/15 text-brand-blue-600"
+                      : "bg-brand-blue-500/20 text-brand-blue-400"
+                  )}>
                     {identity.initials}
                   </div>
                   <div className="text-left leading-tight">
-                    <div className="text-sm font-medium text-ink-800">{navGreeting}</div>
+                    <div className={cn(
+                      "text-sm font-medium transition-colors",
+                      isLightBehind ? "text-ink-800" : "text-white"
+                    )}>{navGreeting}</div>
                     {user?.email && (
-                      <div className="text-xs text-ink-500">{user.email}</div>
+                      <div className={cn(
+                        "text-xs transition-colors",
+                        isLightBehind ? "text-ink-500" : "text-white/70"
+                      )}>{user.email}</div>
                     )}
                   </div>
                 </div>
                 {isBroker && (
                   <Link to="/broker/dashboard">
-                    <Button variant="outline" size="sm" className="shadow-none">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className={cn(
+                        "shadow-none transition-all duration-200 hover:scale-105 active:scale-95",
+                        isLightBehind
+                          ? "border-brand-blue-600 bg-white text-brand-blue-600 hover:bg-brand-blue-600/10"
+                          : "border-brand-blue-300 bg-transparent text-brand-blue-300 hover:bg-transparent hover:border-brand-blue-200 hover:text-brand-blue-200"
+                      )}
+                    >
                       <BarChart3 className="w-4 h-4 mr-2" />
                       Dashboard
                     </Button>
                   </Link>
                 )}
-                <Button variant="ghost" size="sm" className="text-ink-600 hover:text-ink-900" onClick={handleSignOut}>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className={cn(
+                    "transition-all duration-200 hover:scale-105 active:scale-95",
+                    isLightBehind 
+                      ? "text-ink-600 hover:text-ink-900 hover:bg-ink-75" 
+                      : "text-white/90 hover:text-white hover:bg-white/5"
+                  )}
+                  onClick={handleSignOut}
+                >
                   <LogOut className="w-4 h-4 mr-2" />
                   Sign Out
                 </Button>
@@ -137,12 +245,21 @@ export function Navbar() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-ink-600 hover:text-ink-900"
+                  className={cn(
+                    "transition-all duration-200 hover:scale-105 active:scale-95",
+                    isLightBehind 
+                      ? "text-ink-600 hover:text-ink-900 hover:bg-ink-75" 
+                      : "text-white hover:text-white hover:bg-white/10"
+                  )}
                   onClick={() => navigate('/login')}
                 >
                   Sign In
                 </Button>
-                <Button size="sm" onClick={() => navigate('/register')}>
+                <Button 
+                  size="sm" 
+                  className="transition-all duration-200 hover:scale-105 active:scale-95"
+                  onClick={() => navigate('/register')}
+                >
                   Get Started
                 </Button>
               </div>
@@ -153,7 +270,12 @@ export function Navbar() {
           <div className="md:hidden flex items-center ml-auto">
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className="inline-flex items-center justify-center rounded-full p-2 text-ink-400 transition-colors hover:bg-ink-75 hover:text-ink-800"
+              className={cn(
+                "inline-flex items-center justify-center rounded-full p-2 transition-all duration-200 hover:scale-110 active:scale-95",
+                isLightBehind
+                  ? "text-ink-400 hover:bg-ink-75 hover:text-ink-800"
+                  : "text-white hover:bg-white/10"
+              )}
             >
               {isOpen ? (
                 <X className="block h-6 w-6" />
