@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useLayoutEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Navbar } from '@/components/layout/Navbar'
 import { Search, MapPin, TrendingUp, Clock, Flame, CheckCircle, Shield, Star, Users, Home as HomeIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Performance monitoring will be done in useLayoutEffect
 
 type Persona = 'buyer' | 'seller' | 'pro'
 
@@ -228,6 +230,37 @@ export default function Home() {
     return () => observer.disconnect()
   }, [])
 
+  // Performance measurement on mount
+  const mountTimeRef = useRef<number>(0)
+  
+  useLayoutEffect(() => {
+    // Record mount time
+    mountTimeRef.current = performance.now()
+    
+    if (typeof performance !== 'undefined' && performance.mark) {
+      performance.mark('home-component-mounted')
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (typeof performance !== 'undefined' && performance.mark) {
+      performance.mark('home-component-rendered')
+      
+      // Calculate time from navigation start to component ready
+      const totalLoadTime = performance.now()
+      
+      // Calculate time from mount to render
+      const renderTime = performance.now() - mountTimeRef.current
+      
+      // Only log in development
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log(`⏱️ Home component total load time: ${totalLoadTime.toFixed(2)}ms`)
+        // eslint-disable-next-line no-console
+        console.log(`⚡ Home component render time: ${renderTime.toFixed(2)}ms`)
+      }
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-surface-background">
