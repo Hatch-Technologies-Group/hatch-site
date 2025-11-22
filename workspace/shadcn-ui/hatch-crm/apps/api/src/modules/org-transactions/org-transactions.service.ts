@@ -3,16 +3,22 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { OrgTransactionStatus, UserRole } from '@hatch/db';
+import { OrgTransactionStatus, PlaybookTriggerType, UserRole } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { DocumentsAiService } from '@/modules/documents-ai/documents-ai.service';
+import { PlaybookRunnerService } from '../playbooks/playbook-runner.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { AttachTransactionDocumentDto } from './dto/attach-transaction-document.dto';
 
 @Injectable()
 export class OrgTransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly documentsAi: DocumentsAiService,
+    private readonly playbooks: PlaybookRunnerService
+  ) {}
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -117,10 +123,14 @@ export class OrgTransactionsService {
       data.complianceNotes = dto.complianceNotes === null ? null : dto.complianceNotes ?? undefined;
     }
 
-    return this.prisma.orgTransaction.update({
+    const updated = await this.prisma.orgTransaction.update({
       where: { id: transactionId },
       data
     });
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.TRANSACTION_UPDATED, { transactionId: updated.id, status: updated.status })
+      .catch(() => undefined);
+    return updated;
   }
 
   async attachTransactionDocument(
@@ -142,13 +152,21 @@ export class OrgTransactionsService {
     if (!orgFile) {
       throw new NotFoundException('Org file not found in this organization');
     }
-    return this.prisma.orgTransactionDocument.create({
+    await this.prisma.orgFile.update({
+      where: { id: orgFile.id },
+      data: { transactionId: transaction.id }
+    });
+
+    const result = await this.prisma.orgTransactionDocument.create({
       data: {
         transactionId: transaction.id,
         orgFileId: dto.orgFileId,
         type: dto.type ?? undefined
       }
     });
+
+    void this.documentsAi.refreshFile(orgId, orgFile.id).catch(() => undefined);
+    return result;
   }
 
   async listTransactions(orgId: string, userId: string) {

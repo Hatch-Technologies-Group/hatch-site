@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MlsSyncPanel } from '@/components/mls/mls-sync-status';
+import { useAuth } from '@/contexts/AuthContext';
 import type { PersonaId } from '@/lib/ai/aiPersonas';
 import {
   type CampaignFilter,
@@ -64,6 +66,9 @@ const channelBadge = (channel: MarketingChannel) => {
 };
 
 export default function BrokerMarketingPage() {
+  const { activeOrgId } = useAuth();
+  const fallbackOrgId = import.meta.env.VITE_ORG_ID ?? 'org-hatch';
+  const orgId = activeOrgId ?? fallbackOrgId;
   const [tab, setTab] = useState<CampaignFilter>('all');
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
   const [search, setSearch] = useState('');
@@ -129,6 +134,9 @@ export default function BrokerMarketingPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/broker/marketing/campaigns">Drip campaigns</Link>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => handleNewAiEmail('lead_nurse')}>
             New nurture email (Lumen)
           </Button>
@@ -137,6 +145,8 @@ export default function BrokerMarketingPage() {
           </Button>
         </div>
       </div>
+
+      <MlsSyncPanel orgId={orgId} />
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as CampaignFilter)}>
         <TabsList>

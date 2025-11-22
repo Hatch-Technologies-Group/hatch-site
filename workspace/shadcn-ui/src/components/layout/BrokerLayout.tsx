@@ -12,6 +12,10 @@ import { chatAiPersona, type PersonaChatMessage } from '@/lib/api/hatch'
 import type { PersonaId } from '@/lib/ai/aiPersonas'
 import { useToast } from '@/components/ui/use-toast'
 import { buildMemoryToastPayload } from '@/lib/ai/memoryToast'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { usePresence } from '@/lib/realtime/presenceSocket'
+import { GlobalSearch } from '@/components/global-search/GlobalSearch'
+import { ChatWindow } from '@/components/chat/ChatWindow'
 
 interface BrokerLayoutProps {
   showBackButton?: boolean
@@ -20,8 +24,10 @@ interface BrokerLayoutProps {
 export default function BrokerLayout({ showBackButton = false }: BrokerLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { session, user } = useAuth()
+  const { session, user, isDemoSession, activeOrgId } = useAuth()
+  const { sendLocation } = usePresence(activeOrgId, user?.id ?? null, location.pathname + location.search)
   const { toast } = useToast()
+  const [chatOpen, setChatOpen] = React.useState(false)
 
   const { displayName, initials } = useMemo(
     () => resolveUserIdentity(session?.profile, user?.email ?? null, 'Broker'),
@@ -75,10 +81,37 @@ export default function BrokerLayout({ showBackButton = false }: BrokerLayoutPro
     [toast]
   )
 
+  const [searchOpen, setSearchOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen(true)
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'h') {
+        event.preventDefault()
+        setChatOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  React.useEffect(() => {
+    sendLocation(`path:${location.pathname}${location.search}`)
+  }, [location.pathname, location.search, sendLocation])
+
   return (
     <div className="flex h-screen bg-gray-100">
       <BrokerSidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
+        {isDemoSession && (
+          <div className="bg-amber-100 border-b border-amber-200 px-6 py-2 text-xs font-semibold uppercase tracking-wide text-amber-900">
+            Demo Mode — data is read-only and actions are not persisted.
+          </div>
+        )}
         {/* Header */}
         <header className="bg-white shadow-sm border-b px-6 py-4">
           <div className="flex justify-between items-center">
@@ -89,6 +122,9 @@ export default function BrokerLayout({ showBackButton = false }: BrokerLayoutPro
             
             {/* Public Site Navigation */}
             <div className="flex items-center space-x-4">
+              <Button variant="outline" onClick={() => setSearchOpen(true)}>
+                Search ⌘K
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => navigate('/')}
@@ -97,6 +133,13 @@ export default function BrokerLayout({ showBackButton = false }: BrokerLayoutPro
                 <ExternalLink className="h-4 w-4" />
                 <span>View Public Site</span>
               </Button>
+              <NotificationBell />
+              <button
+                onClick={() => setChatOpen(true)}
+                className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+              >
+                Ask Hatch
+              </button>
               
               <div className="flex items-center space-x-2 text-sm text-gray-500">
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
@@ -112,6 +155,8 @@ export default function BrokerLayout({ showBackButton = false }: BrokerLayoutPro
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50">
           <Outlet />
         </main>
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+        <ChatWindow open={chatOpen} onClose={() => setChatOpen(false)} />
         <CopilotDock debug={debug} />
         <HatchAIWidget onSend={handleWidgetSend} />
       </div>

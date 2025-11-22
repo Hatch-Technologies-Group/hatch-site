@@ -5,11 +5,19 @@ import {
   Logger,
   NotFoundException
 } from '@nestjs/common';
-import { Prisma, UserRole, AiEmployeeInstance, AiEmployeeTemplate, AiProposedAction } from '@hatch/db';
+import {
+  Prisma,
+  UserRole,
+  AiEmployeeInstance,
+  AiEmployeeTemplate,
+  AiProposedAction,
+  PlaybookActionType
+} from '@hatch/db';
 
 import { AiService } from '@/modules/ai/ai.service';
 import { RequestContext } from '@/modules/common';
 import { PrismaService } from '@/modules/prisma/prisma.service';
+import { AuditService } from '@/modules/audit/audit.service';
 import { subDays } from 'date-fns';
 
 import {
@@ -22,6 +30,8 @@ import {
   AiEmployeeUsageStatsDto
 } from './dto/ai-employee.dto';
 import { AiToolContext, AiToolRegistry } from './ai-tool.registry';
+import { AiContextCollectors } from './context/collectors';
+import { AI_PERSONA_REGISTRY, AiPersonaConfig, AiPersonaId } from './personas/registry';
 
 const ACTION_STATUS = {
   PROPOSED: 'proposed',
@@ -67,15 +77,45 @@ interface SendMessageInput {
 const MAX_CONVERSATION_HISTORY = 12;
 type EmployeeWithTemplate = AiEmployeeInstance & { template: AiEmployeeTemplate };
 
+type RunPersonaParams = {
+  organizationId: string;
+  userId?: string;
+  agentProfileId?: string;
+  leadId?: string;
+  listingId?: string;
+  transactionId?: string;
+  leaseId?: string;
+  input?: Record<string, any> | null;
+};
+
+export type PersonaAction = {
+  type: PlaybookActionType | string;
+  params?: Record<string, unknown>;
+  summary?: string;
+};
+
+export type PersonaRunResult = {
+  persona: AiPersonaConfig;
+  context: Record<string, unknown>;
+  input?: Record<string, any> | null;
+  rawText: string | null;
+  structured?: any;
+  actions: PersonaAction[];
+};
+
 @Injectable()
 export class AiEmployeesService {
   private readonly log = new Logger(AiEmployeesService.name);
+  private readonly collectors: AiContextCollectors;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
-    private readonly tools: AiToolRegistry
-  ) {}
+    private readonly tools: AiToolRegistry,
+    private readonly audit: AuditService
+  ) {
+    this.collectors = new AiContextCollectors(this.prisma);
+  }
 
   async listInstances(ctx: RequestContext): Promise<AiEmployeeInstanceDto[]> {
     await this.ensureInstancesForTenant(ctx);
@@ -866,6 +906,145 @@ export class AiEmployeesService {
       return Prisma.JsonNull;
     }
     return value as Prisma.InputJsonValue;
+  }
+
+  listPersonas() {
+    return Object.values(AI_PERSONA_REGISTRY);
+  }
+
+  async runPersona(personaId: AiPersonaId, params: RunPersonaParams): Promise<PersonaRunResult> {
+    const persona = AI_PERSONA_REGISTRY[personaId];
+    if (!persona) {
+      throw new NotFoundException(`Persona ${personaId} not registered`);
+    }
+
+    const context: Record<string, unknown> = {};
+    for (const name of persona.collectors) {
+      const collected = await this.collectors.collect(name as any, params);
+      if (collected) {
+        context[name] = collected;
+      }
+    }
+
+    const payload = {
+      personaId: persona.id,
+      personaName: persona.name,
+      description: persona.description,
+      tools: persona.tools,
+      organizationId: params.organizationId,
+      userId: params.userId ?? null,
+      agentProfileId: params.agentProfileId ?? null,
+      listingId: params.listingId ?? null,
+      leadId: params.leadId ?? null,
+      transactionId: params.transactionId ?? null,
+      leaseId: params.leaseId ?? null,
+      context,
+      input: params.input ?? null
+    };
+
+    const aiResult = await this.ai.runStructuredChat({
+      systemPrompt: this.buildPersonaPrompt(persona),
+      responseFormat: 'json_object',
+      temperature: persona.temperature,
+      messages: [{ role: 'user', content: JSON.stringify(payload) }]
+    });
+
+    const rawText = aiResult.text ?? null;
+    let structured: any;
+    if (rawText) {
+      try {
+        structured = JSON.parse(rawText);
+      } catch {
+        structured = undefined;
+      }
+    }
+    const actions = this.parsePersonaActions(structured);
+
+    await this.audit.log({
+      organizationId: params.organizationId,
+      userId: params.userId ?? null,
+      actionType: 'AI_PERSONA_RUN',
+      summary: `AI persona ${persona.id} executed`,
+      metadata: {
+        personaId: persona.id,
+        agentProfileId: params.agentProfileId ?? null
+      }
+    });
+
+    return {
+      persona,
+      context,
+      input: params.input ?? null,
+      rawText,
+      structured,
+      actions
+    };
+  }
+
+  private buildPersonaPrompt(persona: AiPersonaConfig) {
+    const toolLine =
+      persona.tools.length > 0 ? `You may reference tools: ${persona.tools.join(', ')}.` : 'You have no automated tools.';
+    return [
+      `You are ${persona.name}.`,
+      persona.description,
+      toolLine,
+      'Always respond with valid JSON including: {"summary": string, "insights": any[], "actions": any[]}.',
+      'If the user payload includes "availableActions", only propose actions using those definitions with exact "type" values and a JSON "params" object.',
+      'Actions should be concrete Playbook steps like CREATE_TASK, ASSIGN_LEAD, SEND_NOTIFICATION, or FLAG_ENTITY. Do not invent new action types.',
+      'Format actions as [{"type":"ACTION_KEY","summary":"why","params":{...}}] with ids like leadId/listingId/transactionId populated when known.',
+      'If context is missing, state the limitation and recommend the highest leverage next step.'
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  private parsePersonaActions(structured: any): PersonaAction[] {
+    if (!structured) {
+      return [];
+    }
+    const input = Array.isArray(structured?.actions) ? structured.actions : [];
+    return input
+      .map((action: any) => {
+        const typeValue =
+          typeof action?.type === 'string'
+            ? action.type
+            : typeof action?.actionType === 'string'
+              ? action.actionType
+              : typeof action?.tool === 'string'
+                ? action.tool
+                : '';
+        if (!typeValue) {
+          return null;
+        }
+        const normalized = this.normalizeActionType(typeValue) ?? typeValue;
+        const params = action?.params && typeof action.params === 'object' ? action.params : {};
+        const summary = typeof action?.summary === 'string' ? action.summary : undefined;
+        return { type: normalized, params, summary };
+      })
+      .filter(Boolean) as PersonaAction[];
+  }
+
+  private normalizeActionType(value: string): PlaybookActionType | null {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const candidates = [
+      trimmed,
+      trimmed.toUpperCase(),
+      trimmed.toLowerCase(),
+      trimmed.replace(/[_\s-]+/g, '').toLowerCase()
+    ];
+    for (const candidate of candidates) {
+      const match = (Object.values(PlaybookActionType) as string[]).find((entry) => {
+        const normalized = entry.replace(/[_\s-]+/g, '').toLowerCase();
+        return normalized === candidate.replace(/[_\s-]+/g, '').toLowerCase();
+      });
+      if (match) {
+        return match as PlaybookActionType;
+      }
+    }
+    return null;
   }
 
   private toTemplateDto(row: AiEmployeeTemplate): AiEmployeeTemplateDto {

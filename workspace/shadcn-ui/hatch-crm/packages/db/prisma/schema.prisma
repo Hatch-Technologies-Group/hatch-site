@@ -142,6 +142,8 @@ enum OrgEventType {
   AGENT_INVITE_ACCEPTED
   ORG_FOLDER_CREATED
   ORG_FILE_UPLOADED
+  ORG_FILE_CLASSIFIED
+  ORG_FILE_EVALUATED
   ORG_LISTING_EVALUATED
   ORG_TRANSACTION_EVALUATED
   ONBOARDING_TEMPLATE_CREATED
@@ -158,6 +160,81 @@ enum OrgEventType {
   ORG_ACCOUNTING_CONNECTED
   ORG_ACCOUNTING_TRANSACTION_SYNCED
   ORG_ACCOUNTING_RENTAL_SYNCED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationType {
+  GENERIC
+  LEAD
+  OFFER_INTENT
+  LISTING
+  TRANSACTION
+  RENTAL
+  COMPLIANCE
+  ACCOUNTING
+  AI
+}
+
+enum InsightType {
+  BROKER
+  TEAM
+  AGENT
+  LISTING
+  TRANSACTION
+  LEAD
+  RENTAL
+  COMPLIANCE
+  RISK
+  PRODUCTIVITY
+}
+
+model ChatSession {
+  id             String        @id @default(cuid())
+  organizationId String
+  userId         String
+
+  title          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+  messages       ChatMessage[]
+
+  @@index([organizationId, userId])
+}
+
+model ChatMessage {
+  id        String       @id @default(cuid())
+  session   ChatSession  @relation(fields: [sessionId], references: [id])
+  sessionId String
+
+  role      String       // user | assistant | system
+  content   String
+  metadata  Json?
+
+  createdAt DateTime     @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+enum AuditActionType {
+  LOGIN
+  LOGOUT
+  ROLE_CHANGED
+  MLS_SYNC_TRIGGERED
+  ACCOUNTING_SYNC_TRIGGERED
+  NOTIFICATION_PREFS_UPDATED
+  AI_PERSONA_RUN
+  AI_PERSONA_CONFIG_CHANGED
+  ONBOARDING_STATE_CHANGED
+  OFFBOARDING_STATE_CHANGED
+  COMPLIANCE_STATUS_CHANGED
+  OTHER
 }
 
 enum AgentRiskLevel {
@@ -456,6 +533,13 @@ enum MlsProvider {
   GENERIC
 }
 
+enum MlsSyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 enum SavedSearchFrequency {
   INSTANT
   DAILY
@@ -624,6 +708,7 @@ model Organization {
   createdByUserId     String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
+  isDemo              Boolean              @default(false)
   tenants             Tenant[]
   users               User[]
   people              Person[]
@@ -652,29 +737,67 @@ model Organization {
   orgEvents             OrgEvent[]
   vaultFolders          OrgFolder[]
   vaultFiles            OrgFile[]
+  knowledgeDocuments    KnowledgeDocument[]
   conversations         OrgConversation[]
   orgMessages           OrgMessage[]
+  livePresences         LivePresence[]
   agentProfiles         AgentProfile[]
   trainingModules       AgentTrainingModule[]
   orgListings           OrgListing[]
   orgTransactions       OrgTransaction[]
+  searchVectors         SearchVector[]
+  playbooks             Playbook[]
   workflowTemplates     OrgWorkflowTemplate[]
   agentWorkflowTasks    AgentWorkflowTask[]
   leads                 Lead[]
   offerIntents          OfferIntent[]
   rentalProperties      RentalProperty[]
   rentalLeases          RentalLease[]
+  offices               Office[]
   accountingConfig      AccountingIntegrationConfig?
   transactionAccounting TransactionAccountingRecord[]
   rentalLeaseAccounting RentalLeaseAccountingRecord[]
   mlsFeedConfig         MlsFeedConfig?
+  mlsSyncRuns          MlsSyncRun[]
+  dripCampaigns        DripCampaign[]
+  revenueForecasts     RevenueForecast[]
+  leadScoreHistory     LeadScoreHistory[]
   listingSearchIndex    ListingSearchIndex[]
   savedListings         SavedListing[]
   savedSearches         SavedSearch[]
   aiCopilotInsights     AiCopilotInsight[]
   aiCopilotActions      AiCopilotActionRecommendation[]
+  aiInsights            AiInsight[]
+  chatSessions          ChatSession[]
+  orgFileComments       OrgFileComment[]
+  agentPerformanceSnapshots AgentPerformanceSnapshot[]
   orgDailyAnalytics     OrgDailyAnalytics[]
   agentDailyAnalytics   AgentDailyAnalytics[]
+  notifications         Notification[]
+  notificationPreferences NotificationPreference[]
+  auditLogs             OrgAuditLog[]
+  delegatedAccesses     DelegatedAccess[]
+}
+
+model Office {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  code           String?
+  city           String?
+  state          String?
+  region         String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  users          User[]        @relation("UsersByOffice")
+  listings       OrgListing[]  @relation("ListingsByOffice")
+  leads          Lead[]        @relation("LeadsByOffice")
+  rentals        RentalLease[] @relation("RentalsByOffice")
+  transactions   OrgTransaction[] @relation("TransactionsByOffice")
+  teams          Team[]
+  agentProfiles  AgentProfile[]
 }
 
 model Tenant {
@@ -897,6 +1020,75 @@ model AiExecutionLog {
   @@index([sessionId])
 }
 
+model Notification {
+  id             String             @id @default(cuid())
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  organizationId String
+
+  user           User?              @relation(fields: [userId], references: [id])
+  userId         String?
+
+  type           NotificationType   @default(GENERIC)
+  channel        NotificationChannel @default(IN_APP)
+
+  title          String
+  message        String?
+
+  leadId         String?
+  offerIntentId  String?
+  listingId      String?
+  transactionId  String?
+  leaseId        String?
+
+  isRead         Boolean            @default(false)
+  readAt         DateTime?
+
+  createdAt      DateTime           @default(now())
+
+  @@index([organizationId, userId, isRead, createdAt])
+}
+
+model NotificationPreference {
+  id               String        @id @default(cuid())
+  organization     Organization  @relation(fields: [organizationId], references: [id])
+  organizationId   String
+
+  user             User          @relation(fields: [userId], references: [id])
+  userId           String
+
+  inAppEnabled     Boolean       @default(true)
+  emailEnabled     Boolean       @default(true)
+
+  leadNotificationsEnabled        Boolean @default(true)
+  offerIntentNotificationsEnabled Boolean @default(true)
+  rentalNotificationsEnabled      Boolean @default(true)
+  accountingNotificationsEnabled  Boolean @default(true)
+  aiNotificationsEnabled          Boolean @default(true)
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([organizationId, userId])
+}
+
+model OrgAuditLog {
+  id             String          @id @default(cuid())
+  organizationId String
+  userId         String?
+  actionType     AuditActionType @default(OTHER)
+  summary        String
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?         @relation("UserOrgAuditLogs", fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, userId, createdAt])
+}
+
 model EmailSequence {
   id          String                   @id @default(cuid())
   tenantId    String
@@ -996,6 +1188,8 @@ model User {
   id                          String                          @id @default(cuid())
   organizationId              String
   tenantId                    String
+  officeId                    String?
+  teamId                      String?
   email                       String                          @unique @db.Citext
   firstName                   String
   lastName                    String
@@ -1008,6 +1202,8 @@ model User {
   updatedAt                   DateTime                        @updatedAt
   organization                Organization                    @relation(fields: [organizationId], references: [id])
   tenant                      Tenant                          @relation(fields: [tenantId], references: [id])
+  office                      Office?                         @relation("UsersByOffice", fields: [officeId], references: [id])
+  team                        Team?                           @relation("TeamMembers", fields: [teamId], references: [id])
   memberships                 TeamMembership[]
   orgMemberships              UserOrgMembership[]
   permissionSetAssignments    PermissionSetAssignment[]
@@ -1027,6 +1223,7 @@ model User {
   overrideAgreements          Agreement[]                     @relation("AgreementOverride")
   deliverabilityMetrics       DeliverabilityMetric[]
   auditLogs                   AuditLog[]
+  orgAuditLogs                OrgAuditLog[]          @relation("UserOrgAuditLogs")
   savedViews                  SavedView[]
   proposedMerges              ContactMergeProposal[]          @relation("MergeProposedBy")
   resolvedMerges              ContactMergeProposal[]          @relation("MergeResolvedBy")
@@ -1061,7 +1258,10 @@ model User {
   agentInvitesSent            AgentInvite[]                   @relation("AgentInvitesInvitedBy")
   agentInvitesAccepted        AgentInvite[]                   @relation("AgentInvitesAcceptedBy")
   orgEventsAsActor            OrgEvent[]                      @relation("OrgEvent_actor")
+  chatSessions                ChatSession[]
   orgFilesUploaded            OrgFile[]
+  orgFileVersionsCreated      OrgFileVersion[]
+  orgFileComments             OrgFileComment[]
   orgFoldersCreated           OrgFolder[]                     @relation("OrgFolderCreatedBy")
   orgConversationsCreated     OrgConversation[]               @relation("OrgConversationCreatedBy")
   orgConversationParticipants OrgConversationParticipant[]
@@ -1071,6 +1271,8 @@ model User {
   workflowTemplatesCreated    OrgWorkflowTemplate[]           @relation("OrgWorkflowTemplateCreatedBy")
   orgListingsCreated          OrgListing[]                    @relation("OrgListing_CreatedBy")
   orgListingsBrokerApproved   OrgListing[]                    @relation("OrgListing_BrokerApproval")
+  delegatedAssistants         DelegatedAccess[]               @relation("AgentDelegations")
+  delegatedAssignments        DelegatedAccess[]               @relation("AssistantDelegations")
   orgTransactionsCreated      OrgTransaction[]
   agentWorkflowTasksCompleted AgentWorkflowTask[]             @relation("AgentWorkflowTaskCompletedBy")
   leadsAsConsumer             Lead[]                          @relation("Lead_Consumer")
@@ -1079,11 +1281,15 @@ model User {
   savedListings               SavedListing[]
   savedSearches               SavedSearch[]
   completedCopilotActions     AiCopilotActionRecommendation[] @relation("AiCopilotActionCompletedBy")
+  notifications               Notification[]
+  notificationPreferences     NotificationPreference[]
+  livePresences               LivePresence[]
 }
 
 model OrgListing {
   id                     String           @id @default(cuid())
   organizationId         String
+  officeId               String?
   agentProfileId         String?
   mlsNumber              String?          @unique
   addressLine1           String
@@ -1109,10 +1315,12 @@ model OrgListing {
   updatedAt              DateTime         @updatedAt
 
   organization                  Organization                    @relation(fields: [organizationId], references: [id])
+  office                        Office?                         @relation("ListingsByOffice", fields: [officeId], references: [id])
   agentProfile                  AgentProfile?                   @relation(fields: [agentProfileId], references: [id])
   brokerApprovedByUser          User?                           @relation("OrgListing_BrokerApproval", fields: [brokerApprovedByUserId], references: [id])
   createdByUser                 User                            @relation("OrgListing_CreatedBy", fields: [createdByUserId], references: [id])
   documents                     OrgListingDocument[]
+  files                         OrgFile[]
   transactions                  OrgTransaction[]
   workflowTasks                 AgentWorkflowTask[]             @relation("AgentWorkflowTaskListing")
   leads                         Lead[]
@@ -1139,6 +1347,7 @@ model OrgListingDocument {
 model OrgTransaction {
   id               String               @id @default(cuid())
   organizationId   String
+  officeId         String?
   listingId        String?
   agentProfileId   String?
   status           OrgTransactionStatus @default(PRE_CONTRACT)
@@ -1157,9 +1366,11 @@ model OrgTransaction {
 
   organization                  Organization                    @relation(fields: [organizationId], references: [id])
   listing                       OrgListing?                     @relation(fields: [listingId], references: [id])
+  office                        Office?                         @relation("TransactionsByOffice", fields: [officeId], references: [id])
   agentProfile                  AgentProfile?                   @relation(fields: [agentProfileId], references: [id])
   createdByUser                 User                            @relation(fields: [createdByUserId], references: [id])
   documents                     OrgTransactionDocument[]
+  files                         OrgFile[]
   workflowTasks                 AgentWorkflowTask[]             @relation("AgentWorkflowTaskTransaction")
   offerIntents                  OfferIntent[]
   rentalLeases                  RentalLease[]
@@ -1250,6 +1461,8 @@ model AgentProfile {
   id               String              @id @default(cuid())
   organizationId   String
   userId           String
+  officeId         String?
+  teamId           String?
   licenseNumber    String?
   licenseState     String?
   licenseExpiresAt DateTime?
@@ -1274,6 +1487,8 @@ model AgentProfile {
 
   organization     Organization                    @relation(fields: [organizationId], references: [id])
   user             User                            @relation(fields: [userId], references: [id])
+  office           Office?                         @relation(fields: [officeId], references: [id])
+  team             Team?                           @relation(fields: [teamId], references: [id])
   memberships      AgentMembership[]
   ceRecords        AgentCERecord[]
   trainingProgress AgentTrainingProgress[]
@@ -1284,6 +1499,7 @@ model AgentProfile {
   copilotInsights  AiCopilotInsight[]
   copilotActions   AiCopilotActionRecommendation[]
   dailyAnalytics   AgentDailyAnalytics[]
+  performanceSnapshots AgentPerformanceSnapshot[]
 
   @@unique([organizationId, userId])
   @@index([organizationId])
@@ -1397,6 +1613,7 @@ model OrgWorkflowTemplateTask {
 model AgentWorkflowTask {
   id                String              @id @default(cuid())
   organizationId    String
+  officeId          String?
   agentProfileId    String
   templateId        String?
   templateTaskId    String?
@@ -1498,6 +1715,7 @@ model RentalUnit {
 model RentalLease {
   id                String            @id @default(cuid())
   organizationId    String
+  officeId          String?
   unitId            String
   tenancyType       RentalTenancyType @default(SEASONAL)
   tenantName        String
@@ -1513,9 +1731,11 @@ model RentalLease {
   updatedAt         DateTime          @updatedAt
 
   organization                  Organization                    @relation(fields: [organizationId], references: [id])
+  office                        Office?                         @relation("RentalsByOffice", fields: [officeId], references: [id])
   unit                          RentalUnit                      @relation(fields: [unitId], references: [id])
   transaction                   OrgTransaction?                 @relation(fields: [transactionId], references: [id])
   taxSchedule                   RentalTaxSchedule[]
+  files                         OrgFile[]
   accountingRecord              RentalLeaseAccountingRecord?
   AiCopilotActionRecommendation AiCopilotActionRecommendation[]
 
@@ -1554,6 +1774,24 @@ model MlsFeedConfig {
   updatedAt             DateTime    @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+model MlsSyncRun {
+  id             String        @id @default(cuid())
+  organizationId String
+  provider       MlsProvider
+  startedAt      DateTime      @default(now())
+  finishedAt     DateTime?
+  status         MlsSyncStatus @default(PENDING)
+  totalFetched   Int           @default(0)
+  totalUpserted  Int           @default(0)
+  totalFailed    Int           @default(0)
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, startedAt])
 }
 
 model ListingSearchIndex {
@@ -1739,6 +1977,7 @@ model RentalLeaseAccountingRecord {
 model Lead {
   id              String     @id @default(cuid())
   organizationId  String
+  officeId        String?
   consumerId      String?
   listingId       String?
   agentProfileId  String?
@@ -1753,21 +1992,42 @@ model Lead {
   budgetMax       Int?
   bedrooms        Int?
   bathrooms       Float?
+  aiScore             Float?
+  conversionLikelihood Float?
+  lastAiScoreAt       DateTime?
   createdByUserId String?
   conversationId  String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   organization                  Organization                    @relation(fields: [organizationId], references: [id])
+  office                        Office?                         @relation("LeadsByOffice", fields: [officeId], references: [id])
   consumer                      User?                           @relation("Lead_Consumer", fields: [consumerId], references: [id])
   listing                       OrgListing?                     @relation(fields: [listingId], references: [id])
   agentProfile                  AgentProfile?                   @relation(fields: [agentProfileId], references: [id])
   createdByUser                 User?                           @relation("Lead_CreatedBy", fields: [createdByUserId], references: [id])
   offerIntents                  OfferIntent[]
   AiCopilotActionRecommendation AiCopilotActionRecommendation[]
+  scoreHistory                  LeadScoreHistory[]
 
   @@index([organizationId, status])
   @@index([organizationId, agentProfileId])
+}
+
+model LeadScoreHistory {
+  id             String   @id @default(cuid())
+  organizationId String
+  leadId         String
+
+  aiScore       Float
+  likelihood    Float
+  reasonSummary String?
+  createdAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  lead Lead @relation(fields: [leadId], references: [id])
+
+  @@index([organizationId, leadId, createdAt])
 }
 
 enum OrgFileCategory {
@@ -1777,6 +2037,112 @@ enum OrgFileCategory {
   MARKETING
   RENTAL_PM
   OTHER
+}
+
+enum DocumentType {
+  UNKNOWN
+  LISTING_CONTRACT
+  PURCHASE_CONTRACT
+  LOI
+  ADDENDUM
+  DISCLOSURE
+  INSPECTION
+  PROOF_OF_FUNDS
+  CLOSING_DOC
+  RENTAL_AGREEMENT
+  TAX_DOC
+}
+
+enum DocumentReviewStatus {
+  NONE
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum ComplianceStatus {
+  UNKNOWN
+  PENDING
+  PASSED
+  FAILED
+  NEEDS_REVIEW
+}
+
+enum PlaybookTriggerType {
+  LEAD_CREATED
+  LEAD_UPDATED
+  LEAD_SCORE_UPDATED
+  LEAD_CONVERSION_HIGH
+  LEAD_CONVERSION_LOW
+  LISTING_CREATED
+  LISTING_UPDATED
+  DOCUMENT_EVALUATED
+  TRANSACTION_UPDATED
+  RENTAL_UPDATED
+  MLS_SYNC_COMPLETED
+  ACCOUNTING_SYNC_FAILED
+  AGENT_NONCOMPLIANT
+}
+
+enum PlaybookActionType {
+  CREATE_TASK
+  SEND_NOTIFICATION
+  SEND_EMAIL
+  ASSIGN_LEAD
+  FLAG_ENTITY
+  START_PLAYBOOK
+  UPDATE_ENTITY_STATUS
+  RUN_AI_PERSONA
+}
+
+model DripCampaign {
+  id             String      @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  enabled        Boolean     @default(true)
+  steps          DripStep[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, enabled])
+}
+
+model DripStep {
+  id         String       @id @default(cuid())
+  campaign   DripCampaign @relation(fields: [campaignId], references: [id])
+  campaignId String
+
+  offsetHours Int
+  actionType  String
+  payload     Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId])
+}
+
+model RevenueForecast {
+  id             String   @id @default(cuid())
+  organizationId String
+
+  forecast30Days Float
+  forecast60Days Float
+  forecast90Days Float
+
+  totalPending Float
+  totalActive  Float
+  totalLost    Float
+
+  assumptions Json?
+  createdAt   DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
 }
 
 enum AnalyticsGranularity {
@@ -1810,8 +2176,14 @@ model OrgFile {
   name             String
   description      String?
   category         OrgFileCategory @default(OTHER)
+  documentType     DocumentType     @default(UNKNOWN)
+  complianceStatus ComplianceStatus @default(UNKNOWN)
+  reviewStatus     DocumentReviewStatus @default(NONE)
   fileId           String
   uploadedByUserId String
+  listingId        String?
+  transactionId    String?
+  leaseId          String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -1819,13 +2191,209 @@ model OrgFile {
   folder                OrgFolder?                @relation(fields: [folderId], references: [id])
   file                  FileObject                @relation(fields: [fileId], references: [id])
   uploadedByUser        User                      @relation(fields: [uploadedByUserId], references: [id])
+  listing               OrgListing?               @relation(fields: [listingId], references: [id])
+  transaction           OrgTransaction?           @relation(fields: [transactionId], references: [id])
+  lease                 RentalLease?              @relation(fields: [leaseId], references: [id])
   trainingModules       AgentTrainingModule[]
   listingDocuments      OrgListingDocument[]      @relation("OrgListingDocument_File")
   transactionDocuments  OrgTransactionDocument[]  @relation("OrgTransactionDocument_File")
   workflowTemplateTasks OrgWorkflowTemplateTask[] @relation("OrgWorkflowTemplateTaskFile")
+  knowledgeDocuments    KnowledgeDocument[]
+  versions             OrgFileVersion[]
+  comments             OrgFileComment[]
 
   @@index([orgId, folderId])
   @@index([orgId, category])
+  @@index([listingId])
+  @@index([transactionId])
+  @@index([leaseId])
+}
+
+model OrgFileVersion {
+  id            String   @id @default(cuid())
+  orgFile       OrgFile  @relation(fields: [orgFileId], references: [id])
+  orgFileId     String
+
+  versionNumber Int
+  storageKey    String
+  createdAt     DateTime @default(now())
+  createdById   String?
+  createdBy     User?    @relation(fields: [createdById], references: [id])
+
+  @@unique([orgFileId, versionNumber])
+}
+
+model KnowledgeDocument {
+  id             String   @id @default(cuid())
+  organizationId String
+  orgFileId      String?
+  title          String
+  s3Key          String
+  source         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  orgFile      OrgFile?     @relation(fields: [orgFileId], references: [id])
+
+  @@index([organizationId, source])
+}
+
+model OrgFileComment {
+  id             String   @id @default(cuid())
+  orgFile        OrgFile  @relation(fields: [orgFileId], references: [id])
+  orgFileId      String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  user           User    @relation(fields: [userId], references: [id])
+  userId         String
+
+  content        String
+  pageNumber     Int?
+  x              Float?
+  y              Float?
+  width          Float?
+  height         Float?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orgFileId])
+}
+
+model AgentPerformanceSnapshot {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  agentProfileId      String
+
+  leadsWorked         Int      @default(0)
+  leadsConverted      Int      @default(0)
+  avgResponseTimeSec  Int      @default(0)
+  tasksCompleted      Int      @default(0)
+  tasksOverdue        Int      @default(0)
+  documentsIssues     Int      @default(0)
+  compliantDocs       Int      @default(0)
+  listingsActive      Int      @default(0)
+  transactionsActive  Int      @default(0)
+  activityScore       Float    @default(0)
+  performanceScore    Float    @default(0)
+  responsivenessScore Float    @default(0)
+
+  periodStart         DateTime
+  periodEnd           DateTime
+
+  createdAt           DateTime @default(now())
+
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  agentProfile        AgentProfile @relation(fields: [agentProfileId], references: [id])
+
+  @@index([organizationId, agentProfileId, periodStart])
+}
+
+model SearchVector {
+  id             String   @id @default(cuid())
+  organizationId String
+  entityType     String
+  entityId       String
+  embedding      Float[]
+  content        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, entityType])
+  @@unique([organizationId, entityType, entityId])
+}
+
+model LivePresence {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  location       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, location])
+}
+
+model AiInsight {
+  id             String      @id @default(cuid())
+  organizationId String
+  type           InsightType
+  targetId       String?
+  summary        String
+  details        Json?
+  createdAt      DateTime    @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, type])
+  @@index([organizationId, targetId])
+}
+
+model Playbook {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  enabled        Boolean          @default(true)
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  triggers       PlaybookTrigger[] @relation("PlaybookTriggers")
+  actions        PlaybookAction[]  @relation("PlaybookActions")
+  runs           PlaybookRun[]
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizationId, enabled])
+}
+
+model PlaybookTrigger {
+  id          String               @id @default(cuid())
+  playbookId  String
+  type        PlaybookTriggerType
+  conditions  Json?
+
+  playbook    Playbook             @relation("PlaybookTriggers", fields: [playbookId], references: [id])
+}
+
+model PlaybookAction {
+  id          String               @id @default(cuid())
+  playbookId  String
+  type        PlaybookActionType
+  params      Json?
+
+  playbook    Playbook             @relation("PlaybookActions", fields: [playbookId], references: [id])
+}
+
+model PlaybookRun {
+  id             String              @id @default(cuid())
+  playbookId     String
+  organizationId String
+  triggerType    PlaybookTriggerType
+  actionSummary  String?
+  success        Boolean             @default(true)
+  errorMessage   String?
+  listingId      String?
+  leadId         String?
+  transactionId  String?
+  leaseId        String?
+  startedAt      DateTime            @default(now())
+  finishedAt     DateTime?
+
+  playbook       Playbook            @relation(fields: [playbookId], references: [id])
+
+  @@index([organizationId, playbookId, startedAt])
+  @@index([organizationId, listingId])
+  @@index([organizationId, leadId])
+  @@index([organizationId, transactionId])
+  @@index([organizationId, leaseId])
 }
 
 model OrgEvent {
@@ -1875,13 +2443,18 @@ model Team {
   tenantId    String
   orgId       String
   name        String
+  officeId    String?
+  description String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   tenant      Tenant           @relation(fields: [tenantId], references: [id])
   org         Organization     @relation(fields: [orgId], references: [id])
+  office      Office?          @relation(fields: [officeId], references: [id])
   members     TeamMembership[]
+  assignedUsers User[]         @relation("TeamMembers")
   assignments Assignment[]
   savedViews  SavedView[]
+  agentProfiles AgentProfile[]
 
   @@index([orgId])
 }
@@ -1924,6 +2497,29 @@ model TeamMember {
   @@index([tenantId])
   @@index([orgId])
   @@map("team_members")
+}
+
+model DelegatedAccess {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  agentId               String
+  assistantId           String
+  canManageListings     Boolean  @default(true)
+  canManageLeads        Boolean  @default(true)
+  canManageTransactions Boolean  @default(true)
+  canManageRentals      Boolean  @default(true)
+  canManageTasks        Boolean  @default(true)
+  canViewFinancials     Boolean  @default(false)
+  canChangeCompliance   Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  agent        User          @relation("AgentDelegations", fields: [agentId], references: [id])
+  assistant    User          @relation("AssistantDelegations", fields: [assistantId], references: [id])
+
+  @@index([organizationId, agentId])
+  @@index([organizationId, assistantId])
 }
 
 model Person {
@@ -4018,4 +4614,14 @@ model AgentDailyAnalytics {
 
   @@unique([organizationId, agentProfileId, date, granularity])
   @@index([organizationId, agentProfileId, date])
+}
+
+model BatchEvent {
+  id         String   @id @default(cuid())
+  externalId String   @unique
+  type       String
+  occurredAt DateTime
+  payload    Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

@@ -33,6 +33,9 @@ export interface MissionControlOverview {
     underContract: number;
     closingsNext30Days: number;
     nonCompliant: number;
+    docsReadyPercent: number;
+    missingDocs: number;
+    upcomingClosingsMissingDocs: number;
   };
   onboarding: {
     agentsInOnboarding: number;

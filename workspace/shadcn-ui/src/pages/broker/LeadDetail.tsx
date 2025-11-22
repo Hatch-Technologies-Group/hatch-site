@@ -23,12 +23,16 @@ import {
 import { getStageDisplay } from '@/lib/stageDisplay'
 import ActivityFeed, { type ActivityItem } from '@/components/crm/ActivityFeed'
 import { ReindexEntityButton } from '@/components/copilot/ReindexEntityButton'
+import { EntityPresenceIndicator } from '@/components/presence/EntityPresenceIndicator'
+import { EntityTimeline } from '@/components/timeline/EntityTimeline'
 import { LeadScoreBadge } from '@/components/leads/LeadScoreBadge'
 import { LeadScoreExplanation } from '@/components/leads/LeadScoreExplanation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { ChatWindow } from '@/components/chat/ChatWindow'
+import { getLatestDripStepForLead } from '@/lib/api/drip-campaigns'
 import { emitCopilotContext } from '@/lib/copilot/events'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ApiError } from '@/lib/api/errors'
@@ -118,6 +122,13 @@ export default function LeadDetailPage() {
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(
     fallbackLeadDetail ? 'Showing cached lead snapshot while we sync with the CRM…' : null
   )
+  const [chatOpen, setChatOpen] = useState(false)
+  const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined)
+  const [nextDrip, setNextDrip] = useState<{
+    actionType?: string
+    offsetHours?: number
+    payload?: Record<string, unknown> | null
+  } | null>(null)
   const [calling, setCalling] = useState(false)
   const [callMsg, setCallMsg] = useState<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -202,6 +213,32 @@ export default function LeadDetailPage() {
       cancelled = true
     }
   }, [fallbackLeadDetail, id, skipRemoteFetch])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const loadNextDrip = async () => {
+      try {
+        const res = await getLatestDripStepForLead(TENANT_ID, id)
+        if (cancelled) return
+        if (res?.nextStep) {
+          setNextDrip({
+            actionType: res.nextStep.actionType,
+            offsetHours: res.nextStep.offsetHours,
+            payload: res.nextStep.payload ?? null
+          })
+        } else {
+          setNextDrip(null)
+        }
+      } catch {
+        setNextDrip(null)
+      }
+    }
+    void loadNextDrip()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   useEffect(() => {
     const loadSequences = async () => {
@@ -352,6 +389,13 @@ export default function LeadDetailPage() {
     </Alert>
   ) : null
 
+  const openFollowUpChat = () => {
+    if (!lead) return
+    const label = `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() || lead.email || lead.id
+    setInitialPrompt(`Draft a follow-up email for lead ${label}. Keep it concise and propose the next best action.`)
+    setChatOpen(true)
+  }
+
   const openEdit = () => {
     if (!lead) return
     setForm({
@@ -484,11 +528,20 @@ export default function LeadDetailPage() {
                 </CardDescription>
               </div>
               <div className="flex flex-col items-end gap-2 text-right text-xs">
+                <EntityPresenceIndicator entityType="lead" entityId={lead.id} />
                 <ReindexEntityButton entityType="lead" entityId={lead.id} />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button size="sm" variant="outline" onClick={openEdit}>
                     <Pencil className="mr-2 h-4 w-4" /> Edit lead
                   </Button>
+                  <Button size="sm" variant="secondary" onClick={openFollowUpChat}>
+                    Ask Hatch
+                  </Button>
+                  {nextDrip ? (
+                    <div className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] text-indigo-800">
+                      Next drip: {nextDrip.actionType} @ {nextDrip.offsetHours}h
+                    </div>
+                  ) : null}
                   <Button size="sm" onClick={() => void startCall()} disabled={calling}>
                     <Phone className="mr-2 h-4 w-4" /> {calling ? 'Calling…' : 'Call lead'}
                   </Button>
@@ -593,13 +646,55 @@ export default function LeadDetailPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle>AI Lead Insights</CardTitle>
+              <CardDescription>Latest AI scoring and conversion signals.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3 text-sm text-slate-700">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">AI score</p>
+                <p className="text-lg font-semibold">{lead.aiScore ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Conversion likelihood</p>
+                <p className="text-lg font-semibold">
+                  {lead.conversionLikelihood != null ? `${Math.round(lead.conversionLikelihood * 100)}%` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Last scored</p>
+                <p className="text-lg font-semibold">
+                  {lead.lastAiScoreAt ? formatDistanceToNow(new Date(lead.lastAiScoreAt), { addSuffix: true }) : '—'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Engagement timeline</CardTitle>
               <CardDescription>Events, notes, touchpoints, and tasks for this relationship.</CardDescription>
             </CardHeader>
             <CardContent>
+              {nextDrip ? (
+                <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">Next drip step</span>
+                    <Badge className="bg-indigo-100 text-indigo-800">
+                      {nextDrip.actionType} @ {nextDrip.offsetHours}h
+                    </Badge>
+                  </div>
+                  {nextDrip.payload && (
+                    <pre className="mt-2 max-h-40 overflow-auto rounded bg-white px-2 py-1 text-[11px] text-slate-600">
+                      {JSON.stringify(nextDrip.payload, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ) : null}
               <ActivityFeed items={activityItems} />
             </CardContent>
           </Card>
+
+          <EntityTimeline entityType="lead" entityId={lead.id} />
         </section>
 
         <aside className="space-y-4">
@@ -683,6 +778,7 @@ export default function LeadDetailPage() {
       <Button asChild variant="secondary">
         <Link to="/broker/crm">Return to pipeline</Link>
       </Button>
+      <ChatWindow open={chatOpen} onClose={() => setChatOpen(false)} initialPrompt={initialPrompt} />
 
       {/* Edit Lead Dialog */}
       <EditLeadDialog

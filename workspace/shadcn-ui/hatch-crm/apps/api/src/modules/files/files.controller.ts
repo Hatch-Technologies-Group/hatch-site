@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UseInterceptors
 } from '@nestjs/common';
 import {
@@ -15,7 +16,7 @@ import {
   ApiParam,
   ApiTags
 } from '@nestjs/swagger';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuditInterceptor } from '../../platform/audit/audit.interceptor';
 import { Permit } from '../../platform/security/permit.decorator';
@@ -71,6 +72,21 @@ export class FilesController {
   ) {
     const ctx = resolveRequestContext(req);
     return this.service.listForRecord(ctx, object, id);
+  }
+
+  @Get(':id/download')
+  @Permit('files', 'read')
+  @ApiParam({ name: 'id', description: 'File identifier' })
+  async download(
+    @Req() req: FastifyRequest,
+    @Param('id') id: string,
+    @Res() reply: FastifyReply
+  ) {
+    const ctx = resolveRequestContext(req);
+    const { stream, mimeType, fileName } = await this.service.getDownloadStream(ctx, id);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `attachment; filename="${fileName}"`);
+    return reply.send(stream);
   }
 
   @Delete(':id')

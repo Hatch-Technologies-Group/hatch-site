@@ -27,6 +27,8 @@ interface AuthContextValue {
   signIn: (email: string, password: string, options?: { allowDevFallback?: boolean }) => Promise<void>
   signOut: () => Promise<void>
   setUser: (session: SessionResponse | null) => void
+  isDemoSession: boolean
+  enterDemoSession: (orgId?: string | null) => void
   status: 'loading' | 'authenticated' | 'unauthenticated'
 }
 
@@ -36,6 +38,9 @@ const DEV_TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
 const DEV_ORG_ID = import.meta.env.VITE_ORG_ID || 'org-hatch'
 const SIGN_IN_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_SIGNIN_TIMEOUT_MS ?? 8000)
 const DEV_AUTH_CACHE_KEY = 'hatch_dev_auth'
+const DEMO_MODE_ENABLED = (import.meta.env.VITE_DEMO_MODE ?? 'false').toLowerCase() === 'true'
+const DEMO_ORG_ID = import.meta.env.VITE_DEMO_ORG_ID || DEV_ORG_ID
+const CAN_CACHE_AUTH = import.meta.env.DEV || DEMO_MODE_ENABLED
 
 type DevAuthPayload = {
   timestamp: number
@@ -80,8 +85,43 @@ const buildDevSession = (email: string): SessionResponse => {
   }
 }
 
+const buildDemoSession = (orgId: string): SessionResponse => ({
+  user: {
+    id: 'demo-user',
+    email: 'demo@hatchcrm.app',
+    globalRole: 'BROKER_OWNER'
+  },
+  profile: {
+    first_name: 'Demo',
+    last_name: 'Broker',
+    fallback: true
+  },
+  memberships: [
+    {
+      id: 'demo-membership',
+      org_id: orgId,
+      role: 'BROKER_OWNER',
+      status: 'active',
+      can_manage_billing: false,
+      metadata: null,
+      org: {
+        id: orgId,
+        name: 'Hatch Demo Brokerage',
+        type: 'BROKERAGE',
+        status: 'active',
+        billing_email: 'demo@hatchcrm.app',
+        stripe_customer_id: null,
+        grace_period_ends_at: null,
+        metadata: { slug: DEV_TENANT_ID }
+      }
+    }
+  ],
+  activeOrgId: orgId,
+  policies: []
+})
+
 const readDevAuth = (): SessionResponse | null => {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return null
+  if (!CAN_CACHE_AUTH || typeof window === 'undefined') return null
   const raw = localStorage.getItem(DEV_AUTH_CACHE_KEY)
   if (!raw) return null
   try {
@@ -97,7 +137,7 @@ const readDevAuth = (): SessionResponse | null => {
 
 const writeDevAuth = (session: SessionResponse | null) => {
   if (typeof window === 'undefined') return
-  if (!import.meta.env.DEV) {
+  if (!CAN_CACHE_AUTH) {
     localStorage.removeItem(DEV_AUTH_CACHE_KEY)
     return
   }
@@ -172,6 +212,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     )
   }, [effectiveSession, memberships])
 
+  const isDemoSession = useMemo(() => (devSession?.user?.id ?? '').startsWith('demo-'), [devSession])
+
   const clearDevSession = useCallback(() => {
     setDevSession(null)
     writeDevAuth(null)
@@ -239,6 +281,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     await refresh()
   }, [devSession, userId, refresh, setDevAuth])
+
+  const enterDemoSession = useCallback((orgId?: string | null) => {
+    if (!DEMO_MODE_ENABLED) return
+    const targetOrgId = orgId ?? DEMO_ORG_ID
+    const session = buildDemoSession(targetOrgId)
+    setDevAuth(session)
+  }, [setDevAuth])
 
   const signIn = useCallback(async (email: string, password: string, options?: { allowDevFallback?: boolean }) => {
     const allowDevFallback = options?.allowDevFallback ?? true
@@ -356,16 +405,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     activeMembership,
     policies,
     isBroker,
+    isDemoSession,
     refresh,
     setActiveOrg,
     signIn,
     signOut,
-    setUser
+    setUser,
+    enterDemoSession
   }), [
     activeMembership,
     activeOrgId,
     effectiveSession,
+    enterDemoSession,
     isBroker,
+    isDemoSession,
     memberships,
     policies,
     refresh,

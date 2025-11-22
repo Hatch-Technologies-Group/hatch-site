@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, resolveApiUrl } from './api';
 
 export interface FileMetadata {
   id: string;
@@ -79,3 +79,5 @@ export async function deleteFile(fileId: string): Promise<{ id: string }> {
     method: 'DELETE'
   });
 }
+
+export const getFileDownloadUrl = (fileId: string) => resolveApiUrl(`files/${fileId}/download`);

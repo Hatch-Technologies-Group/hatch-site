@@ -1,14 +1,23 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@hatch/db';
+import { NotificationType, Prisma } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { SaveListingDto } from './dto/save-listing.dto';
 import { CreateSavedSearchDto } from './dto/create-saved-search.dto';
 import { UpdateSavedSearchDto } from './dto/update-saved-search.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
+import { savedSearchAlertEmail } from '../mail/templates';
 
 @Injectable()
 export class ConsumerPreferencesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly portalBaseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:5173/customer';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly mail: MailService
+  ) {}
 
   private async assertConsumer(organizationId: string, userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -146,6 +155,10 @@ export class ConsumerPreferencesService {
   }
 
   async runSavedSearchAlertsForOrg(orgId: string, now = new Date()) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true }
+    });
     const savedSearches = await this.prisma.savedSearch.findMany({
       where: { organizationId: orgId, alertsEnabled: true }
     });
@@ -197,6 +210,34 @@ export class ConsumerPreferencesService {
         data: { lastNotifiedAt: now }
       });
       results.push({ savedSearchId: search.id, matchCount: matches });
+
+      const consumer = await this.prisma.user.findUnique({
+        where: { id: search.consumerId },
+        select: { email: true, firstName: true, lastName: true }
+      });
+      if (!consumer?.email) {
+        continue;
+      }
+
+      const shouldEmail = await this.notifications.shouldSendEmail(orgId, search.consumerId, NotificationType.LEAD);
+      if (!shouldEmail) {
+        continue;
+      }
+
+      const portalLink = `${this.portalBaseUrl.replace(/\/+$/, '')}/search?saved=${search.id}`;
+      const template = savedSearchAlertEmail({
+        consumerName: [consumer.firstName, consumer.lastName].filter(Boolean).join(' ') || undefined,
+        orgName: organization?.name ?? 'Hatch',
+        searchName: search.name,
+        matchCount: matches,
+        portalLink
+      });
+      await this.mail.sendMail({
+        to: consumer.email,
+        subject: template.subject,
+        text: template.text,
+        html: template.html
+      });
     }
 
     return { results };

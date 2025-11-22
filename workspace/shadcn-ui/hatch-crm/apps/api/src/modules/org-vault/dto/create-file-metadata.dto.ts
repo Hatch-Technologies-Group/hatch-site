@@ -33,5 +33,19 @@ export class CreateFileMetadataDto {
   @IsOptional()
   @IsString()
   storageKey?: string;
-}
 
+  @ApiProperty({ required: false, description: 'Link this document to a listing' })
+  @IsOptional()
+  @IsString()
+  listingId?: string;
+
+  @ApiProperty({ required: false, description: 'Link this document to a transaction' })
+  @IsOptional()
+  @IsString()
+  transactionId?: string;
+
+  @ApiProperty({ required: false, description: 'Link this document to a rental lease' })
+  @IsOptional()
+  @IsString()
+  leaseId?: string;
+}

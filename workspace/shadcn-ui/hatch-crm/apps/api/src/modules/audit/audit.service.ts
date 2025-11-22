@@ -1,101 +1,64 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { AuditActionType } from '@hatch/db';
 
-import type { AuditAction, Prisma } from '@hatch/db';
+import { PrismaService } from '@/modules/prisma/prisma.service';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../common/dto/cursor-pagination-query.dto';
-import { AuditEventDto, AuditListQueryDto } from './dto';
+export type AuditLogParams = {
+  organizationId: string;
+  userId?: string | null;
+  actionType: AuditActionType | string;
+  summary: string;
+  metadata?: Record<string, any> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
 
-const ACTOR_SELECT = {
-  id: true,
-  firstName: true,
-  lastName: true,
-  email: true
-} as const;
+export type AuditLogFilters = {
+  userId?: string;
+  actionType?: AuditActionType | string;
+};
 
 @Injectable()
-export class AuditLogService {
+export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(orgId: string, query: AuditListQueryDto) {
-    const take = Math.min(query.limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-    const where: Prisma.AuditEventWhereInput = {
-      orgId
-    };
-
-    if (query.actorId) {
-      where.actorId = query.actorId;
-    }
-
-    if (query.object) {
-      where.object = query.object;
-    }
-
-    if (query.objectId) {
-      where.recordId = query.objectId;
-    }
-
-    if (query.action) {
-      where.action = query.action as AuditAction;
-    }
-
-    if (query.from || query.to) {
-      where.createdAt = {};
-      if (query.from) {
-        where.createdAt.gte = new Date(query.from);
-      }
-      if (query.to) {
-        where.createdAt.lte = new Date(query.to);
-      }
-    }
-
-    const records = await this.prisma.auditEvent.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: take + 1,
-      ...(query.cursor
-        ? {
-            skip: 1,
-            cursor: { id: query.cursor }
-          }
-        : {}),
-      include: {
-        actor: {
-          select: ACTOR_SELECT
+  async log(params: AuditLogParams) {
+    try {
+      return await this.prisma.orgAuditLog.create({
+        data: {
+          organizationId: params.organizationId,
+          userId: params.userId ?? null,
+          actionType: (params.actionType as AuditActionType) ?? AuditActionType.OTHER,
+          summary: params.summary,
+          metadata: params.metadata ?? undefined,
+          ipAddress: params.ipAddress ?? null,
+          userAgent: params.userAgent ?? null
         }
-      }
-    });
-
-    const hasNextPage = records.length > take;
-    const pageRecords = hasNextPage ? records.slice(0, take) : records;
-    const nextCursor = hasNextPage ? pageRecords[pageRecords.length - 1]?.id ?? null : null;
-
-    return {
-      items: pageRecords.map((record) => this.toDto(record)),
-      nextCursor
-    };
+      });
+    } catch (error) {
+      this.logger.error(`Failed to write audit log: ${params.summary}`, error instanceof Error ? error.stack : error);
+      return null;
+    }
   }
 
-  private toDto(
-    record: Prisma.AuditEventGetPayload<{ include: { actor: { select: typeof ACTOR_SELECT } } }>
-  ): AuditEventDto {
-    return {
-      id: record.id,
-      action: record.action,
-      object: record.object,
-      objectId: record.recordId,
-      createdAt: record.createdAt.toISOString(),
-      diff: record.diff ?? null,
-      ip: record.ip ?? null,
-      userAgent: record.userAgent ?? null,
-      actor: record.actor
-        ? {
-            id: record.actor.id,
-            firstName: record.actor.firstName,
-            lastName: record.actor.lastName,
-            email: record.actor.email
-          }
-        : null
-    };
+  async listForOrganization(orgId: string, limit = 50, cursor?: string, filters?: AuditLogFilters) {
+    const safeLimit = Math.min(Math.max(limit ?? 50, 1), 200);
+    const where: Record<string, any> = { organizationId: orgId };
+    if (filters?.userId) {
+      where.userId = filters.userId;
+    }
+    if (filters?.actionType) {
+      where.actionType = filters.actionType;
+    }
+
+    return this.prisma.orgAuditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+      skip: cursor ? 1 : 0,
+      cursor: cursor ? { id: cursor } : undefined
+    });
   }
 }

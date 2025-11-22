@@ -1,14 +1,23 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrgFileCategory, OrgEventType } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { CreateFileMetadataDto } from './dto/create-file-metadata.dto';
 import { OrgEventsService } from '../org-events/org-events.service';
+import { DocumentsAiService } from '@/modules/documents-ai/documents-ai.service';
+import { SearchVectorService } from '@/modules/search/search-vector.service';
 
 @Injectable()
 export class OrgVaultService {
-  constructor(private readonly prisma: PrismaService, private readonly events: OrgEventsService) {}
+  private readonly logger = new Logger(OrgVaultService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: OrgEventsService,
+    private readonly documents: DocumentsAiService,
+    private readonly searchVectors: SearchVectorService
+  ) {}
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const member = await this.prisma.userOrgMembership.findUnique({
@@ -76,8 +85,15 @@ export class OrgVaultService {
     return map[cat] ?? fallback;
   }
 
-  async createFileMetadata(orgId: string, userId: string, dto: CreateFileMetadataDto) {
-    await this.assertUserInOrg(userId, orgId);
+  async createFileMetadata(
+    orgId: string,
+    userId: string,
+    dto: CreateFileMetadataDto,
+    options?: { skipMembershipCheck?: boolean }
+  ) {
+    if (!options?.skipMembershipCheck) {
+      await this.assertUserInOrg(userId, orgId);
+    }
     if (dto.folderId) {
       const folder = await this.prisma.orgFolder.findFirst({ where: { id: dto.folderId, orgId } });
       if (!folder) throw new NotFoundException('Folder not found');
@@ -105,6 +121,19 @@ export class OrgVaultService {
     const file = await this.prisma.fileObject.findFirst({ where: { id: fileId, orgId } });
     if (!file) throw new NotFoundException('FileObject not found for this org');
 
+    if (dto.listingId) {
+      const listing = await this.prisma.orgListing.findFirst({ where: { id: dto.listingId, organizationId: orgId } });
+      if (!listing) throw new NotFoundException('Listing not found');
+    }
+    if (dto.transactionId) {
+      const transaction = await this.prisma.orgTransaction.findFirst({ where: { id: dto.transactionId, organizationId: orgId } });
+      if (!transaction) throw new NotFoundException('Transaction not found');
+    }
+    if (dto.leaseId) {
+      const lease = await this.prisma.rentalLease.findFirst({ where: { id: dto.leaseId, organizationId: orgId } });
+      if (!lease) throw new NotFoundException('Rental lease not found');
+    }
+
     const record = await this.prisma.orgFile.create({
       data: {
         orgId,
@@ -113,7 +142,10 @@ export class OrgVaultService {
         description: dto.description ?? null,
         category: this.toCategory(dto.category),
         fileId: fileId,
-        uploadedByUserId: userId
+        uploadedByUserId: userId,
+        listingId: dto.listingId ?? null,
+        transactionId: dto.transactionId ?? null,
+        leaseId: dto.leaseId ?? null
       },
       include: { file: true }
     });
@@ -124,11 +156,16 @@ export class OrgVaultService {
         actorId: userId,
         type: OrgEventType.ORG_FILE_UPLOADED,
         message: `File "${record.name}" uploaded`,
-        payload: { fileId: record.id, name: record.name, folderId: record.folderId, category: record.category }
-      });
+      payload: { fileId: record.id, name: record.name, folderId: record.folderId, category: record.category }
+    });
     } catch {}
+
+    void this.documents
+      .analyzeFile(orgId, record.id)
+      .catch((error) => this.logger.warn(`document analysis failed for ${record.id}: ${(error as Error).message}`));
+
+    void this.documents.indexOrgFileForSearch(orgId, record.id).catch(() => undefined);
 
     return record;
   }
 }
-

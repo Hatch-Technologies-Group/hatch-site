@@ -1,14 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Module } from '@nestjs/common'
 
-import { InsightsController } from './insights.controller';
-import { LegacyTenantInsightsController } from './legacy-insights.controller';
-import { InsightsService } from './insights.service';
-import { InsightsRefreshListener } from './insights.refresh.listener';
-import { InsightsRefreshScheduler } from './insights.refresh.scheduler';
-import { InsightsRefreshQueueMonitor } from './insights.refresh.monitor';
+import { PrismaModule } from '@/modules/prisma/prisma.module'
+import { AiEmployeesModule } from '@/modules/ai-employees/ai-employees.module'
+import { InsightsService } from './insights.service'
+import { InsightsController } from './insights.controller'
 
 @Module({
-  controllers: [InsightsController, LegacyTenantInsightsController],
-  providers: [InsightsService, InsightsRefreshListener, InsightsRefreshScheduler, InsightsRefreshQueueMonitor]
+  imports: [PrismaModule, AiEmployeesModule],
+  providers: [InsightsService],
+  controllers: [InsightsController],
+  exports: [InsightsService]
 })
 export class InsightsModule {}

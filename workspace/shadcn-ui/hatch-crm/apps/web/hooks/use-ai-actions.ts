@@ -49,13 +49,13 @@ export function useAiActions() {
   }, [refresh]);
 
   const approve = useCallback(async (actionId: string) => {
-    const updated = await approveAiEmployeeAction(actionId);
+    const updated = (await approveAiEmployeeAction(actionId)) as AiEmployeeAction;
     setActions((prev) => upsert(prev, updated));
     return updated;
   }, []);
 
   const reject = useCallback(async (actionId: string, note?: string) => {
-    const updated = await rejectAiEmployeeAction(actionId, note);
+    const updated = (await rejectAiEmployeeAction(actionId, note)) as AiEmployeeAction;
     setActions((prev) => upsert(prev, updated));
     return updated;
   }, []);

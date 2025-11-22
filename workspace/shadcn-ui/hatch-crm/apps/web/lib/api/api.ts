@@ -46,6 +46,8 @@ const buildUrl = (path: string): string => {
   return `${base}/${normalizedPath}`;
 };
 
+export const resolveApiUrl = (path: string): string => buildUrl(path);
+
 const shouldEncodeBody = (body: BodyLike): boolean => {
   if (!body) return false;
   if (typeof FormData !== 'undefined' && body instanceof FormData) return false;

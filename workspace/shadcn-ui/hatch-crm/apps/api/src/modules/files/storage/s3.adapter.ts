@@ -2,7 +2,7 @@ import type { StorageAdapter, CreateUploadUrlInput, CreateUploadUrlResult } from
 
 export class S3StorageAdapter implements StorageAdapter {
   async createUploadUrl(input: CreateUploadUrlInput): Promise<CreateUploadUrlResult> {
-    const storageKey = `org/${input.orgId}/files/${Date.now()}-${sanitizeFileName(input.fileName)}`;
+    const storageKey = `uploads/org-${input.orgId}/${Date.now()}-${sanitizeFileName(input.fileName)}`;
 
     // TODO: Integrate AWS SDK (S3) signed URL generation.
     const uploadUrl = `https://s3.mock.invalid/${storageKey}`;

@@ -43,8 +43,8 @@ export function useAiActions() {
   const approve = useCallback(
     async (actionId: string) => {
       const updated = await approveAiEmployeeAction(actionId);
-      setActions((prev) => upsertAction(prev, updated));
-      return updated;
+      setActions((prev) => upsertAction(prev, updated as AiEmployeeAction));
+      return updated as AiEmployeeAction;
     },
     []
   );
@@ -52,8 +52,8 @@ export function useAiActions() {
   const reject = useCallback(
     async (actionId: string, note?: string) => {
       const updated = await rejectAiEmployeeAction(actionId, note);
-      setActions((prev) => upsertAction(prev, updated));
-      return updated;
+      setActions((prev) => upsertAction(prev, updated as AiEmployeeAction));
+      return updated as AiEmployeeAction;
     },
     []
   );

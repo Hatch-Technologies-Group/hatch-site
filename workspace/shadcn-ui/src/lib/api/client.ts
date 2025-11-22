@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { supabase } from '../supabase'
 
 const fallbackSupabaseUrl = 'https://rdakjayhdvewbpguyuiv.supabase.co'
@@ -11,11 +12,8 @@ const defaultFunctionsUrl = import.meta.env.DEV
   ? 'http://localhost:4000'
   : `${supabaseUrl.replace(/\/$/, '')}/functions/v1`
 
+// Used by legacy fetch-based request helper
 const functionsBaseUrl = (import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || defaultFunctionsUrl).replace(/\/$/, '')
-
-if (!functionsBaseUrl) {
-  console.warn('Supabase functions base URL is not configured. Set VITE_SUPABASE_URL or VITE_SUPABASE_FUNCTIONS_URL.')
-}
 
 export type RequestOptions = {
   method?: string
@@ -48,6 +46,7 @@ export const buildHeaders = async (options?: RequestOptions) => {
   return headers
 }
 
+// Legacy supabase-functions request helper
 export const request = async <T>(path: string, options?: RequestOptions): Promise<T> => {
   if (!functionsBaseUrl) {
     throw new Error('functions_base_url_missing')
@@ -66,6 +65,7 @@ export const request = async <T>(path: string, options?: RequestOptions): Promis
     method,
     headers,
     body,
+    credentials: 'include',
   })
 
   const contentType = response.headers.get('Content-Type') ?? ''
@@ -81,7 +81,35 @@ export const request = async <T>(path: string, options?: RequestOptions): Promis
     throw error
   }
 
-  return payload?.data ?? payload
+  return (payload?.data ?? payload) as T
 }
+
+// Axios client for direct API calls
+const defaultApiBase =
+  typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : 'http://localhost:3000'
+
+export const apiClient = axios.create({
+  baseURL: (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || defaultApiBase).replace(/\/$/, ''),
+  withCredentials: true,
+})
+
+const DEFAULT_TOKEN = import.meta.env.VITE_API_TOKEN
+const DEFAULT_ORG = import.meta.env.VITE_ORG_ID || 'org-hatch'
+const DEFAULT_TENANT = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
+const DEFAULT_USER = import.meta.env.VITE_USER_ID || 'user-broker'
+
+apiClient.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {}
+  if (DEFAULT_TOKEN && !config.headers['Authorization']) {
+    config.headers['Authorization'] = `Bearer ${DEFAULT_TOKEN}`
+  }
+  if (!config.headers['x-user-id']) config.headers['x-user-id'] = DEFAULT_USER
+  if (!config.headers['x-tenant-id']) config.headers['x-tenant-id'] = DEFAULT_TENANT
+  if (!config.headers['x-org-id']) config.headers['x-org-id'] = DEFAULT_ORG
+  if (!config.headers['x-user-role']) config.headers['x-user-role'] = 'BROKER'
+  return config
+})
 
 export { supabase, functionsBaseUrl, supabaseAnonKey }

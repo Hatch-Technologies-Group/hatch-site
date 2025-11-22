@@ -15,7 +15,10 @@ import {
   Percent,
   Megaphone,
   Radar,
-  Shuffle
+  Shuffle,
+  Sparkles,
+  Bell,
+  Lock
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { HatchLogo } from '@/components/HatchLogo'
@@ -39,10 +42,13 @@ export default function BrokerSidebar() {
     { icon: Radar, label: 'Mission Control', path: '/broker/mission-control', roles: ['BROKER', 'AGENT', 'ADMIN'] },
     { icon: UserCheck, label: 'Team', path: '/broker/team', roles: ['BROKER', 'ADMIN'] },
     { icon: ShieldCheck, label: 'Compliance', path: '/broker/compliance', roles: ['BROKER', 'ADMIN'] },
+    { icon: Sparkles, label: 'AI Employees', path: '/broker/ai-employees', roles: ['BROKER', 'ADMIN'] },
     { icon: Building2, label: 'Properties', path: '/broker/properties', roles: ['BROKER', 'AGENT', 'ADMIN'] },
     { icon: Shuffle, label: 'Transactions', path: '/broker/transactions', roles: ['BROKER', 'AGENT', 'ADMIN'] },
     { icon: NotebookPen, label: 'CRM', path: '/broker/crm', roles: ['BROKER', 'AGENT', 'ADMIN'] },
     { icon: Megaphone, label: 'Marketing', path: '/broker/marketing', roles: ['BROKER', 'ADMIN'] },
+    { icon: Bell, label: 'Notifications', path: '/broker/notifications', roles: ['BROKER', 'AGENT', 'ADMIN'] },
+    { icon: Lock, label: 'Audit Log', path: '/broker/audit-log', roles: ['BROKER', 'ADMIN'] },
     { icon: Percent, label: 'Commission Plans', path: '/broker/commission-plans', roles: ['BROKER', 'ADMIN'] },
     { icon: GitBranch, label: 'Lead Routing', path: '/broker/lead-routing', roles: ['BROKER', 'ADMIN'] },
     { icon: BarChart3, label: 'Analytics', path: '/broker/analytics', roles: ['BROKER', 'ADMIN'] },

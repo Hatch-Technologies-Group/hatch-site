@@ -38,6 +38,7 @@ const resolveApiBaseUrl = (value?: string) => {
 
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const API_TOKEN = import.meta.env.VITE_API_TOKEN;
+const CHAOS_MODE = (import.meta.env.VITE_CHAOS_MODE ?? 'false').toLowerCase() === 'true';
 interface FetchOptions extends RequestInit {
   token?: string;
 }
@@ -75,6 +76,14 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
   const authToken = options.token ?? API_TOKEN;
   if (authToken) {
     headers.set('Authorization', `Bearer ${authToken}`);
+  }
+
+  if (CHAOS_MODE) {
+    const jitter = Math.floor(Math.random() * 250) + 50;
+    await new Promise((resolve) => setTimeout(resolve, jitter));
+    if (Math.random() < 0.05) {
+      throw new ApiError('Chaos mode simulated failure', 503);
+    }
   }
 
   const response = await fetch(url.toString(), {
@@ -126,6 +135,9 @@ export type ContactListItem = {
   lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
+  aiScore?: number | null;
+  conversionLikelihood?: number | null;
+  lastAiScoreAt?: string | null;
   consent: {
     email: {
       channel: 'EMAIL';
@@ -158,6 +170,9 @@ export type ContactListItem = {
 
 export type ContactDetails = ContactListItem & {
   organizationId: string;
+  aiScore?: number | null;
+  conversionLikelihood?: number | null;
+  lastAiScoreAt?: string | null;
   consents: Array<{
     id: string;
     channel: string;

@@ -59,7 +59,10 @@ export class MissionControlOverviewDto {
     underContract: number;
     closingsNext30Days: number;
     nonCompliant: number;
-  } = { total: 0, underContract: 0, closingsNext30Days: 0, nonCompliant: 0 };
+    docsReadyPercent: number;
+    missingDocs: number;
+    upcomingClosingsMissingDocs: number;
+  } = { total: 0, underContract: 0, closingsNext30Days: 0, nonCompliant: 0, docsReadyPercent: 0, missingDocs: 0, upcomingClosingsMissingDocs: 0 };
 
   onboarding: {
     agentsInOnboarding: number;
@@ -141,6 +144,32 @@ export class MissionControlOverviewDto {
   mlsStats: MissionControlMlsStatsDto = new MissionControlMlsStatsDto();
   savedSearchStats: MissionControlSavedSearchStatsDto = new MissionControlSavedSearchStatsDto();
   favoritesStats: MissionControlFavoriteStatsDto = new MissionControlFavoriteStatsDto();
+
+  marketingAutomation: {
+    activeCampaigns: number;
+    leadsInDrips: number;
+    emailsQueuedToday: number;
+    stepsExecutedToday: number;
+  } = { activeCampaigns: 0, leadsInDrips: 0, emailsQueuedToday: 0, stepsExecutedToday: 0 };
+
+  leadOptimization: {
+    scoredToday: number;
+    highPriority: number;
+    atRisk: number;
+  } = { scoredToday: 0, highPriority: 0, atRisk: 0 };
+
+  documentCompliance: {
+    pending: number;
+    failed: number;
+    passed: number;
+  } = { pending: 0, failed: 0, passed: 0 };
+
+  liveActivity: {
+    activeUsers: number;
+    listingViews: number;
+    transactionViews: number;
+    documentViews: number;
+  } = { activeUsers: 0, listingViews: 0, transactionViews: 0, documentViews: 0 };
 
   recentEvents: Array<{
     id: string;

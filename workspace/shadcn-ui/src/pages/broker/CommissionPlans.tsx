@@ -95,9 +95,10 @@ export default function CommissionPlansPage() {
       try {
         setLoading(true)
         const [planList, capData] = await Promise.all([fetchCommissionPlans(), fetchCapProgress({})])
-        setPlans(planList)
-        setCapProgress(capData)
-        if (planList.length > 0) {
+        const safePlans = Array.isArray(planList) ? planList : []
+        setPlans(safePlans)
+        setCapProgress(Array.isArray(capData) ? capData : [])
+        if (safePlans.length > 0) {
           setSelectedPlanId(planList[0].id)
         }
       } catch (err) {

@@ -9,6 +9,7 @@ import {
   Query,
   Req,
   ServiceUnavailableException,
+  UnauthorizedException,
   UseGuards,
   UseInterceptors
 } from '@nestjs/common';
@@ -17,6 +18,8 @@ import type { FastifyRequest } from 'fastify';
 
 import { isAiEmployeesEnabled } from '@/config/ai-employees.config';
 import { ApiModule, ApiStandardErrors, OrgAdminGuard, resolveRequestContext } from '@/modules/common';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { PrismaService } from '@/modules/prisma/prisma.service';
 import { AuditInterceptor } from '@/platform/audit/audit.interceptor';
 import { Permit } from '@/platform/security/permit.decorator';
 import { AiEmployeesService } from './ai-employees.service';
@@ -31,6 +34,8 @@ import {
   AiEmployeeTemplateDto,
   AiEmployeeUsageStatsDto
 } from './dto/ai-employee.dto';
+import { RunPersonaDto } from './dto/run-persona.dto';
+import { AiPersonaId } from './personas/registry';
 
 @Controller('ai/employees')
 @ApiModule('AI Employees')
@@ -175,5 +180,49 @@ export class AiEmployeesController {
     this.ensureAiEmployeesEnabled();
     const ctx = resolveRequestContext(req);
     return this.service.rejectAction(id, ctx.userId, ctx.tenantId, ctx.orgId, dto.note);
+  }
+}
+
+@Controller('organizations/:orgId/ai-employees')
+@ApiModule('AI Employees')
+@ApiStandardErrors()
+@UseGuards(JwtAuthGuard)
+export class OrgAiEmployeesController {
+  constructor(
+    private readonly service: AiEmployeesService,
+    private readonly prisma: PrismaService
+  ) {}
+
+  @Get('personas')
+  listPersonas() {
+    return this.service.listPersonas();
+  }
+
+  @Post(':personaId/run')
+  async runPersona(
+    @Param('orgId') orgId: string,
+    @Param('personaId') personaId: AiPersonaId,
+    @Body() dto: RunPersonaDto,
+    @Req() req: FastifyRequest
+  ) {
+    const ctx = resolveRequestContext(req);
+    if (!ctx.userId) {
+      throw new UnauthorizedException('Missing user context');
+    }
+    let agentProfileId = dto.agentProfileId;
+    if (!agentProfileId && ctx.role?.toUpperCase() === 'AGENT') {
+      const profile = await this.prisma.agentProfile.findFirst({
+        where: { organizationId: orgId, userId: ctx.userId },
+        select: { id: true }
+      });
+      agentProfileId = profile?.id ?? undefined;
+    }
+
+    return this.service.runPersona(personaId, {
+      organizationId: orgId,
+      userId: ctx.userId,
+      agentProfileId,
+      input: dto.input ?? null
+    });
   }
 }

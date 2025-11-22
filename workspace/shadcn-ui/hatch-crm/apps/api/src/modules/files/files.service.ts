@@ -7,6 +7,7 @@ import {
   createStorageAdapter,
   StorageAdapter
 } from './storage/storage.adapter';
+import { S3Service } from '../storage/s3.service';
 
 interface UploadPayload {
   fileName: string;
@@ -24,7 +25,11 @@ interface LinkPayload {
 export class FilesService {
   private readonly storage: StorageAdapter;
 
-  constructor(private readonly prisma: PrismaService, private readonly fls: FlsService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fls: FlsService,
+    private readonly s3: S3Service
+  ) {
     this.storage = createStorageAdapter(process.env.FILES_STORAGE_ADAPTER);
   }
 
@@ -150,5 +155,24 @@ export class FilesService {
       data: { status: 'DELETED' }
     });
     return { id };
+  }
+
+  async getDownloadStream(ctx: RequestContext, id: string) {
+    if (!ctx.orgId) {
+      throw new NotFoundException('File not found');
+    }
+    const file = await this.prisma.fileObject.findFirst({
+      where: { id, orgId: ctx.orgId }
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+    await this.fls.filterRead(ctx, 'files', file);
+    const stream = await this.s3.getObjectStream(file.storageKey);
+    return {
+      stream,
+      fileName: file.fileName ?? 'file',
+      mimeType: file.mimeType ?? 'application/octet-stream'
+    };
   }
 }

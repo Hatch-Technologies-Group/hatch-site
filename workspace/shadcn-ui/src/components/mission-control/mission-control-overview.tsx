@@ -120,12 +120,26 @@ const metricLinkMap: Record<string, string> = {
   'Active listings': '/broker/properties?filter=ACTIVE',
   'Pending approval': '/broker/properties?filter=FLAGGED',
   'Under contract': '/broker/transactions?filter=UNDER_CONTRACT',
+  'Transactions needing TC attention': '/broker/transactions?filter=ATTENTION',
+  'Marketing automation': '/broker/marketing/campaigns',
+  'Lead optimization': '/broker/leads',
   'Evaluations (30d)': '/broker/compliance?view=ai'
 };
 
 function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {
   if (!overview) return [];
   return [
+    {
+      category: 'Live',
+      label: 'Active users now',
+      value: numberFormatter.format(overview.liveActivity.activeUsers)
+    },
+    {
+      category: 'Live',
+      label: 'Active listings viewed',
+      value: numberFormatter.format(overview.liveActivity.listingViews),
+      href: '/broker/live-activity'
+    },
     {
       category: 'Onboarding',
       label: 'Agents in onboarding',
@@ -167,6 +181,24 @@ function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {
       label: 'High-risk agents',
       value: numberFormatter.format(overview.highRiskAgents),
       href: metricLinkMap['High-risk agents']
+    },
+    {
+      category: 'Transactions',
+      label: 'Transactions needing TC attention',
+      value: numberFormatter.format(overview.transactions?.nonCompliant ?? 0),
+      href: metricLinkMap['Transactions needing TC attention']
+    },
+    {
+      category: 'Marketing',
+      label: 'Marketing automation',
+      value: numberFormatter.format(overview.marketingAutomation?.activeCampaigns ?? 0),
+      href: metricLinkMap['Marketing automation']
+    },
+    {
+      category: 'Leads',
+      label: 'Lead optimization',
+      value: numberFormatter.format(overview.leadOptimization?.highPriority ?? 0),
+      href: metricLinkMap['Lead optimization']
     },
     {
       category: 'Leads',

@@ -4,6 +4,7 @@ import {
   NotFoundException
 } from '@nestjs/common';
 import {
+  NotificationType,
   OrgEventType,
   Prisma,
   RentalPropertyType,
@@ -11,11 +12,14 @@ import {
   RentalTaxStatus,
   RentalTenancyType,
   RentalUnitStatus,
+  PlaybookTriggerType,
   UserRole
 } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgEventsService } from '../org-events/org-events.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { PlaybookRunnerService } from '../playbooks/playbook-runner.service';
 import { CreateRentalPropertyDto } from './dto/create-rental-property.dto';
 import { UpdateRentalPropertyDto } from './dto/update-rental-property.dto';
 import { CreateRentalUnitDto } from './dto/create-rental-unit.dto';
@@ -26,7 +30,12 @@ import { UpdateRentalTaxScheduleDto } from './dto/update-tax-schedule.dto';
 
 @Injectable()
 export class OrgRentalsService {
-  constructor(private readonly prisma: PrismaService, private readonly orgEvents: OrgEventsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orgEvents: OrgEventsService,
+    private readonly notifications: NotificationsService,
+    private readonly playbooks: PlaybookRunnerService
+  ) {}
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -357,6 +366,10 @@ export class OrgRentalsService {
       data
     });
 
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.RENTAL_UPDATED, { leaseId: updated.id, tenancyType: updated.tenancyType })
+      .catch(() => undefined);
+
     if (dto.requiresTaxFiling && !lease.requiresTaxFiling) {
       await this.ensureTaxSchedulesForLease(
         leaseId,
@@ -380,11 +393,24 @@ export class OrgRentalsService {
     await this.assertBrokerOrAgent(userId, orgId);
     const schedule = await this.prisma.rentalTaxSchedule.findUnique({
       where: { id: taxScheduleId },
-      include: { lease: true }
+      include: {
+        lease: {
+          include: {
+            transaction: {
+              include: {
+                agentProfile: {
+                  select: { userId: true }
+                }
+              }
+            }
+          }
+        }
+      }
     });
     if (!schedule || schedule.lease.organizationId !== orgId) {
       throw new NotFoundException('Tax schedule not found');
     }
+    const previousStatus = schedule.status;
     const paidDate =
       dto.paidDate === null ? null : dto.paidDate ? new Date(dto.paidDate) : dto.status === 'PAID' ? new Date() : undefined;
     const updated = await this.prisma.rentalTaxSchedule.update({
@@ -397,6 +423,18 @@ export class OrgRentalsService {
     });
 
     await this.refreshLeaseCompliance(schedule.leaseId);
+
+    if (previousStatus !== RentalTaxStatus.OVERDUE && updated.status === RentalTaxStatus.OVERDUE) {
+      const recipientUserId = schedule.lease.transaction?.agentProfile?.userId ?? userId;
+      await this.notifications.createNotification({
+        organizationId: orgId,
+        userId: recipientUserId,
+        type: NotificationType.RENTAL,
+        title: 'Rental tax payment overdue',
+        message: `Tax period ${updated.periodLabel} for ${schedule.lease.tenantName} is overdue.`,
+        leaseId: schedule.leaseId
+      });
+    }
 
     return updated;
   }

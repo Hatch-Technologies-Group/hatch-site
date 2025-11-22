@@ -2,11 +2,13 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException
 } from '@nestjs/common';
 import {
   AccountingProvider,
   AccountingSyncStatus,
+  NotificationType,
   OrgEventType,
   UserRole
 } from '@hatch/db';
@@ -14,15 +16,33 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgEventsService } from '../org-events/org-events.service';
 import { IntegrationService } from '../integration/integration.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
+import { accountingSyncErrorEmail } from '../mail/templates';
+import { AuditService } from '../audit/audit.service';
 import { ConnectAccountingDto } from './dto/connect-accounting.dto';
+import { DemoConfig } from '@/config/demo.config';
+import { PlaybookRunnerService } from '../playbooks/playbook-runner.service';
+import { PlaybookTriggerType } from '@hatch/db';
 
 @Injectable()
 export class OrgAccountingService {
+  private readonly dashboardBaseUrl = process.env.DASHBOARD_BASE_URL ?? 'http://localhost:5173/broker';
+  private readonly logger = new Logger(OrgAccountingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly orgEvents: OrgEventsService,
-    private readonly integration: IntegrationService
+    private readonly integration: IntegrationService,
+    private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
+    private readonly audit: AuditService,
+    private readonly playbooks: PlaybookRunnerService
   ) {}
+
+  private isDemoOrg(orgId: string) {
+    return DemoConfig.isDemoMode && DemoConfig.demoOrgId === orgId;
+  }
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -58,6 +78,58 @@ export class OrgAccountingService {
       throw new BadRequestException('Accounting integration is not connected');
     }
     return config;
+  }
+
+  private async alertBrokersOfAccountingIssue(
+    orgId: string,
+    summary: string,
+    links: { transactionId?: string; leaseId?: string }
+  ) {
+    const brokers = await this.prisma.user.findMany({
+      where: { organizationId: orgId, role: UserRole.BROKER },
+      select: { id: true, email: true, firstName: true, lastName: true }
+    });
+    if (!brokers.length) {
+      return;
+    }
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true }
+    });
+    const financialsLink = `${this.dashboardBaseUrl.replace(/\/+$/, '')}/financials`;
+
+    await Promise.all(
+      brokers.map(async (broker) => {
+        await this.notifications.createNotification({
+          organizationId: orgId,
+          userId: broker.id,
+          type: NotificationType.ACCOUNTING,
+          title: 'Accounting sync error',
+          message: summary,
+          transactionId: links.transactionId,
+          leaseId: links.leaseId
+        });
+        const shouldEmail = await this.notifications.shouldSendEmail(orgId, broker.id, NotificationType.ACCOUNTING);
+        if (shouldEmail && broker.email) {
+          const template = accountingSyncErrorEmail({
+            brokerName: [broker.firstName, broker.lastName].filter(Boolean).join(' ') || undefined,
+            orgName: organization?.name ?? 'Hatch',
+            errorSummary: summary,
+            financialsLink
+          });
+          await this.mail.sendMail({ to: broker.email, subject: template.subject, text: template.text, html: template.html });
+        }
+      })
+    );
+
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.ACCOUNTING_SYNC_FAILED, {
+        summary,
+        transactionId: links.transactionId,
+        leaseId: links.leaseId
+      })
+      .catch(() => undefined);
   }
 
   async connectAccounting(orgId: string, brokerUserId: string, dto: ConnectAccountingDto) {
@@ -100,6 +172,11 @@ export class OrgAccountingService {
     });
     if (!transaction || transaction.organizationId !== orgId) {
       throw new NotFoundException('Transaction not found');
+    }
+
+    if (this.isDemoOrg(orgId)) {
+      this.logger.log(`Demo mode: ignoring accounting sync for transaction ${transactionId}`);
+      return this.prisma.transactionAccountingRecord.findUnique({ where: { transactionId } });
     }
 
     const config = await this.ensureConfig(orgId);
@@ -155,6 +232,26 @@ export class OrgAccountingService {
       }
     });
 
+    await this.audit.log({
+      organizationId: orgId,
+      userId: brokerUserId,
+      actionType: 'ACCOUNTING_SYNC_TRIGGERED',
+      summary: `Transaction ${transactionId} accounting sync ${syncStatus.toLowerCase()}`,
+      metadata: {
+        transactionId,
+        syncStatus,
+        externalId: record.externalId
+      }
+    });
+
+    if (syncStatus === AccountingSyncStatus.FAILED) {
+      await this.alertBrokersOfAccountingIssue(
+        orgId,
+        result.errorMessage ?? 'A transaction failed to sync with accounting.',
+        { transactionId }
+      );
+    }
+
     return record;
   }
 
@@ -174,6 +271,11 @@ export class OrgAccountingService {
     });
     if (!lease || lease.organizationId !== orgId) {
       throw new NotFoundException('Rental lease not found');
+    }
+
+    if (this.isDemoOrg(orgId)) {
+      this.logger.log(`Demo mode: ignoring accounting sync for lease ${leaseId}`);
+      return this.prisma.rentalLeaseAccountingRecord.findUnique({ where: { leaseId } });
     }
 
     const config = await this.ensureConfig(orgId);
@@ -229,6 +331,26 @@ export class OrgAccountingService {
         externalId: record.externalId
       }
     });
+
+    await this.audit.log({
+      organizationId: orgId,
+      userId: brokerUserId,
+      actionType: 'ACCOUNTING_SYNC_TRIGGERED',
+      summary: `Rental lease ${leaseId} accounting sync ${syncStatus.toLowerCase()}`,
+      metadata: {
+        leaseId,
+        syncStatus,
+        externalId: record.externalId
+      }
+    });
+
+    if (syncStatus === AccountingSyncStatus.FAILED) {
+      await this.alertBrokersOfAccountingIssue(
+        orgId,
+        result.errorMessage ?? 'A rental lease failed to sync with accounting.',
+        { leaseId }
+      );
+    }
 
     return record;
   }

@@ -6,6 +6,7 @@ import {
 import {
   LeadSource,
   LeadStatus,
+  NotificationType,
   OfferIntentStatus,
   OrgConversationType,
   OrgEventType,
@@ -14,12 +15,17 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgEventsService } from '../org-events/org-events.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateOfferIntentDto } from './dto/create-offer-intent.dto';
 import { UpdateOfferIntentStatusDto } from './dto/update-offer-intent-status.dto';
 
 @Injectable()
 export class OrgLoisService {
-  constructor(private readonly prisma: PrismaService, private readonly orgEvents: OrgEventsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orgEvents: OrgEventsService,
+    private readonly notifications: NotificationsService
+  ) {}
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -135,6 +141,19 @@ export class OrgLoisService {
         consumerId: offerIntent.consumerId ?? null
       }
     });
+
+    const agentUserId = listing.agentProfile?.user?.id;
+    if (agentUserId) {
+      await this.notifications.createNotification({
+        organizationId: orgId,
+        userId: agentUserId,
+        type: NotificationType.OFFER_INTENT,
+        title: 'New offer intent submitted',
+        message: `Listing ${listing.addressLine1 ?? listing.id} received a new offer intent.`,
+        listingId: listing.id,
+        offerIntentId: offerIntent.id
+      });
+    }
 
     return offerIntent;
   }

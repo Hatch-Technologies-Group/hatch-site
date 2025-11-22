@@ -62,10 +62,8 @@ export async function createApp(): Promise<NestFastifyApplication> {
         : undefined
   });
 
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter({ logger })
-  );
+  const adapter = new FastifyAdapter({ logger });
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter as any);
 
   if (process.env.NODE_ENV !== 'test') {
     app.setGlobalPrefix('api/v1', {

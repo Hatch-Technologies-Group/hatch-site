@@ -393,6 +393,11 @@ const LeadsPage = () => {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <Badge className={stageColor(lead.stage)}>{lead.stage.replace(/_/g, ' ').toLowerCase()}</Badge>
+                    {typeof (lead as any).aiScore === 'number' ? (
+                      <span className="text-[11px] text-slate-600">
+                        AI Score: <strong>{Math.round((lead as any).aiScore)}</strong>
+                      </span>
+                    ) : null}
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => handleStageChange(lead, 'ACTIVE')}>
                         Move to Active

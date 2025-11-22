@@ -120,7 +120,10 @@ const metricLinkMap: Record<string, string> = {
   'Active listings': '/dashboard/properties',
   'Pending approval': '/dashboard/properties',
   'Under contract': '/dashboard/transactions',
-  'Evaluations (30d)': '/dashboard/compliance'
+  'Evaluations (30d)': '/dashboard/compliance',
+  'Transactions w/ required docs': '/dashboard/transactions',
+  'Transactions missing docs': '/dashboard/transactions?filter=missing-docs',
+  'Upcoming closings missing docs': '/dashboard/transactions?filter=missing-docs'
 };
 
 function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {
@@ -347,6 +350,24 @@ function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {
       label: 'Under contract',
       value: numberFormatter.format(overview.transactions.underContract),
       href: metricLinkMap['Under contract']
+    },
+    {
+      category: 'Transactions',
+      label: 'Transactions w/ required docs',
+      value: `${overview.transactions.docsReadyPercent}%`,
+      href: metricLinkMap['Transactions w/ required docs']
+    },
+    {
+      category: 'Transactions',
+      label: 'Transactions missing docs',
+      value: numberFormatter.format(overview.transactions.missingDocs),
+      href: metricLinkMap['Transactions missing docs']
+    },
+    {
+      category: 'Transactions',
+      label: 'Upcoming closings missing docs',
+      value: numberFormatter.format(overview.transactions.upcomingClosingsMissingDocs),
+      href: metricLinkMap['Upcoming closings missing docs']
     },
     {
       category: 'AI & Compliance',

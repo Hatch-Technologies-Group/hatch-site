@@ -6,7 +6,10 @@ import { X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
-const ToastProvider = ToastPrimitives.Provider;
+type ToastProviderProps = React.ComponentProps<typeof ToastPrimitives.Provider>;
+const ToastProvider: React.FC<ToastProviderProps> = ({ children, ...props }) => (
+  <ToastPrimitives.Provider {...props}>{children}</ToastPrimitives.Provider>
+);
 
 const ToastViewport = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Viewport>,

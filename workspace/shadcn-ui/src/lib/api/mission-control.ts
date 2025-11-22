@@ -100,6 +100,28 @@ export interface MissionControlOverview {
   };
   savedSearchStats?: MissionControlSavedSearchStats;
   favoritesStats?: MissionControlFavoriteStats;
+  documentCompliance?: {
+    pending: number;
+    failed: number;
+    passed: number;
+  };
+  marketingAutomation?: {
+    activeCampaigns: number;
+    leadsInDrips: number;
+    emailsQueuedToday: number;
+    stepsExecutedToday: number;
+  };
+  leadOptimization?: {
+    scoredToday: number;
+    highPriority: number;
+    atRisk: number;
+  };
+  liveActivity?: {
+    activeUsers: number;
+    listingViews: number;
+    transactionViews: number;
+    documentViews: number;
+  };
   recentEvents: Array<{
     id: string;
     type: string;

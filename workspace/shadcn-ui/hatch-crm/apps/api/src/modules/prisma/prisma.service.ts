@@ -1,4 +1,4 @@
-import { INestApplication, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { INestApplication, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@hatch/db';
 
@@ -7,6 +7,8 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly logger = new Logger(PrismaService.name);
+
   constructor(private readonly config: ConfigService) {
     const databaseUrl = config.get<string>('database.url');
     super({
@@ -16,6 +18,19 @@ export class PrismaService
           }
         : undefined,
       log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error']
+    });
+
+    const threshold = Number(process.env.PRISMA_SLOW_QUERY_MS ?? 150);
+    this.$use(async (params, next) => {
+      const start = Date.now();
+      const result = await next(params);
+      const duration = Date.now() - start;
+      if (duration > threshold) {
+        this.logger.warn(
+          `[Slow Query] ${params.model ?? 'raw'}.${params.action} took ${duration}ms`
+        );
+      }
+      return result;
     });
   }
 

@@ -72,7 +72,7 @@ import { SearchService } from '../modules/search/search.service';
 import { LayoutsController } from '../modules/layouts/layouts.controller';
 import { LayoutsService } from '../modules/layouts/layouts.service';
 import { AuditController } from '../modules/audit/audit.controller';
-import { AuditLogService } from '../modules/audit/audit.service';
+import { AuditService as ModuleAuditService } from '../modules/audit/audit.service';
 
 import {
   StubPrismaService,
@@ -209,7 +209,7 @@ const ADMIN_AUDIT_CONTROLLERS = [AuditController];
       upsert: async () => ({ object: 'accounts', kind: 'detail', fields: [] }),
       resolve: async () => ({ object: 'accounts', kind: 'detail', fields: [] })
     }) },
-    { provide: AuditLogService, useValue: createAsyncServiceStub<AuditLogService>({
+    { provide: ModuleAuditService, useValue: createAsyncServiceStub<ModuleAuditService>({
       list: async () => ({ items: [], nextCursor: null })
     }) },
     { provide: DealDeskService, useValue: createAsyncServiceStub<DealDeskService>({

@@ -10,6 +10,7 @@ import {
   LeadTaskStatus,
   LeadTouchpointType,
   MessageChannel,
+  NotificationType,
   PersonStage,
   Prisma,
   Stage
@@ -21,6 +22,7 @@ import { PipelinesService } from '../pipelines/pipelines.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { IndexerProducer } from '../search/indexer.queue';
 import { AiEmployeesProducer } from '../ai-employees/ai-employees.producer';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, LeadFitInput } from './dto/create-lead.dto';
 import { CreateLeadNoteDto } from './dto/create-lead-note.dto';
 import { CreateLeadTaskDto } from './dto/create-lead-task.dto';
@@ -184,7 +186,8 @@ export class LeadsService {
     private readonly pipelines: PipelinesService,
     private readonly events: EventEmitter2,
     private readonly indexer: IndexerProducer,
-    private readonly aiEmployeesProducer: AiEmployeesProducer
+    private readonly aiEmployeesProducer: AiEmployeesProducer,
+    private readonly notifications: NotificationsService
   ) {}
 
   async list(query: ListLeadsQueryDto, ctx: RequestContext): Promise<LeadListResponse> {
@@ -510,6 +513,17 @@ export class LeadsService {
       orgId: tenant.organizationId,
       leadId: person.id
     });
+
+    if (person.ownerId) {
+      await this.notifications.createNotification({
+        organizationId: tenant.organizationId,
+        userId: person.ownerId,
+        type: NotificationType.LEAD,
+        title: `New lead: ${person.firstName || person.lastName ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() || 'Unnamed lead' : 'New lead assigned'}`,
+        message: dto.source ? `Source: ${dto.source}` : undefined,
+        leadId: person.id
+      });
+    }
 
     return full;
   }

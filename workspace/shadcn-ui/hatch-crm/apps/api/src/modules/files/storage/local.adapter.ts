@@ -2,7 +2,7 @@ import type { StorageAdapter, CreateUploadUrlInput, CreateUploadUrlResult } from
 
 export class LocalStorageAdapter implements StorageAdapter {
   async createUploadUrl(input: CreateUploadUrlInput): Promise<CreateUploadUrlResult> {
-    const storageKey = `local/${input.orgId}/${Date.now()}-${sanitizeFileName(input.fileName)}`;
+    const storageKey = `uploads/org-${input.orgId}/${Date.now()}-${sanitizeFileName(input.fileName)}`;
 
     return {
       uploadUrl: `http://localhost:9000/upload/${storageKey}`,

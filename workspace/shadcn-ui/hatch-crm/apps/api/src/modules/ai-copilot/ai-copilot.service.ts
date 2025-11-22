@@ -6,11 +6,15 @@ import {
 import {
   AiCopilotActionStatus,
   AiCopilotInsightType,
+  NotificationType,
   Prisma
 } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { AiService } from '../ai/ai.service';
+import { AiEmployeesService } from '../ai-employees/ai-employees.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
+import { aiCopilotBriefingEmail } from '../mail/templates';
 import { GetAgentBriefingDto } from './dto/get-agent-briefing.dto';
 import { UpdateActionStatusDto } from './dto/update-action-status.dto';
 
@@ -18,9 +22,13 @@ const MAX_CONTEXT_ROWS = 50;
 
 @Injectable()
 export class AiCopilotService {
+  private readonly dashboardBaseUrl = process.env.DASHBOARD_BASE_URL ?? 'http://localhost:5173/broker';
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly aiService: AiService
+    private readonly aiEmployees: AiEmployeesService,
+    private readonly notifications: NotificationsService,
+    private readonly mail: MailService
   ) {}
 
   private async assertAgentInOrg(orgId: string, userId: string) {
@@ -179,29 +187,27 @@ export class AiCopilotService {
 
     const context = await this.buildAgentContext(orgId, agentProfile.id, startOfDay);
 
-    const systemPrompt =
-      'You are Hatch AI Agent Copilot. Given the JSON context, produce a short JSON payload: ' +
-      '{"title":string,"summary":string,"actions":[{"title":string,"description"?:string,' +
-      '"priority"?:number,"leadId"?:string,"listingId"?:string,"transactionId"?:string,"leaseId"?:string}]}. ' +
-      'Keep the summary actionable and focus on concrete next steps for the agent.';
-
-    const aiResult = await this.aiService.runStructuredChat({
-      systemPrompt,
-      responseFormat: 'json_object',
-      temperature: 0.2,
-      messages: [{ role: 'user', content: JSON.stringify({
+    const personaResult = await this.aiEmployees.runPersona('agentCopilot', {
+      organizationId: orgId,
+      userId,
+      agentProfileId: agentProfile.id,
+      input: {
         agentProfile: { id: agentProfile.id, userId: agentProfile.userId },
         date: startOfDay.toISOString(),
         context
-      }) }]
+      }
     });
 
-    let parsed: { title?: string; summary?: string; actions?: Array<Record<string, any>> } = {};
-    if (aiResult.text) {
-      try {
-        parsed = JSON.parse(aiResult.text);
-      } catch (err) {
-        parsed = {};
+    let parsed: { title?: string; summary?: string; actions?: Array<Record<string, any>> } =
+      (personaResult.structured as any) ?? {};
+    if (!parsed || typeof parsed !== 'object') {
+      parsed = {};
+      if (personaResult.rawText) {
+        try {
+          parsed = JSON.parse(personaResult.rawText);
+        } catch {
+          parsed = {};
+        }
       }
     }
 
@@ -239,6 +245,48 @@ export class AiCopilotService {
       );
 
     const createdActions = actionCreates.length > 0 ? await this.prisma.$transaction(actionCreates) : [];
+
+    if (createdActions.length > 0 && agentProfile.userId) {
+      const highlighted = createdActions.slice(0, 3);
+      await Promise.all(
+        highlighted.map((action) =>
+          this.notifications.createNotification({
+            organizationId: orgId,
+            userId: agentProfile.userId!,
+            type: NotificationType.AI,
+            title: action.title,
+            message: action.description ?? 'New AI action recommendation.',
+            leadId: action.leadId ?? undefined,
+            listingId: action.orgListingId ?? undefined,
+            transactionId: action.orgTransactionId ?? undefined,
+            leaseId: action.leaseId ?? undefined
+          })
+        )
+      );
+    }
+
+    if (agentProfile.userId) {
+      const shouldEmail = await this.notifications.shouldSendEmail(orgId, agentProfile.userId, NotificationType.AI);
+      if (shouldEmail) {
+        const agentUser = await this.prisma.user.findUnique({
+          where: { id: agentProfile.userId },
+          select: { email: true, firstName: true, lastName: true }
+        });
+        if (agentUser?.email) {
+          const organization = await this.prisma.organization.findUnique({
+            where: { id: orgId },
+            select: { name: true }
+          });
+          const template = aiCopilotBriefingEmail({
+            agentName: [agentUser.firstName, agentUser.lastName].filter(Boolean).join(' ') || undefined,
+            orgName: organization?.name ?? 'Hatch',
+            summary: insight.summary,
+            dashboardLink: `${this.dashboardBaseUrl.replace(/\/+$/, '')}/dashboard`
+          });
+          await this.mail.sendMail({ to: agentUser.email, subject: template.subject, text: template.text, html: template.html });
+        }
+      }
+    }
 
     return {
       insight,

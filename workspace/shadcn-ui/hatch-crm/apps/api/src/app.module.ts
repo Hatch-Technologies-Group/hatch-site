@@ -32,6 +32,7 @@ import { CdaModule } from './modules/cda/cda.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { PipelinesModule } from './modules/pipelines/pipelines.module';
+import { LeadsModule } from './modules/leads/leads.module';
 import { SessionModule } from './modules/session/session.module';
 import { ConsumerModule } from './modules/consumer/consumer.module';
 import { ConsumerPortalModule } from './modules/consumer-portal/consumer-portal.module';
@@ -57,28 +58,24 @@ import { OutreachModule } from './modules/outreach/outreach.module';
 import { InsightsModule } from './modules/insights/insights.module';
 import { SmsModule } from './modules/sms/sms.module';
 import { AiEmployeesModule } from './modules/ai-employees/ai-employees.module';
-import { JwtStrategy } from './auth/jwt.strategy';
-import { VoiceModule } from './modules/voice/voice.module';
-import { OrganizationsModule } from './modules/organizations/organizations.module';
-import { AgentInvitesModule } from './modules/agent-invites/agent-invites.module';
-import { OrgEventsModule } from './modules/org-events/org-events.module';
-import { OrgVaultModule } from './modules/org-vault/org-vault.module';
-import { OrgCommsModule } from './modules/org-comms/org-comms.module';
-import { AgentProfilesModule } from './modules/agent-profiles/agent-profiles.module';
-import { MissionControlModule } from './modules/mission-control/mission-control.module';
-import { TrainingModule } from './modules/training/training.module';
-import { OrgListingsModule } from './modules/org-listings/org-listings.module';
-import { OrgTransactionsModule as Phase8TransactionsModule } from './modules/org-transactions/org-transactions.module';
-import { AiBrokerModule } from './modules/ai-broker/ai-broker.module';
-import { OnboardingModule } from './modules/onboarding/onboarding.module';
-import { OrgLeadsModule } from './modules/org-leads/org-leads.module';
-import { OrgLoisModule } from './modules/org-lois/org-lois.module';
-import { OrgRentalsModule } from './modules/org-rentals/org-rentals.module';
-import { LeadsModule } from './modules/leads/leads.module';
-import { OrgAccountingModule } from './modules/org-accounting/org-accounting.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrgMlsModule } from './modules/org-mls/org-mls.module';
-import { ConsumerPreferencesModule } from './modules/consumer-preferences/consumer-preferences.module';
-import { AiCopilotModule } from './modules/ai-copilot/ai-copilot.module';
+import { MissionControlModule } from './modules/mission-control/mission-control.module';
+import { OrgListingsModule } from './modules/org-listings/org-listings.module';
+import { OrgTransactionsModule } from './modules/org-transactions/org-transactions.module';
+import { JwtStrategy } from './auth/jwt.strategy';
+import { BatchModule } from './modules/batch/batch.module';
+import { PlaybooksModule } from './modules/playbooks/playbooks.module';
+import { PresenceModule } from './gateways/presence/presence.module';
+import { TimelineModule } from './modules/timelines/timeline.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { DocumentsCollabModule } from './modules/documents-collab/documents-collab.module';
+import { AgentPerformanceModule } from './modules/agent-performance/agent-performance.module';
+import { TransactionCoordinatorModule } from './modules/transaction-coordinator/transaction-coordinator.module';
+import { DripCampaignsModule } from './modules/drip-campaigns/drip-campaigns.module';
+import { LeadScoringModule } from './modules/lead-scoring/lead-scoring.module';
+import { RevenueForecastModule } from './modules/revenue-forecast/revenue-forecast.module';
+import { IngestionModule } from './modules/ingestion/ingestion.module';
 
 const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
 const throttlerEnabled =
@@ -177,22 +174,8 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
     DealsModule,
     ReListingsModule,
     PipelinesModule,
-    SessionModule,
-    OrganizationsModule,
-    AgentInvitesModule,
-    OrgEventsModule,
-    OrgVaultModule,
-    OrgCommsModule,
-    AgentProfilesModule,
-    OnboardingModule,
     LeadsModule,
-    OrgLeadsModule,
-    MissionControlModule,
-    TrainingModule,
-    OrgListingsModule,
-    Phase8TransactionsModule,
-    AiBrokerModule,
-    ListingsModule,
+    SessionModule,
     ConsumerModule,
     ConsumerPortalModule,
     DraftsModule,
@@ -206,16 +189,26 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
     AiModule,
     MarketingModule,
     SmsModule,
-    VoiceModule,
     AiEmployeesModule,
     AnalyticsModule,
     InsightsModule,
-    OrgLoisModule,
-    OrgRentalsModule,
-    OrgAccountingModule,
+    PlaybooksModule,
+    PresenceModule,
+    TimelineModule,
+    ChatModule,
+    DocumentsCollabModule,
+    AgentPerformanceModule,
+    TransactionCoordinatorModule,
+    DripCampaignsModule,
+    LeadScoringModule,
+    RevenueForecastModule,
+    BatchModule,
+    IngestionModule,
+    NotificationsModule,
     OrgMlsModule,
-    ConsumerPreferencesModule,
-    AiCopilotModule
+    MissionControlModule,
+    OrgListingsModule,
+    OrgTransactionsModule
   ],
   controllers: [],
   providers: [

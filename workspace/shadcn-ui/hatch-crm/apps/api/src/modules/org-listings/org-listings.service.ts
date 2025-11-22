@@ -3,16 +3,22 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { OrgListingStatus, UserRole } from '@hatch/db';
+import { OrgListingStatus, PlaybookTriggerType, UserRole } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { DocumentsAiService } from '@/modules/documents-ai/documents-ai.service';
+import { PlaybookRunnerService } from '../playbooks/playbook-runner.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { AttachListingDocumentDto } from './dto/attach-listing-document.dto';
 
 @Injectable()
 export class OrgListingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly documentsAi: DocumentsAiService,
+    private readonly playbooks: PlaybookRunnerService
+  ) {}
 
   private async assertUserInOrg(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -52,7 +58,7 @@ export class OrgListingsService {
       agentProfileId = (await this.assertAgentProfile(dto.agentProfileId, orgId)).id;
     }
 
-    return this.prisma.orgListing.create({
+    const created = await this.prisma.orgListing.create({
       data: {
         organizationId: orgId,
         agentProfileId,
@@ -72,6 +78,10 @@ export class OrgListingsService {
         createdByUserId: creatorUserId
       }
     });
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.LISTING_CREATED, { listingId: created.id })
+      .catch(() => undefined);
+    return created;
   }
 
   async updateListing(orgId: string, userId: string, listingId: string, dto: UpdateListingDto) {
@@ -102,7 +112,7 @@ export class OrgListingsService {
         dto.agentProfileId === null ? null : (await this.assertAgentProfile(dto.agentProfileId, orgId)).id;
     }
 
-    return this.prisma.orgListing.update({
+    const updated = await this.prisma.orgListing.update({
       where: { id: listingId },
       data: {
         agentProfileId: nextAgentProfile ?? undefined,
@@ -115,6 +125,10 @@ export class OrgListingsService {
         status: dto.status ? (dto.status as OrgListingStatus) : undefined
       }
     });
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.LISTING_UPDATED, { listingId: updated.id, status: updated.status })
+      .catch(() => undefined);
+    return updated;
   }
 
   async requestListingApproval(orgId: string, userId: string, listingId: string) {
@@ -164,13 +178,21 @@ export class OrgListingsService {
     if (!orgFile) {
       throw new NotFoundException('Org file not found in this organization');
     }
-    return this.prisma.orgListingDocument.create({
+    await this.prisma.orgFile.update({
+      where: { id: orgFile.id },
+      data: { listingId: listing.id }
+    });
+
+    const result = await this.prisma.orgListingDocument.create({
       data: {
         listingId: listing.id,
         orgFileId: dto.orgFileId,
         type: dto.type ?? undefined
       }
     });
+
+    void this.documentsAi.refreshFile(orgId, orgFile.id).catch(() => undefined);
+    return result;
   }
 
   async listListingsForOrg(orgId: string, userId: string) {

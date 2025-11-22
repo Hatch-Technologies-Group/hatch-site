@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { fetchOrgTransactions, OrgTransactionRecord } from '@/lib/api/org-transactions';
+import { askAiBroker } from '@/lib/api/mission-control';
 
 type TransactionsViewProps = {
   orgId: string;
@@ -29,6 +30,12 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 
 export function TransactionsView({ orgId }: TransactionsViewProps) {
   const [filter, setFilter] = useState<(typeof filters)[number]['id']>('ALL');
+  const [assistant, setAssistant] = useState<{
+    transactionId: string | null;
+    loading: boolean;
+    answer: string | null;
+    error: string | null;
+  }>({ transactionId: null, loading: false, answer: null, error: null });
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', 'transactions', orgId],
@@ -156,13 +163,50 @@ export function TransactionsView({ orgId }: TransactionsViewProps) {
                       {txn.listing?.listPrice ? currencyFormatter.format(txn.listing.listPrice) : '—'}
                     </td>
                     <td className="py-3 pr-4">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-col gap-2">
                         <Button asChild size="sm" variant="secondary">
                           <Link href="/dashboard/mission-control">Mission Control</Link>
                         </Button>
                         <Button asChild size="sm" variant="ghost">
                           <Link href="/dashboard/compliance">Compliance</Link>
                         </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setAssistant({ transactionId: txn.id, loading: true, answer: null, error: null });
+                            askAiBroker(orgId, {
+                              question: 'What should I do next for this transaction?',
+                              contextType: 'TRANSACTION',
+                              transactionId: txn.id
+                            })
+                              .then((res) =>
+                                setAssistant({
+                                  transactionId: txn.id,
+                                  loading: false,
+                                  answer: res.answer,
+                                  error: null
+                                })
+                              )
+                              .catch((err) => {
+                                console.error(err);
+                                setAssistant({
+                                  transactionId: txn.id,
+                                  loading: false,
+                                  answer: null,
+                                  error: 'TC assistant is unavailable right now.'
+                                });
+                              });
+                          }}
+                          disabled={assistant.loading && assistant.transactionId === txn.id}
+                        >
+                          {assistant.loading && assistant.transactionId === txn.id ? 'Asking...' : 'Ask TC Assistant'}
+                        </Button>
+                        {assistant.transactionId === txn.id && assistant.answer ? (
+                          <p className="text-xs text-slate-600">AI: {assistant.answer}</p>
+                        ) : null}
+                        {assistant.transactionId === txn.id && assistant.error ? (
+                          <p className="text-xs text-rose-600">{assistant.error}</p>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

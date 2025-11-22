@@ -6,7 +6,8 @@ import { OrgAdminGuard } from '@/modules/common';
 import { LeadsModule } from '@/modules/leads/leads.module';
 import { MessagesModule } from '@/modules/messages/messages.module';
 import { PrismaModule } from '@/modules/prisma/prisma.module';
-import { AiEmployeesController } from './ai-employees.controller';
+import { AuditModule } from '@/modules/audit/audit.module';
+import { AiEmployeesController, OrgAiEmployeesController } from './ai-employees.controller';
 import { AiEmployeesProcessor } from './ai-employees.processor';
 import { AiEmployeesService } from './ai-employees.service';
 import { AiEmployeeToolRegistrar } from './ai-employee.tools';
@@ -18,6 +19,7 @@ import { AiEmployeesScheduler } from './ai-employees.scheduler';
 @Module({
   imports: [
     PrismaModule,
+    AuditModule,
     AiModule,
     forwardRef(() => LeadsModule),
     MessagesModule,
@@ -25,7 +27,7 @@ import { AiEmployeesScheduler } from './ai-employees.scheduler';
       name: AI_EMPLOYEES_QUEUE
     })
   ],
-  controllers: [AiEmployeesController],
+  controllers: [AiEmployeesController, OrgAiEmployeesController],
   providers: [
     AiEmployeesService,
     AiToolRegistry,

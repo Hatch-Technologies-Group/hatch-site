@@ -11,6 +11,7 @@ import {
   createUploadUrl,
   linkFile,
   listFilesForRecord,
+  getFileDownloadUrl,
   type FileLinkRecord
 } from '@/lib/api/files';
 
@@ -138,6 +139,14 @@ export function AttachmentsPanel({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <a
+                    href={getFileDownloadUrl(attachment.file.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Download
+                  </a>
                   <button
                     type="button"
                     onClick={() => handleDelete(attachment.file.id)}

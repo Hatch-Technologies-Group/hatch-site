@@ -10,6 +10,8 @@ import { Toaster } from '@/components/ui/toaster'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import DemoLanding from './pages/DemoLanding'
+import PerfBenchPage from './pages/dev/PerfBench'
 
 // Layout Components
 import BrokerLayout from './components/layout/BrokerLayout'
@@ -26,12 +28,25 @@ import CommissionPlansPage from './pages/broker/CommissionPlans'
 import LeadRoutingDesk from './pages/broker/LeadRoutingDesk'
 import DraftListingsPage from './pages/broker/DraftListings'
 import BrokerMarketingPage from './pages/broker/Marketing'
+import DripCampaignsPage from './pages/broker/DripCampaigns'
 import Pricing from './pages/broker/Pricing'
 import Payment from './pages/broker/Payment'
 import ComplianceCenter from './pages/broker/Compliance'
 import Messages from './pages/Messages'
 import BrokerMissionControl from './pages/broker/MissionControl'
 import BrokerTransactions from './pages/broker/Transactions'
+import BrokerAiEmployeesPage from './pages/broker/AiEmployees'
+import BrokerNotificationsPage from './pages/broker/Notifications'
+import BrokerAuditLogPage from './pages/broker/AuditLog'
+import PlaybooksList from './pages/broker/playbooks/PlaybooksList'
+import PlaybookEditor from './pages/broker/playbooks/PlaybookEditor'
+import LiveActivityPage from './pages/broker/LiveActivity'
+import BrokerFinancials from './pages/broker/Financials'
+import BrokerOfferIntents from './pages/broker/OfferIntents'
+import BrokerRentals from './pages/broker/Rentals'
+import DocumentViewerPage from './pages/broker/DocumentViewer'
+import { AgentPerformanceList } from './pages/broker/agent-performance/AgentPerformanceList'
+import { AgentPerformanceDetail } from './pages/broker/agent-performance/AgentPerformanceDetail'
 
 // Customer Pages
 import CustomerDashboard from './pages/customer/Dashboard'
@@ -63,6 +78,8 @@ function App() {
                 <Route path="/properties/:id" element={<CustomerPropertyDetail />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/demo" element={<DemoLanding />} />
+                <Route path="/dev/perf" element={<PerfBenchPage />} />
 
                 {/* Broker Routes with Layout */}
                 <Route path="/broker" element={<BrokerLayout />}>
@@ -79,11 +96,24 @@ function App() {
                   <Route path="calendar" element={<BrokerCalendar />} />
                   <Route path="analytics" element={<BrokerAnalytics />} />
                   <Route path="marketing" element={<BrokerMarketingPage />} />
+                  <Route path="marketing/campaigns" element={<DripCampaignsPage />} />
+                  <Route path="notifications" element={<BrokerNotificationsPage />} />
+                  <Route path="audit-log" element={<BrokerAuditLogPage />} />
+                  <Route path="ai-employees" element={<BrokerAiEmployeesPage />} />
                   <Route path="commission-plans" element={<CommissionPlansPage />} />
                   <Route path="lead-routing" element={<LeadRoutingDesk />} />
                   <Route path="draft-listings" element={<DraftListingsPage />} />
                   <Route path="pricing" element={<Pricing />} />
                   <Route path="payment" element={<Payment />} />
+                  <Route path="playbooks" element={<PlaybooksList />} />
+                  <Route path="playbooks/:playbookId" element={<PlaybookEditor />} />
+                  <Route path="live-activity" element={<LiveActivityPage />} />
+                  <Route path="financials" element={<BrokerFinancials />} />
+                  <Route path="offer-intents" element={<BrokerOfferIntents />} />
+                  <Route path="rentals" element={<BrokerRentals />} />
+                  <Route path="documents/:fileId" element={<DocumentViewerPage />} />
+                  <Route path="agent-performance" element={<AgentPerformanceList />} />
+                  <Route path="agent-performance/:agentProfileId" element={<AgentPerformanceDetail />} />
                   {/* Default broker route */}
                   <Route index element={<Navigate to="dashboard" replace />} />
                 </Route>

@@ -3,12 +3,17 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { OrgEventType, WorkflowTaskTrigger } from '@hatch/db';
+import { NotificationType, OrgEventType, WorkflowTaskTrigger, UserRole } from '@hatch/db';
 
 import { PrismaService } from '@/modules/prisma/prisma.service';
 import { AiService } from '@/modules/ai/ai.service';
 import { OrgEventsService } from '@/modules/org-events/org-events.service';
 import { OnboardingService } from '@/modules/onboarding/onboarding.service';
+import { AiEmployeesService } from '@/modules/ai-employees/ai-employees.service';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { MailService } from '@/modules/mail/mail.service';
+import { TimelineService } from '@/modules/timelines/timeline.service';
+import { complianceAlertEmail } from '@/modules/mail/templates';
 import { AskBrokerAssistantDto } from './dto/ask-broker-assistant.dto';
 import { AiAnswerDto } from './dto/ai-answer.dto';
 import { EvaluateComplianceDto } from './dto/evaluate-compliance.dto';
@@ -18,11 +23,17 @@ type JsonValue = Record<string, any> | null;
 
 @Injectable()
 export class AiBrokerService {
+  private readonly dashboardBaseUrl = process.env.DASHBOARD_BASE_URL ?? 'http://localhost:5173/broker';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly orgEvents: OrgEventsService,
-    private readonly onboarding: OnboardingService
+    private readonly onboarding: OnboardingService,
+    private readonly aiEmployees: AiEmployeesService,
+    private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
+    private readonly timelines: TimelineService
   ) {}
 
   async askBrokerAssistant(orgId: string, userId: string, dto: AskBrokerAssistantDto): Promise<AiAnswerDto> {
@@ -52,20 +63,14 @@ export class AiBrokerService {
       vaultContext
     };
 
-    const systemPrompt =
-      'You are Hatch AI Broker Assistant. Use the provided JSON context to answer questions for licensed real-estate brokers. ' +
-      'Respond with a concise JSON object: {"answer": string, "suggestions": string[], "references": [{"type": string, "id": string}]}. ' +
-      'If context is missing, say so but still provide proactive next steps.';
-
-    const aiResult = await this.aiService.runStructuredChat({
-      systemPrompt,
-      responseFormat: 'json_object',
-      temperature: 0.2,
-      messages: [{ role: 'user', content: JSON.stringify(payload) }]
+    const personaResult = await this.aiEmployees.runPersona('brokerAssistant', {
+      organizationId: orgId,
+      userId,
+      input: payload
     });
 
     const fallbackAnswer = this.buildFallbackAnswer(dto.question, orgContext, listingContext, transactionContext);
-    return this.normalizeAiAnswer(aiResult.text, fallbackAnswer);
+    return this.normalizeAiAnswer(personaResult.rawText ?? null, fallbackAnswer);
   }
 
   async evaluateCompliance(
@@ -172,6 +177,12 @@ export class AiBrokerService {
         agentProfileId: listing.agentProfileId ?? null
       }
     });
+
+    if (evaluation.riskLevel === 'HIGH' || evaluation.issues.length > 0) {
+      await this.notifyComplianceRecipients(orgId, evaluation.summary ?? 'Listing compliance issues detected.', {
+        listingId
+      });
+    }
   }
 
   private async handleTransactionEvaluation(
@@ -235,6 +246,12 @@ export class AiBrokerService {
         agentProfileId: transaction.agentProfileId ?? null
       }
     });
+
+    if (evaluation.riskLevel === 'HIGH' || evaluation.issues.length > 0) {
+      await this.notifyComplianceRecipients(orgId, evaluation.summary ?? 'Transaction compliance issues detected.', {
+        transactionId
+      });
+    }
   }
 
   private mergeRiskFlags(existing: unknown, entry: Record<string, unknown>): Record<string, any> {
@@ -321,6 +338,56 @@ export class AiBrokerService {
     } catch {
       return null;
     }
+  }
+
+  private async notifyComplianceRecipients(
+    orgId: string,
+    summary: string,
+    links: { listingId?: string; transactionId?: string }
+  ) {
+    const brokers = await this.prisma.user.findMany({
+      where: { organizationId: orgId, role: UserRole.BROKER },
+      select: { id: true, email: true, firstName: true, lastName: true }
+    });
+    if (!brokers.length) {
+      return;
+    }
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true }
+    });
+    const complianceLink = `${this.dashboardBaseUrl.replace(/\/+$/, '')}/compliance`;
+
+    await Promise.all(
+      brokers.map(async (broker) => {
+        await this.notifications.createNotification({
+          organizationId: orgId,
+          userId: broker.id,
+          type: NotificationType.COMPLIANCE,
+          title: 'Compliance alert',
+          message: summary,
+          listingId: links.listingId,
+          transactionId: links.transactionId
+        });
+
+        const shouldEmail = await this.notifications.shouldSendEmail(orgId, broker.id, NotificationType.COMPLIANCE);
+        if (shouldEmail && broker.email) {
+          const template = complianceAlertEmail({
+            brokerName: [broker.firstName, broker.lastName].filter(Boolean).join(' ') || undefined,
+            orgName: organization?.name ?? 'Hatch',
+            issueSummary: summary,
+            complianceLink
+          });
+          await this.mail.sendMail({
+            to: broker.email,
+            subject: template.subject,
+            text: template.text,
+            html: template.html
+          });
+        }
+      })
+    );
   }
 
   private async assertUserInOrg(userId: string, orgId: string) {
@@ -436,7 +503,7 @@ export class AiBrokerService {
           }
         },
         documents: {
-          include: { orgFile: true },
+          include: { orgFile: { include: { file: true } } },
           take: 5
         }
       }
@@ -444,6 +511,8 @@ export class AiBrokerService {
     if (!transaction || transaction.organizationId !== orgId) {
       throw new NotFoundException('Transaction not found');
     }
+
+    const timeline = await this.timelines.getTimeline(orgId, 'transaction', transactionId);
 
     return {
       id: transaction.id,
@@ -469,8 +538,13 @@ export class AiBrokerService {
       documents: transaction.documents.map((doc) => ({
         id: doc.id,
         type: doc.type,
-        name: doc.orgFile.name
-      }))
+        name: doc.orgFile.name,
+        complianceStatus: doc.orgFile.complianceStatus,
+        documentType: doc.orgFile.documentType,
+        storageKey: doc.orgFile.file?.storageKey,
+        fileId: doc.orgFile.fileId
+      })),
+      timeline: timeline.timeline.slice(0, 25)
     };
   }
 

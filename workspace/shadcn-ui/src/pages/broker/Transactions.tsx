@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchOrgTransactions, type OrgTransactionRecord } from '@/lib/api/org-transactions';
+import { ChatWindow } from '@/components/chat/ChatWindow';
 
 const DEFAULT_ORG_ID = import.meta.env.VITE_ORG_ID ?? 'org-hatch';
 
@@ -29,17 +30,29 @@ type TransactionsFilter = (typeof filters)[number]['id'];
 export default function BrokerTransactions() {
   const { activeOrgId } = useAuth();
   const orgId = activeOrgId ?? DEFAULT_ORG_ID;
+  const [chatOpen, setChatOpen] = useState(false);
+  const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined);
+
+  const handleAskHatch = (txn: OrgTransactionRecord) => {
+    const label = txn.listing?.addressLine1 ?? txn.id;
+    setInitialPrompt(
+      `Act as my transaction coordinator. What is missing on transaction ${label} (${txn.id}) and what should we do next?`
+    );
+    setChatOpen(true);
+  };
+
   if (!orgId) {
     return <div className="p-8 text-sm text-gray-600">Select an organization to view transactions.</div>;
   }
   return (
     <div className="space-y-6 p-6">
-      <TransactionsView orgId={orgId} />
+      <TransactionsView orgId={orgId} onAskHatch={handleAskHatch} />
+      <ChatWindow open={chatOpen} onClose={() => setChatOpen(false)} initialPrompt={initialPrompt} />
     </div>
   );
 }
 
-function TransactionsView({ orgId }: { orgId: string }) {
+function TransactionsView({ orgId, onAskHatch }: { orgId: string; onAskHatch: (txn: OrgTransactionRecord) => void }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const parseFilter = (value: string | null): TransactionsFilter => {
     if (!value) return 'ALL';
@@ -107,7 +120,8 @@ function TransactionsView({ orgId }: { orgId: string }) {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Mission Control</p>
             <h1 className="text-2xl font-semibold text-slate-900">Transaction pipeline</h1>
             <p className="text-sm text-slate-500">
-              Watch contract milestones and compliance flags in one place.
+              Watch contract milestones and compliance flags in one place. TC automation is monitoring deadlines and
+              missing docs for you.
             </p>
           </div>
           <Button variant="outline" asChild>
@@ -156,6 +170,7 @@ function TransactionsView({ orgId }: { orgId: string }) {
                   <th className="px-4 py-2 text-left">Status</th>
                   <th className="px-4 py-2 text-left">Agent</th>
                   <th className="px-4 py-2 text-left">Closing</th>
+                  <th className="px-4 py-2 text-left">TC</th>
                   <th className="px-4 py-2 text-left">Amount</th>
                   <th className="px-4 py-2">Actions</th>
                 </tr>
@@ -204,6 +219,19 @@ function TransactionsView({ orgId }: { orgId: string }) {
                       <td className="px-4 py-3 text-slate-600">
                         {txn.closingDate ? new Date(txn.closingDate).toLocaleDateString() : '—'}
                       </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <div className="flex flex-col gap-1 text-xs text-slate-600">
+                          <span className="font-semibold text-slate-800">
+                            {txn.requiresAction || txn.isCompliant === false ? 'Needs attention' : 'Monitoring'}
+                          </span>
+                          {txn.inspectionDate && (
+                            <span>Inspection: {new Date(txn.inspectionDate).toLocaleDateString()}</span>
+                          )}
+                          {txn.financingDate && (
+                            <span>Financing: {new Date(txn.financingDate).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {txn.listing?.listPrice ? currencyFormatter.format(txn.listing.listPrice) : '—'}
                       </td>
@@ -214,6 +242,9 @@ function TransactionsView({ orgId }: { orgId: string }) {
                           </Button>
                           <Button size="sm" variant="ghost" asChild>
                             <Link to="/broker/mission-control">Mission Control</Link>
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => onAskHatch(txn)}>
+                            Ask Hatch
                           </Button>
                         </div>
                       </td>

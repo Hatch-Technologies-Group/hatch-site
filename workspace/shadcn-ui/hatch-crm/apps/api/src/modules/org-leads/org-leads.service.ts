@@ -4,13 +4,14 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { LeadSource, LeadStatus, OrgEventType, UserRole } from '@hatch/db';
+import { LeadSource, LeadStatus, OrgEventType, UserRole, PlaybookTriggerType } from '@hatch/db';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgEventsService } from '../org-events/org-events.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
+import { PlaybookRunnerService } from '../playbooks/playbook-runner.service';
 
 interface LeadFilters {
   status?: string;
@@ -18,7 +19,11 @@ interface LeadFilters {
 
 @Injectable()
 export class OrgLeadsService {
-  constructor(private readonly prisma: PrismaService, private readonly orgEvents: OrgEventsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orgEvents: OrgEventsService,
+    private readonly playbooks: PlaybookRunnerService
+  ) {}
 
   private async assertMembership(userId: string, orgId: string) {
     const membership = await this.prisma.userOrgMembership.findUnique({
@@ -116,6 +121,8 @@ export class OrgLeadsService {
       }
     });
 
+    void this.playbooks.runTrigger(orgId, PlaybookTriggerType.LEAD_CREATED, { leadId: lead.id }).catch(() => undefined);
+
     return lead;
   }
 
@@ -195,6 +202,10 @@ export class OrgLeadsService {
         agentProfileId: nextAgentProfileId === undefined ? undefined : nextAgentProfileId
       }
     });
+
+    void this.playbooks
+      .runTrigger(orgId, PlaybookTriggerType.LEAD_UPDATED, { leadId: updated.id, status: updated.status })
+      .catch(() => undefined);
 
     await this.orgEvents.logOrgEvent({
       organizationId: orgId,
