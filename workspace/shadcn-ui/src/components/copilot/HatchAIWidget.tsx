@@ -14,6 +14,7 @@ import { extractEmailDraft } from '@/lib/ai/emailDraft';
 import { lookupContactEmail, lookupContactEmailsFromString } from '@/lib/ai/contactLookup';
 import { extractRecipientQuery } from '@/lib/ai/recipient';
 import { useAuth } from '@/contexts/AuthContext';
+import { resolveUserIdentity } from '@/lib/utils';
 
 type UIMsg = {
   id: string;
@@ -414,12 +415,7 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
       defaultSubject={emailDefaults.subject}
       defaultBody={emailDefaults.body}
       defaultRecipients={dialogRecipients}
-      defaultSenderName={
-        [session?.profile?.firstName, session?.profile?.lastName].filter(Boolean).join(' ').trim() ||
-        session?.profile?.displayName ||
-        user?.email ||
-        undefined
-      }
+      defaultSenderName={resolveUserIdentity(session?.profile, user?.email).displayName}
     />
     </>
   );
