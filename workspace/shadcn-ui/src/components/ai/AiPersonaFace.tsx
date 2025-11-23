@@ -112,7 +112,11 @@ export const AiPersonaFace: React.FC<AiPersonaFaceProps> = ({
       : "animate-[float-subtle_4s_ease-in-out_infinite]"
     : "";
 
-  const svgClass = animated ? "ai-blink ai-wander" : "";
+  const svgClass = animated 
+    ? active 
+      ? "ai-blink ai-wander active" 
+      : "ai-blink ai-wander" 
+    : "";
 
   return (
     <div
@@ -151,29 +155,77 @@ export const AiPersonaFace: React.FC<AiPersonaFaceProps> = ({
           60% { transform: translateY(1px) scale(0.99); }
           100% { transform: translateY(0px) scale(1); }
         }
-        /* Blink: quickly close/open near the end of the cycle */
-        @keyframes blink { 
-          0%, 90%, 100% { transform: scaleY(1); }
-          93% { transform: scaleY(0.1); }
-          96% { transform: scaleY(1); }
+        
+        /* Smooth, realistic blinking animation */
+        @keyframes blink-smooth { 
+          0%, 100% { transform: scaleY(1); opacity: 1; }
+          
+          /* Single blink at 15% mark */
+          15% { transform: scaleY(1); opacity: 1; }
+          15.2% { transform: scaleY(0.9); opacity: 0.98; }
+          15.4% { transform: scaleY(0.7); opacity: 0.96; }
+          15.6% { transform: scaleY(0.5); opacity: 0.94; }
+          15.8% { transform: scaleY(0.3); opacity: 0.92; }
+          16% { transform: scaleY(0.15); opacity: 0.9; }
+          16.2% { transform: scaleY(0.1); opacity: 0.9; }
+          16.4% { transform: scaleY(0.15); opacity: 0.9; }
+          16.6% { transform: scaleY(0.3); opacity: 0.92; }
+          16.8% { transform: scaleY(0.5); opacity: 0.94; }
+          17% { transform: scaleY(0.7); opacity: 0.96; }
+          17.2% { transform: scaleY(0.9); opacity: 0.98; }
+          17.4% { transform: scaleY(1); opacity: 1; }
+          
+          /* Stay open for a while, then ready for next cycle */
+          18%, 99% { transform: scaleY(1); opacity: 1; }
         }
+        
+        /* Both eyes blink together smoothly, but each face has different timing */
         svg.ai-blink .ai-eye { 
-          transform-origin: center; 
-          animation: blink 6s ease-in-out infinite var(--blink-delay, 0s);
+          transform-origin: center;
+          animation: blink-smooth 8s ease-in-out infinite var(--blink-delay, 0s);
         }
-        /* Eye wander: sit still most of the time, then glance around briefly */
-        /* More noticeable eye wander: multiple glances before returning */
+        
+        /* Enhanced eye wander with smoother, more natural movements */
         @keyframes eye-wander {
-          0%, 90%, 100% { transform: translate(0px, 0px); }
-          92% { transform: translate(4px, -2px); }  /* up-right */
-          93% { transform: translate(4px, 3px); }   /* down-right */
-          94% { transform: translate(-4px, 3px); }  /* down-left */
-          95% { transform: translate(-4px, -3px); } /* up-left */
-          97% { transform: translate(0px, 0px); }   /* center */
+          0%, 100% { transform: translate(0px, 0px); }
+          
+          /* Look up-right (thinking) */
+          12% { transform: translate(0px, 0px); }
+          15% { transform: translate(2.5px, -2px); }
+          20% { transform: translate(2.5px, -2px); }
+          
+          /* Return to center */
+          23% { transform: translate(0px, 0px); }
+          
+          /* Look down-right (reading) */
+          35% { transform: translate(0px, 0px); }
+          38% { transform: translate(3px, 1.5px); }
+          44% { transform: translate(3px, 1.5px); }
+          
+          /* Return to center */
+          47% { transform: translate(0px, 0px); }
+          
+          /* Quick glance left */
+          58% { transform: translate(0px, 0px); }
+          60% { transform: translate(-2.5px, 0px); }
+          62% { transform: translate(-2.5px, 0px); }
+          
+          /* Back to center */
+          65% { transform: translate(0px, 0px); }
+          
+          /* Look up-left (recalling) */
+          75% { transform: translate(0px, 0px); }
+          78% { transform: translate(-2px, -2.5px); }
+          83% { transform: translate(-2px, -2.5px); }
+          
+          /* Return to center and hold */
+          86% { transform: translate(0px, 0px); }
+          95% { transform: translate(0px, 0px); }
         }
+        
         svg.ai-wander .ai-eyes {
           transform-origin: center;
-          animation: eye-wander 80s ease-in-out infinite var(--wander-delay, 0s);
+          animation: eye-wander 25s cubic-bezier(0.45, 0, 0.55, 1) infinite var(--wander-delay, 0s);
         }
       `}</style>
     </div>
