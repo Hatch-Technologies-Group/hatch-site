@@ -63,9 +63,42 @@ export function NotificationBell() {
     return '/broker/mission-control';
   };
 
+  // Close on outside mousedown and Escape key for accessibility + UX
+  useEffect(() => {
+    if (!open) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const clickedTrigger = !!target.closest('[aria-haspopup="true"]');
+      const clickedPopup = !!target.closest('[aria-hidden="false"]');
+      if (!clickedTrigger && !clickedPopup) {
+        setOpen(false);
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+  // accessibility: add aria attributes for trigger and popup
+
   return (
     <div className="relative">
-      <button type="button" onClick={handleToggle} className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100">
+      <button
+        type="button"
+        onClick={handleToggle}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="relative rounded-full p-2 text-slate-600 bg-white hover:bg-blue-50 active:bg-blue-100 shadow-none hover:shadow-md active:shadow-lg transition-all duration-200 will-change-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-300"
+      >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
