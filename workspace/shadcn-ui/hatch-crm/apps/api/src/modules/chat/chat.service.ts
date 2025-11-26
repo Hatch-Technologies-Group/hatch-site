@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { PlaybookActionType } from '@hatch/db'
 import { PrismaService } from '@/modules/prisma/prisma.service'
 import { AiEmployeesService } from '@/modules/ai-employees/ai-employees.service'
@@ -78,6 +78,7 @@ type ChatActionMetadata = PlaybookActionExecutionResult & { summary?: string }
 
 @Injectable()
 export class ChatService {
+  private readonly log = new Logger(ChatService.name)
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiEmployees: AiEmployeesService,
@@ -204,6 +205,13 @@ export class ChatService {
       const leadCandidate = top.find((item) => item.type === 'lead')
       if (leadCandidate?.id && this.isFollowUpIntent(content)) {
         nurtureDraft = await this.runLeadNurtureWriter(orgId, userId, leadCandidate.id)
+      }
+      if (legalFormsContext.length > 0) {
+        this.log.log(
+          `legalFormsContext hits (${legalFormsContext.length}): ${legalFormsContext
+            .map((hit) => hit.title)
+            .join(', ')}`
+        )
       }
       return { topResults: top, timelines, availableActions, tcInsights, nurtureDraft, legalFormsContext }
     } catch (err) {

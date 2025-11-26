@@ -16,6 +16,14 @@ export class GlobalSearchQueryDto {
   @IsOptional()
   @IsString()
   teamId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Optional comma-separated list of entity types to include (e.g., knowledge_doc,lead,listing)'
+  })
+  @IsOptional()
+  @IsString()
+  entityTypes?: string;
 }
 
 export class GlobalSearchResultDto {

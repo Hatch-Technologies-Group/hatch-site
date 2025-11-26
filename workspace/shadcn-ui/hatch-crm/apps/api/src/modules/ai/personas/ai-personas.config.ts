@@ -2,6 +2,22 @@ import type { PersonaConfig } from './ai-personas.types';
 
 export const PERSONAS: PersonaConfig[] = [
   {
+    id: 'hatch_assistant',
+    name: 'Hatch',
+    shortName: 'Hatch',
+    color: '#2563EB',
+    avatarBg: 'rgba(37,99,235,0.14)',
+    avatarEmoji: '🤖',
+    tagline: 'AI broker & switchboard',
+    placeholder: 'Ask Hatch anything — it will pull in Echo, Nova, and others as needed…',
+    examples: [
+      'Hatch, triage my day and loop in the right teammate',
+      'Hatch, summarize compliance and ask Nova to fix gaps',
+      'Hatch, have Echo and Atlas review this listing'
+    ],
+    specialty: 'Broker-wide orchestrator that can delegate to Echo, Nova, and other AI employees.'
+  },
+  {
     id: 'agent_copilot',
     name: 'Echo',
     shortName: 'Echo',

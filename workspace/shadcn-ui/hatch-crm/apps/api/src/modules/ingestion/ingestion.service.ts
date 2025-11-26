@@ -15,7 +15,8 @@ export class IngestionService {
   ) {}
 
   async ingestLawDoc(params: {
-    url: string;
+    url?: string;
+    s3Key?: string;
     title: string;
     jurisdiction?: string;
     category?: string;
@@ -27,7 +28,7 @@ export class IngestionService {
     const jurisdiction = (params.jurisdiction ?? 'general').toLowerCase();
     const safeTitle = this.sanitizeFileName(params.title);
     const normalizedTitle = safeTitle.toLowerCase().endsWith('.pdf') ? safeTitle : `${safeTitle}.pdf`;
-    const key = `laws/${jurisdiction}/${Date.now()}-${normalizedTitle}`;
+    const key = params.s3Key ?? `laws/${jurisdiction}/${Date.now()}-${normalizedTitle}`;
     const descriptionParts = [] as string[];
     if (params.jurisdiction) {
       descriptionParts.push(`Jurisdiction: ${params.jurisdiction}`);
@@ -37,7 +38,12 @@ export class IngestionService {
     }
     const description = descriptionParts.length ? descriptionParts.join(' | ') : undefined;
 
-    await this.s3.uploadFromUrl(key, params.url, 'application/pdf');
+    if (!params.s3Key) {
+      if (!params.url) {
+        throw new BadRequestException('url or s3Key is required to ingest a document');
+      }
+      await this.s3.uploadFromUrl(key, params.url, 'application/pdf');
+    }
 
     const orgFile = await this.orgVault.createFileMetadata(
       orgId,

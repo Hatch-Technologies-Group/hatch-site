@@ -10,6 +10,7 @@ import { GenerateDraftDto } from './dto/generate-draft.dto';
 type CampaignFilter = 'all' | 'draft' | 'scheduled' | 'sent';
 
 const PERSONA_GREETINGS: Record<PersonaId, string> = {
+  hatch_assistant: 'Hatch here —',
   agent_copilot: 'Echo here —',
   lead_nurse: 'Lumen here —',
   listing_concierge: 'Haven here —',
@@ -18,6 +19,7 @@ const PERSONA_GREETINGS: Record<PersonaId, string> = {
 };
 
 const PERSONA_TONES: Record<PersonaId, string> = {
+  hatch_assistant: 'concise',
   agent_copilot: 'steady',
   lead_nurse: 'warm',
   listing_concierge: 'polished',
@@ -26,6 +28,7 @@ const PERSONA_TONES: Record<PersonaId, string> = {
 };
 
 const PERSONA_CLOSINGS: Record<PersonaId, string> = {
+  hatch_assistant: 'I can loop in the right teammate if you need more.',
   agent_copilot: 'Let me know what support you need.',
   lead_nurse: 'Let’s get you back on track.',
   listing_concierge: 'Excited to share more details.',
@@ -34,6 +37,7 @@ const PERSONA_CLOSINGS: Record<PersonaId, string> = {
 };
 
 const SUBJECT_FALLBACKS: Record<PersonaId, string> = {
+  hatch_assistant: 'Quick brokerage rundown for you',
   agent_copilot: 'Here’s what to focus on next',
   lead_nurse: 'Let’s reconnect this week',
   listing_concierge: 'New listing intel for you',

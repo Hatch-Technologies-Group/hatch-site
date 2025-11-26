@@ -2,11 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { AiEmployeeInstance, AiEmployeeTemplate } from '@/lib/api/hatch';
 import { listAiEmployeeInstances, listAiEmployeeTemplates } from '@/lib/api/hatch';
+import type { PersonaId } from '@/lib/ai/aiPersonas';
 
 export type AiPersona = {
   template: AiEmployeeTemplate;
   instance?: AiEmployeeInstance;
 };
+
+function normalizePersonaKey(key: string): PersonaId {
+  // Convert camelCase / PascalCase template keys into the snake_case persona ids used in the UI.
+  const snake = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
+  return snake as PersonaId;
+}
 
 export function useAiEmployees() {
   const [instances, setInstances] = useState<AiEmployeeInstance[]>([]);
@@ -38,12 +48,12 @@ export function useAiEmployees() {
 
   const personas = useMemo<AiPersona[]>(() => {
     const instanceByTemplate = new Map(
-      instances.map((instance) => [instance.template.key, instance])
+      instances.map((instance) => [normalizePersonaKey(instance.template.key), instance])
     );
 
     return templates.map((template) => ({
-      template,
-      instance: instanceByTemplate.get(template.key)
+      template: { ...template, key: normalizePersonaKey(template.key) },
+      instance: instanceByTemplate.get(normalizePersonaKey(template.key))
     }));
   }, [instances, templates]);
 

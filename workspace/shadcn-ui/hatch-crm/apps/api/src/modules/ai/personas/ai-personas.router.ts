@@ -14,6 +14,16 @@ export class AiPersonaRouterService {
   constructor(private readonly ai: AiService) {}
 
   async routeMessage(currentPersonaId: PersonaId, message: string): Promise<RouterResult> {
+    const text = (message || '').toLowerCase();
+    const hasAny = (needles: string[]) => needles.some((w) => text.includes(w));
+
+    // Hard guard: any forms/contracts/documents/location follow-ups stay with Hatch
+    if (
+      hasAny(['form', 'forms', 'contract', 'contracts', 'document', 'documents', 'paperwork', 'naples', 'florida'])
+    ) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'forms/location intent detected' };
+    }
+
     // Lightweight keyword routing to avoid extra turns for obvious intents
     const quick = this.quickRoute(currentPersonaId, message);
     if (quick) {
@@ -57,6 +67,30 @@ export class AiPersonaRouterService {
     const text = (message || '').toLowerCase();
 
     const hasAny = (needles: string[]) => needles.some((w) => text.includes(w));
+
+    // Always keep Florida/Naples follow-ups on Hatch so it can surface localized forms instead of delegating
+    if (hasAny(['naples', 'florida'])) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'location-specific forms intent detected' };
+    }
+
+    // Keep follow-up location clarifications with Hatch when we're already in forms/contracts context
+    if (currentPersonaId === 'hatch_assistant' && hasAny(['naples', 'florida'])) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'location-specific forms intent detected' };
+    }
+
+    // Route general forms/contracts/documents questions to Hatch so it can surface knowledge-base + S3 forms
+    if (hasAny(['form', 'forms', 'contract', 'contracts', 'document', 'documents', 'paperwork'])) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'forms/contracts intent detected' };
+    }
+
+    // Keep NABOR/FAR-BAR contract/form lookups on Hatch so it surfaces documents instead of delegating to Nova
+    if (hasAny(['nabor', 'far-bar', 'far bar'])) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'forms/contracts lookup intent detected' };
+    }
+
+    if (hasAny(['hatch', 'ask hatch', 'broker', 'overview', 'orchestrate', 'delegate'])) {
+      return { targetPersonaId: 'hatch_assistant', reason: 'broker/orchestration intent detected' };
+    }
 
     if (hasAny(['email', 'follow up', 'follow-up', 'followup', 'nurture', 'drip', 'draft', 'rewrite', 'send'])) {
       return { targetPersonaId: 'lead_nurse', reason: 'outreach/email intent detected' };

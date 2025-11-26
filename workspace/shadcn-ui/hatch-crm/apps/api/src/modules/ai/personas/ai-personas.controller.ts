@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { IsArray, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
@@ -21,7 +21,14 @@ class PersonaChatDto {
   @IsString()
   text!: string;
 
-  @IsIn(['agent_copilot', 'lead_nurse', 'listing_concierge', 'market_analyst', 'transaction_coordinator'])
+  @IsIn([
+    'hatch_assistant',
+    'agent_copilot',
+    'lead_nurse',
+    'listing_concierge',
+    'market_analyst',
+    'transaction_coordinator'
+  ])
   currentPersonaId!: PersonaId;
 
   @IsOptional()
@@ -29,6 +36,11 @@ class PersonaChatDto {
   @ValidateNested({ each: true })
   @Type(() => PersonaChatMessageDto)
   history?: PersonaChatMessageDto[];
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  forceCurrentPersona?: boolean;
 }
 
 @Controller('ai/personas')
@@ -39,11 +51,19 @@ export class AiPersonasController {
   @Post('chat')
   async chat(@Body() dto: PersonaChatDto, @Req() req: FastifyRequest) {
     const ctx = resolveRequestContext(req);
+    const text = dto.text?.toLowerCase() ?? '';
+    const forceHatch =
+      ['form', 'forms', 'contract', 'contracts', 'document', 'documents', 'paperwork'].some((kw) =>
+        text.includes(kw)
+      ) || text.includes('naples') || text.includes('florida') || /\bfl\b/.test(text);
+    const currentPersonaId = forceHatch ? 'hatch_assistant' : dto.currentPersonaId;
+    const forceCurrentPersona = forceHatch ? true : dto.forceCurrentPersona ?? false;
     return this.personas.handleChatMessage({
       tenantId: ctx.tenantId,
       text: dto.text,
-      currentPersonaId: dto.currentPersonaId,
-      history: dto.history ?? []
+      currentPersonaId,
+      history: dto.history ?? [],
+      forceCurrentPersona
     });
   }
 }

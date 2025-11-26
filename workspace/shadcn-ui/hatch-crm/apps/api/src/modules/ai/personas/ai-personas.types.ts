@@ -1,4 +1,5 @@
 export type PersonaId =
+  | 'hatch_assistant'
   | 'agent_copilot'
   | 'lead_nurse'
   | 'listing_concierge'

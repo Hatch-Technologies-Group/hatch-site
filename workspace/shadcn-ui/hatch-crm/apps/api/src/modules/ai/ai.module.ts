@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { SearchModule } from '@/modules/search/search.module';
 import { PrismaModule } from '@/modules/prisma/prisma.module';
+import { S3Service } from '@/modules/storage/s3.service';
 
 import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
@@ -14,7 +15,7 @@ import { AiEmailDraftService } from './ai-email.service';
 @Module({
   imports: [SearchModule, PrismaModule],
   controllers: [AiController, CopilotController, AiPersonasController],
-  providers: [AiService, AiPersonasService, AiPersonaRouterService, AiEmailDraftService],
+  providers: [AiService, AiPersonasService, AiPersonaRouterService, AiEmailDraftService, S3Service],
   exports: [AiService, AiPersonasService, AiEmailDraftService]
 })
 export class AiModule {}

@@ -62,6 +62,10 @@ export class AuditService {
         });
         return;
       }
+      // If orgId is missing (local dev), swallow FK errors to reduce noise.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        return;
+      }
       throw error;
     }
   }

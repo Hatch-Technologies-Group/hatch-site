@@ -38,7 +38,11 @@ export async function recordAiMemory(
         details: JSON.stringify(payload)
       }
     });
-  } catch (error) {
+  } catch (error: any) {
+    // In local dev, missing tenant rows can throw FK errors; skip noisy logs.
+    if (error?.code === 'P2003') {
+      return;
+    }
     console.error('Failed to record AI memory', error);
   }
 }

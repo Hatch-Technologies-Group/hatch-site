@@ -20,7 +20,11 @@ export class SearchVectorService {
   ) {}
 
   async index(input: VectorInput) {
-    const content = input.content?.trim();
+    const content = input.content
+      ?.replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\\/g, ' ')
+      .replace(/[\uD800-\uDFFF]/g, ' ')
+      .trim();
     if (!content) {
       return null;
     }

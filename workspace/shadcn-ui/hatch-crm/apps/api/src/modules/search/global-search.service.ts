@@ -20,6 +20,12 @@ export class GlobalSearchService {
       return { query: '', results: [] };
     }
     const scope: Scope = { officeId: query.officeId, teamId: query.teamId };
+    const allowedTypes =
+      query.entityTypes
+        ?.split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .map((v) => v.toLowerCase()) ?? [];
 
     const [leads, listings, transactions, rentals, agents, documents, vectors] = await Promise.all([
       this.searchLeads(orgId, term, scope),
@@ -31,9 +37,15 @@ export class GlobalSearchService {
       this.searchVectors(orgId, term)
     ]);
 
-    const combined = [...leads, ...listings, ...transactions, ...rentals, ...agents, ...documents, ...vectors]
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-      .slice(0, 50);
+    let combined = [...leads, ...listings, ...transactions, ...rentals, ...agents, ...documents, ...vectors].sort(
+      (a, b) => (b.score ?? 0) - (a.score ?? 0)
+    );
+
+    if (allowedTypes.length) {
+      combined = combined.filter((item) => allowedTypes.includes(item.type.toLowerCase()));
+    }
+
+    combined = combined.slice(0, 50);
 
     return { query: term, results: combined };
   }

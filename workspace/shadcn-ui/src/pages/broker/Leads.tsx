@@ -108,8 +108,14 @@ const LeadsPage = () => {
     try {
       setIsLoading(true)
       const response = await listContacts(TENANT_ID)
-      setLeads(response.items)
+      const items = Array.isArray((response as any)?.items)
+        ? (response as any).items
+        : Array.isArray(response)
+          ? (response as any)
+          : []
+      setLeads(items)
     } catch (error) {
+      setLeads([])
       toast({
         title: 'Unable to load leads',
         description: error instanceof Error ? error.message : 'Unexpected error fetching leads',

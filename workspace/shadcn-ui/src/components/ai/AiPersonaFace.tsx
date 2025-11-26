@@ -32,6 +32,22 @@ export const AiPersonaFace: React.FC<AiPersonaFaceProps> = ({
 
   const renderFace = () => {
     switch (personaId) {
+      case "hatch_assistant": // Hatch – orchestrator
+        return (
+          <>
+            <circle cx="32" cy="32" r="30" stroke={color} strokeWidth="3" />
+            <g className="ai-eyes">
+              <circle className="ai-eye" cx="24" cy="28" r="3.2" fill="#000" />
+              <circle className="ai-eye" cx="40" cy="28" r="3.2" fill="#000" />
+            </g>
+            <path d="M24 40 Q32 44 40 40" stroke={color} strokeWidth="3" strokeLinecap="round" />
+            {/* Soft forehead band + badge to keep a unique identity without over-detailing */}
+            <path d="M18 18 Q32 12 46 18" stroke={color} strokeWidth="2" strokeLinecap="round" />
+            <circle cx="20" cy="18" r="3" fill={accent} stroke={color} strokeWidth="1.5" />
+            {/* Tiny mic dot to hint assistant role */}
+            <circle cx="48" cy="34" r="2.2" fill={color} />
+          </>
+        );
       case "agent_copilot": // Echo – thinker
         return (
           <>

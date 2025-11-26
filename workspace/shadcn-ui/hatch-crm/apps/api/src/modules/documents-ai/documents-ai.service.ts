@@ -288,13 +288,16 @@ export class DocumentsAiService {
         try {
           const parsed = await pdfParseFn(buffer);
           if (parsed?.text) {
-            return parsed.text;
+            const cleaned = this.sanitizeText(parsed.text);
+            if (cleaned) {
+              return cleaned;
+            }
           }
         } catch (error) {
           this.logger.warn(`pdf parse failed for ${storageKey}: ${(error as Error).message}`);
         }
       }
-      return buffer.toString('utf-8');
+      return this.sanitizeText(buffer.toString('utf-8'));
     } catch (error) {
       this.logger.warn(`s3 read failed for ${storageKey}: ${(error as Error).message}`);
       return null;
@@ -307,6 +310,17 @@ export class DocumentsAiService {
       return value.slice(0, this.maxPreviewChars);
     }
     return value;
+  }
+
+  private sanitizeText(value?: string | null): string | null {
+    if (!value) return null;
+    const cleaned = value
+      // Drop control chars and other binary noise.
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]+/g, ' ')
+      // Collapse whitespace.
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned.length > 0 ? cleaned : null;
   }
 
   private buildComplianceSummary(

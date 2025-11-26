@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Readable, Transform } from 'stream';
 import fetch from 'node-fetch';
 
@@ -90,5 +90,45 @@ export class S3Service {
       throw new Error(`No object body returned for key ${key}`);
     }
     return body instanceof Readable ? body : Readable.from(body as any);
+  }
+
+  async searchKeys(params: { prefix?: string; contains: string[]; maxKeys?: number }): Promise<string[]> {
+    if (!this.bucket) {
+      return [];
+    }
+
+    const prefix = params.prefix;
+    const contains = params.contains.map((value) => value.toLowerCase()).filter(Boolean);
+    const maxKeys = params.maxKeys ?? 50;
+    const results: string[] = [];
+    let token: string | undefined;
+
+    while (results.length < maxKeys) {
+      const res = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+          MaxKeys: 200
+        })
+      );
+
+      for (const object of res.Contents ?? []) {
+        if (!object.Key) continue;
+        const keyLower = object.Key.toLowerCase();
+        const match = contains.length === 0 ? true : contains.some((needle) => keyLower.includes(needle));
+        if (match) {
+          results.push(object.Key);
+          if (results.length >= maxKeys) break;
+        }
+      }
+
+      if (!res.IsTruncated || !res.NextContinuationToken) {
+        break;
+      }
+      token = res.NextContinuationToken;
+    }
+
+    return results;
   }
 }

@@ -13,7 +13,8 @@
     "test:cov": "jest --coverage",
     "sendgrid:smoke": "ts-node ./scripts/sendgrid-smoke.ts",
     "ai-memory:backfill": "ts-node ./scripts/backfill-ai-memory.ts",
-    "ingest:forms": "ts-node src/scripts/ingest-forms.ts"
+    "ingest:forms": "ts-node --transpile-only -r tsconfig-paths/register src/scripts/ingest-forms.ts",
+    "seed:demo": "ts-node scripts/seed-demo-data.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^9.3.1",

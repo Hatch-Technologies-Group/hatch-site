@@ -1,4 +1,5 @@
 export type PersonaId =
+  | 'hatch_assistant'
   | 'agent_copilot'
   | 'lead_nurse'
   | 'listing_concierge'
@@ -25,9 +26,13 @@ export const PERSONA_COLORS: Record<
   PersonaId,
   { color: string; accent: string }
 > = {
+  hatch_assistant: {
+    color: '#2563EB',
+    accent: '#DBEAFE'
+  },
   agent_copilot: {
-    color: '#1F5FFF',
-    accent: '#D9E3FF'
+    color: '#EAB308',
+    accent: '#FEF3C7'
   },
   lead_nurse: {
     color: '#00B894',
@@ -49,12 +54,29 @@ export const PERSONA_COLORS: Record<
 
 export const PERSONAS: PersonaConfig[] = [
   {
+    id: 'hatch_assistant',
+    name: 'Hatch',
+    shortName: 'Hatch',
+    color: PERSONA_COLORS.hatch_assistant.color,
+    accentColor: PERSONA_COLORS.hatch_assistant.accent,
+    avatarBg: 'rgba(37,99,235,0.14)',
+    avatarEmoji: '🤖',
+    tagline: 'AI broker & switchboard',
+    placeholder: 'Ask Hatch anything — it will pull in Echo, Nova, and others as needed…',
+    examples: [
+      'Hatch, triage my day and loop in the right teammate',
+      'Hatch, summarize compliance and ask Nova to fix gaps',
+      'Hatch, have Echo and Atlas review this listing'
+    ],
+    specialty: 'Broker-wide orchestrator that can delegate to Echo, Nova, and other AI employees.'
+  },
+  {
     id: 'agent_copilot',
     name: 'Echo',
     shortName: 'Echo',
-    color: '#1F5FFF',
+    color: PERSONA_COLORS.agent_copilot.color,
     accentColor: PERSONA_COLORS.agent_copilot.accent,
-    avatarBg: 'rgba(31,95,255,0.12)',
+    avatarBg: 'rgba(234,179,8,0.14)',
     avatarEmoji: '🧠',
     tagline: 'Daily briefings & next best actions',
     placeholder: 'Ask Echo to summarize your day, prioritize leads, or plan what to do next…',

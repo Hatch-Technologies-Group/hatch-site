@@ -254,7 +254,7 @@ export class AiService {
     return `${answer}${note}`;
   }
 
-  private async withRetries<T>(fn: () => Promise<T>, maxAttempts = 2): Promise<T | null> {
+  private async withRetries<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T | null> {
     let attempt = 0;
     let lastError: unknown;
 
@@ -267,8 +267,11 @@ export class AiService {
         if (attempt >= maxAttempts) {
           break;
         }
-        this.log.warn('LLM draft call failed; retrying…');
-        await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 400));
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        const retryMs = this.parseRetryAfterMs(message);
+        const backoffMs = retryMs ?? 400 * Math.pow(2, attempt - 1) + Math.random() * 300;
+        this.log.warn(`LLM draft call failed; retrying in ${Math.round(backoffMs)}ms…`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
       }
     }
 
@@ -278,6 +281,17 @@ export class AiService {
       this.log.error('LLM draft call failed after retries.');
     }
 
+    return null;
+  }
+
+  private parseRetryAfterMs(message: string): number | null {
+    const rateLimitMatch = message.match(/try again in ([0-9.]+)(ms|s)/i);
+    if (rateLimitMatch) {
+      const value = Number(rateLimitMatch[1]);
+      if (Number.isFinite(value)) {
+        return rateLimitMatch[2].toLowerCase().startsWith('s') ? value * 1000 : value;
+      }
+    }
     return null;
   }
 

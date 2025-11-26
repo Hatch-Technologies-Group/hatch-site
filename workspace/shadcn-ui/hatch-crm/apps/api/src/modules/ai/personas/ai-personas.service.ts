@@ -33,6 +33,25 @@ type FormSearchHints = {
   preferFlorida: boolean;
   wantsNabor: boolean;
   wantsNaples: boolean;
+  wantsFannie?: boolean;
+};
+
+type FormScenario = {
+  residentialImproved: boolean;
+  residentialAsIs: boolean;
+  vacantLand: boolean;
+  commercial: boolean;
+  backup: boolean;
+  saleContingent: boolean;
+  condo: boolean;
+  hoa: boolean;
+  cash: boolean;
+  exchange1031: boolean;
+  firpta: boolean;
+  newConstruction: boolean;
+  rental: boolean;
+  preTouring: boolean;
+  environmental: boolean;
 };
 
 const MEMORY_POLICIES: Record<PersonaId, MemoryPolicy> = {
@@ -83,11 +102,18 @@ export class AiPersonasService {
     forceCurrentPersona?: boolean;
   }): Promise<PersonaChatResponse> {
     const { text, currentPersonaId, history, tenantId, forceCurrentPersona } = input;
+    const lowerText = text.toLowerCase();
+    const forceHatch =
+      ['form', 'forms', 'contract', 'contracts', 'document', 'documents', 'paperwork'].some((kw) =>
+        lowerText.includes(kw)
+      ) || lowerText.includes('naples') || lowerText.includes('florida') || /\bfl\b/.test(lowerText);
+
     const routing = forceCurrentPersona
       ? { targetPersonaId: currentPersonaId, reason: 'persona override' }
-      : await this.router.routeMessage(currentPersonaId, text);
+      : forceHatch
+        ? { targetPersonaId: 'hatch_assistant', reason: 'forms/location override' }
+        : await this.router.routeMessage(currentPersonaId, text);
     const persona = PERSONAS.find((candidate) => candidate.id === routing.targetPersonaId) ?? PERSONAS[0];
-    const lowerText = text.toLowerCase();
     const wantsForms =
       persona.id === 'hatch_assistant' &&
       ['nabor', 'far-bar', 'far bar', 'contract', 'form'].some((keyword) => lowerText.includes(keyword));
@@ -171,6 +197,11 @@ export class AiPersonasService {
   private async answerWithGroundedDocs(params: { tenantId: string; query: string }): Promise<string> {
     const { tenantId, query } = params;
     const lowerQuery = query.toLowerCase();
+    const hints = this.computeFormSearchHints(lowerQuery);
+    const scenario = this.detectFormScenario(lowerQuery);
+    const guardrail = this.buildContractGuardrail({ hints, scenario, lowerQuery });
+    const terms = this.extractSearchTerms(lowerQuery);
+    const wantsBoth = hints.preferFlorida && hints.wantsNabor;
     try {
       const results = await this.semantic.search({
         tenantId,
@@ -192,23 +223,75 @@ export class AiPersonasService {
           return `- ${title}${s3Key ? ` (${s3Key})` : ''}`;
         });
 
-        return ['Here are the NABOR form contracts I found:', ...bullets].join('\n');
+        return [
+          'Here are the form contracts I found:',
+          ...bullets,
+          ...(guardrail ? ['', guardrail] : []),
+          '',
+          'Please consult your broker or attorney before using these forms.'
+        ].join('\n');
       }
     } catch (error) {
       this.log.warn(`Failed semantic lookup: ${this.formatError(error)}`);
     }
 
-    const s3Results = await this.searchFormsS3(lowerQuery);
+    if (wantsBoth) {
+      const [flResults, naborResults] = await Promise.all([
+        this.searchFormsS3(lowerQuery, { forcePrefix: 'forms/florida/', hints, scenario }),
+        this.searchFormsS3(lowerQuery, { forcePrefix: 'forms/nabor/', hints: { ...hints, wantsNabor: true }, scenario })
+      ]);
+      const combined = [...flResults, ...naborResults];
+      const ranked = this.rerankForms(combined, terms, hints, scenario).slice(0, 8);
+      if (ranked.length) {
+        return this.formatFormResults(ranked, guardrail);
+      }
+    }
+
+    const s3Results = await this.searchFormsS3(lowerQuery, { hints, scenario });
     if (s3Results.length) {
-      return this.formatFormResults(s3Results);
+      const ranked = this.rerankForms(s3Results, terms, hints, scenario).slice(0, 8);
+      if (ranked.length) {
+        return this.formatFormResults(ranked, guardrail);
+      }
     }
 
-    const fallback = await this.searchFormsManifest(lowerQuery);
+    if (wantsBoth) {
+      const [flFallback, naborFallback] = await Promise.all([
+        this.searchFormsManifest(lowerQuery, {
+          hints: { preferFlorida: true, wantsNaples: false, wantsNabor: false },
+          extraTerms: ['florida'],
+          scenario
+        }),
+        this.searchFormsManifest(lowerQuery, {
+          hints: { preferFlorida: false, wantsNaples: true, wantsNabor: true },
+          extraTerms: ['nabor'],
+          scenario
+        })
+      ]);
+      const combined = [...flFallback, ...naborFallback];
+      const ranked = this.rerankForms(combined, terms, hints, scenario).slice(0, 8);
+      if (ranked.length) {
+        return this.formatFormResults(ranked, guardrail);
+      }
+    }
+
+    const fallback = await this.searchFormsManifest(lowerQuery, { hints, scenario });
     if (fallback.length) {
-      return this.formatFormResults(fallback);
+      const ranked = this.rerankForms(fallback, terms, hints, scenario).slice(0, 8);
+      if (ranked.length) {
+        return this.formatFormResults(ranked, guardrail);
+      }
     }
 
-    return 'I could not find NABOR contracts in the knowledge base. Try a more specific contract name.';
+    if (guardrail) {
+      return [
+        'I could not find contracts in the knowledge base. Try a more specific contract name.',
+        '',
+        guardrail
+      ].join('\n');
+    }
+
+    return 'I could not find contracts in the knowledge base. Try a more specific contract name.';
   }
 
   private formatError(error: unknown): string {
@@ -222,17 +305,29 @@ export class AiPersonasService {
     }
   }
 
-  private async searchFormsManifest(lowerQuery: string): Promise<FormEntry[]> {
+  private async searchFormsManifest(
+    lowerQuery: string,
+    opts?: { hints?: FormSearchHints; extraTerms?: string[]; scenario?: FormScenario }
+  ): Promise<FormEntry[]> {
     const manifest = await this.loadFormsManifest();
     if (!manifest.length) return [];
-    const terms = this.extractSearchTerms(lowerQuery);
+    const baseTerms = this.extractSearchTerms(lowerQuery);
+    const terms = opts?.extraTerms ? Array.from(new Set([...baseTerms, ...opts.extraTerms])) : baseTerms;
     if (!terms.length) return [];
-    const hints = this.computeFormSearchHints(lowerQuery);
+    const hints = opts?.hints ?? this.computeFormSearchHints(lowerQuery);
 
-    const matches = manifest
+    const filtered = manifest.filter((entry) => {
+      if (hints.preferFlorida && !hints.wantsNabor && !hints.wantsNaples) {
+        const haystack = `${entry.title} ${entry.jurisdiction ?? ''} ${entry.s3Key ?? ''}`.toLowerCase();
+        if (haystack.includes('nabor')) return false;
+      }
+      return true;
+    });
+
+    const matches = filtered
       .map((entry) => {
         const haystack = `${entry.title} ${entry.jurisdiction ?? ''} ${entry.s3Key ?? ''}`.toLowerCase();
-        return { entry, score: this.scoreFormMatch(haystack, terms, hints) };
+        return { entry, score: this.scoreFormMatch(haystack, terms, hints, opts?.scenario ?? this.detectFormScenario(lowerQuery)) };
       })
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -257,26 +352,47 @@ export class AiPersonasService {
     }
   }
 
-  private formatFormResults(entries: FormEntry[]): string {
+  private formatFormResults(entries: FormEntry[], guardrail?: string): string {
     const lines = entries.map((entry) => {
       const jurisdiction = entry.jurisdiction ? ` [${entry.jurisdiction}]` : '';
       return `- ${entry.title}${jurisdiction}`;
     });
-    return ['Here are the NABOR form contracts I found:', ...lines].join('\n');
+    return [
+      'Here are the form contracts I found:',
+      ...lines,
+      ...(guardrail ? ['', guardrail] : []),
+      '',
+      'Please consult your broker or attorney before using these forms.'
+    ].join('\n');
   }
 
-  private async searchFormsS3(lowerQuery: string): Promise<FormEntry[]> {
-    const terms = this.extractSearchTerms(lowerQuery);
+  private async searchFormsS3(
+    lowerQuery: string,
+    opts?: { forcePrefix?: string; extraTerms?: string[]; hints?: FormSearchHints; scenario?: FormScenario }
+  ): Promise<FormEntry[]> {
+    const baseTerms = this.extractSearchTerms(lowerQuery);
+    const terms = opts?.extraTerms ? Array.from(new Set([...baseTerms, ...opts.extraTerms])) : baseTerms;
     if (!terms.length) return [];
-    const hints = this.computeFormSearchHints(lowerQuery);
-    const prefix = hints.preferFlorida && !hints.wantsNabor ? 'forms/florida/' : 'forms/';
+    const hints = opts?.hints ?? this.computeFormSearchHints(lowerQuery);
+    const prefix = opts?.forcePrefix ?? (hints.preferFlorida && !hints.wantsNabor ? 'forms/florida/' : 'forms/');
+    const expanded = new Set<string>(terms);
+    terms.forEach((term) => {
+      if (term.endsWith('s')) expanded.add(term.slice(0, -1));
+    });
+    expanded.add('contract');
+    if (hints.wantsNaples || hints.wantsNabor) {
+      expanded.add('nabor');
+    }
+    if (hints.preferFlorida) {
+      expanded.add('florida');
+    }
     try {
-      const keys = await this.s3.searchKeys({ prefix, contains: terms, maxKeys: 400 });
+      const keys = await this.s3.searchKeys({ prefix, contains: Array.from(expanded), maxKeys: 400 });
       const scored = keys
         .filter((key) => !key.endsWith('/'))
         .map((key) => {
           const lower = key.toLowerCase();
-          return { key, score: this.scoreFormMatch(lower, terms, hints) };
+          return { key, score: this.scoreFormMatch(lower, terms, hints, opts?.scenario ?? this.detectFormScenario(lowerQuery)) };
         })
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score)
@@ -302,8 +418,24 @@ export class AiPersonasService {
       .filter((term) => term.length > 2 && !stopWords.has(term));
   }
 
-  private scoreFormMatch(haystack: string, terms: string[], hints: FormSearchHints): number {
-    const base = terms.reduce((acc, term) => (haystack.includes(term) ? acc + 1 : acc), 0);
+  private scoreFormMatch(haystack: string, terms: string[], hints: FormSearchHints, scenario: FormScenario): number {
+    const banned =
+      haystack.includes('property management') ||
+      haystack.includes('exclusive property management') ||
+      haystack.includes('extension to property management') ||
+      haystack.includes('ppta') ||
+      haystack.includes('pre-touring') ||
+      haystack.includes('pre touring') ||
+      haystack.includes('buyer access') ||
+      haystack.includes('notice of right to reclaim') ||
+      (!scenario.rental && haystack.includes('rental')) ||
+      (!scenario.rental && haystack.includes('lease'));
+    if (banned) return 0;
+
+    const base = terms.reduce((acc, term) => {
+      const singular = term.endsWith('s') ? term.slice(0, -1) : null;
+      return haystack.includes(term) || (singular && haystack.includes(singular)) ? acc + 1 : acc;
+    }, 0);
     const bonuses =
       (haystack.includes('sales contract residential improved property') ? 8 : 0) +
       (haystack.includes('sales contract-as is residential improved property') ? 7 : 0) +
@@ -311,27 +443,204 @@ export class AiPersonasService {
       (haystack.includes('sales contract') ? 3 : 0) +
       (haystack.includes('nabor') ? 2 : 0) +
       (haystack.endsWith('.pdf') ? 1 : 0);
+    const scenarioBonuses =
+      (scenario.residentialAsIs && (haystack.includes('as is') || haystack.includes('asis-7') || haystack.includes('nab089')) ? 6 : 0) +
+      (scenario.residentialImproved && (haystack.includes('crsp') || haystack.includes('residential sale and purchase') || haystack.includes('nab087')) ? 6 : 0) +
+      (scenario.vacantLand && (haystack.includes('vacant land') || haystack.includes('nab088')) ? 8 : 0) +
+      (scenario.commercial && haystack.includes('commercial contract') ? 8 : 0) +
+      (scenario.backup && haystack.includes('backup') ? 5 : 0) +
+      (scenario.saleContingent && haystack.includes('cr-7v') ? 5 : 0) +
+      (scenario.condo && haystack.includes('condo') ? 4 : 0) +
+      (scenario.hoa && haystack.includes('hoa') ? 4 : 0) +
+      (scenario.cash && haystack.includes('cash') ? 2 : 0) +
+      (scenario.exchange1031 && haystack.includes('1031') ? 3 : 0) +
+      (scenario.firpta && haystack.includes('firpta') ? 3 : 0) +
+      (scenario.environmental &&
+        (haystack.includes('flood') ||
+          haystack.includes('coastal') ||
+          haystack.includes('environment') ||
+          haystack.includes('cccl') ||
+          haystack.includes('wetland'))
+        ? 3
+        : 0);
+
     const penalties =
       (haystack.includes('addendum') ? 2 : 0) +
       (haystack.includes('amendment') ? 2 : 0) +
       (haystack.includes('disclosure') ? 1 : 0) +
       (haystack.includes('worksheet') ? 1 : 0) +
-      (haystack.includes('profile') ? 1 : 0);
+      (haystack.includes('profile') ? 1 : 0) +
+      (haystack.includes('sign') && haystack.includes('requirement') ? 8 : 0);
     const locationBonus =
       (hints.preferFlorida && (haystack.includes('florida') || haystack.includes('forms/florida'))) ? 5 : 0;
-    const naborPenalty = hints.preferFlorida && !hints.wantsNabor && haystack.includes('nabor') ? 4 : 0;
+    const naplesBonus = hints.wantsNaples && haystack.includes('sales contract') ? 6 : 0;
+    const naborPenalty =
+      (!hints.wantsNabor && !hints.wantsNaples && haystack.includes('nabor') ? 2 : 0) +
+      (hints.preferFlorida && !hints.wantsNabor && haystack.includes('nabor') ? 3 : 0);
     const naborBonus = hints.wantsNabor && haystack.includes('nabor') ? 3 : 0;
-    return base + bonuses + locationBonus + naborBonus - penalties - naborPenalty;
+    return base + bonuses + scenarioBonuses + locationBonus + naplesBonus + naborBonus - penalties - naborPenalty;
   }
 
   private computeFormSearchHints(lowerQuery: string): FormSearchHints {
-    const preferFlorida =
-      lowerQuery.includes('florida') ||
-      lowerQuery.includes('naples') ||
-      lowerQuery.includes(' fl ');
-    const wantsNabor = lowerQuery.includes('nabor');
+    const flAbbrev = /\bfl\b/.test(lowerQuery);
+    const preferFlorida = lowerQuery.includes('florida') || lowerQuery.includes('naples') || flAbbrev;
     const wantsNaples = lowerQuery.includes('naples');
-    return { preferFlorida, wantsNabor, wantsNaples };
+    const wantsNabor = lowerQuery.includes('nabor') || wantsNaples;
+    const wantsFannie = lowerQuery.includes('fannie');
+    return { preferFlorida, wantsNabor, wantsNaples, wantsFannie };
+  }
+
+  private buildContractGuardrail(params: { hints: FormSearchHints; scenario: FormScenario; lowerQuery: string }): string | null {
+    const { hints, scenario, lowerQuery } = params;
+    const normalizedQuery = lowerQuery.replace(/[\u2010-\u2015]/g, '-'); // normalize hyphen-like chars
+    const hasAsIsCue = /\bas[\s-]?is\b/.test(normalizedQuery);
+    const hasNoHoaCue = /\b(no hoa|without hoa|not in an hoa|no hoa fees|non-hoa|non hoa|zero hoa)\b/.test(
+      normalizedQuery
+    );
+    const preferNabor = hints.wantsNabor;
+    const preferFlorida = hints.preferFlorida || !preferNabor;
+
+    const normalized: FormScenario = { ...scenario };
+    const assumptions: string[] = [];
+
+    // Extra safety: treat explicit cues as overrides.
+    if (hasAsIsCue) {
+      normalized.residentialAsIs = true;
+      normalized.residentialImproved = false;
+    }
+    if (hasNoHoaCue) {
+      normalized.hoa = false;
+    }
+
+    const hasPrimary =
+      normalized.residentialImproved ||
+      normalized.residentialAsIs ||
+      normalized.vacantLand ||
+      normalized.commercial ||
+      normalized.rental;
+
+    if (!hasPrimary) {
+      normalized.residentialImproved = true;
+      assumptions.push('Defaulted to residential improved.');
+    }
+
+    if (normalized.residentialAsIs) {
+      normalized.residentialImproved = false;
+    }
+
+    if (normalized.vacantLand || normalized.commercial || normalized.rental) {
+      normalized.residentialAsIs = false;
+      normalized.residentialImproved = false;
+    }
+
+    let primary = preferNabor
+      ? 'NABOR Sales Contract – Residential Improved Property (NAB087)'
+      : 'Florida Residential Contract for Sale and Purchase (CSP-15)';
+
+    if (normalized.vacantLand) {
+      primary = preferNabor
+        ? 'NABOR Sales Contract – Residential Vacant Land (NAB088)'
+        : 'Florida Residential Vacant Land Contract';
+    } else if (normalized.commercial) {
+      primary = 'Florida Commercial Contract';
+    } else if (normalized.rental) {
+      primary = 'Florida Residential Lease (long-form)';
+    } else if (normalized.residentialAsIs) {
+      primary = preferNabor
+        ? 'NABOR Sales Contract – As Is Residential Improved (NAB089)'
+        : 'Florida AS IS Residential Contract (ASIS-7)';
+    } else if (hints.wantsFannie) {
+      primary = 'Fannie Mae Purchase and Sale Contract';
+    }
+
+    const addenda: string[] = [];
+    if (normalized.backup) addenda.push('Back-Up Contract Addendum (CR-7 / NAB013)');
+    if (normalized.saleContingent) addenda.push("Sale of Buyer's Property Contingency (CR-7V / NAB010)");
+    if (normalized.condo) addenda.push('Condominium Rider / Disclosure');
+    if (normalized.hoa) addenda.push('HOA / Community Disclosure');
+    if (normalized.cash) addenda.push('Cash proof-of-funds / appraisal waiver note');
+    if (normalized.exchange1031) addenda.push('1031 Exchange Addendum');
+    if (normalized.firpta) addenda.push('FIRPTA Certification / Withholding Addendum');
+    if (normalized.environmental) addenda.push('Environmental / Flood / Coastal Rider');
+    if (normalized.newConstruction) addenda.push('New Construction / Builder Addendum');
+    if (normalized.preTouring) addenda.push('Pre-Touring / Access Agreement');
+
+    if (preferNabor) {
+      assumptions.push('Detected Naples / NABOR cues; recommending NABOR forms.');
+    } else if (hints.wantsFannie) {
+      assumptions.push('Detected Fannie cues; recommending Fannie Mae contract.');
+    } else if (preferFlorida) {
+      assumptions.push('Defaulting to Florida FAR/BAR contracts.');
+    } else {
+      assumptions.push('Jurisdiction not specified; defaulting to Florida contracts.');
+    }
+
+    const lines = ['Contract guardrails:'];
+    lines.push(`- Primary: ${primary}`);
+    lines.push(
+      addenda.length
+        ? `- Addenda: ${addenda.join('; ')}`
+        : '- Addenda: none recommended based on detected scenario.'
+    );
+    if (assumptions.length) {
+      lines.push(`- Assumptions: ${assumptions.join(' ')}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  private detectFormScenario(lowerQuery: string): FormScenario {
+    const normalized = lowerQuery.replace(/[\u2012-\u2015]/g, '-'); // normalize em/en dashes to hyphen
+    const hasAny = (needles: string[]) => needles.some((w) => normalized.includes(w));
+    const residentialAsIs = hasAny(['as is', 'as-is', 'asis']);
+    const residentialImproved = hasAny(['standard', 'improved', 'regular']) || (!residentialAsIs && hasAny(['home', 'house', 'residential']));
+    const vacantLand = hasAny(['vacant land', 'vacant', 'lot', 'parcel', 'raw land']);
+    const commercial = hasAny(['commercial', 'retail', 'industrial', 'office', 'income', 'multi-unit']);
+    const backup = hasAny(['backup', 'back-up']);
+    const saleContingent = hasAny(['contingent on sale', 'home sale contingency', 'must sell', 'sell my home']);
+    const condo = hasAny(['condo', 'condominium']);
+    let hoa = hasAny(['hoa', 'homeowners association', 'community']);
+    const cash = hasAny(['cash offer', 'cash purchase', 'cash buyer', 'cash deal', 'all cash', 'cash-only', 'cash only']);
+    const exchange1031 = hasAny(['1031']);
+    const firpta = hasAny(['firpta', 'foreign seller']);
+    const newConstruction = hasAny(['new construction', 'pre-construction', 'builder']);
+    const rental = hasAny(['rental', 'lease', 'property management']);
+    const preTouring = hasAny(['pre touring', 'pre-touring', 'buyer access', 'access agreement']);
+    const environmental = hasAny(['flood', 'coastal', 'environment', 'cccl', 'wetland']);
+
+    return {
+      residentialImproved,
+      residentialAsIs,
+      vacantLand,
+      commercial,
+      backup,
+      saleContingent,
+      condo: condo && !/\bno condo\b/.test(normalized),
+      hoa: hoa && !/\b(no hoa|without hoa|not in an hoa|non-hoa|non hoa)\b/.test(normalized),
+      cash,
+      exchange1031,
+      firpta,
+      newConstruction,
+      rental,
+      preTouring,
+      environmental
+    };
+  }
+
+  private rerankForms(
+    entries: FormEntry[],
+    terms: string[],
+    hints: FormSearchHints,
+    scenario: FormScenario
+  ): FormEntry[] {
+    return entries
+      .map((entry) => {
+        const haystack = `${entry.title} ${entry.jurisdiction ?? ''} ${entry.s3Key ?? ''}`.toLowerCase();
+        return { entry, score: this.scoreFormMatch(haystack, terms, hints, scenario) };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ entry }) => entry);
   }
 
   private titleFromKey(key: string): string {

@@ -42,12 +42,19 @@ const TOOL_CATALOG: Record<
   }
 };
 
+const normalizePersonaKey = (key: string): PersonaId =>
+  key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase() as PersonaId;
+
 export function CopilotDock({ debug = false }: { debug?: boolean }) {
   const [open, setOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [context, setContext] = useState<CopilotContext | undefined>(undefined);
   const [usageStats, setUsageStats] = useState<AiEmployeeUsageStats[] | null>(null);
   const [selectedKey, setSelectedKey] = useState<PersonaId | null>(PERSONAS[0]?.id ?? null);
+  const hatchPersona = useMemo(() => PERSONAS.find((p) => p.id === 'hatch_assistant'), []);
   const {
     personas,
     loading: personaLoading,
@@ -85,9 +92,21 @@ export function CopilotDock({ debug = false }: { debug?: boolean }) {
   }, [personaMap]);
 
   useEffect(() => {
-    const openHandler = () => setOpen(true);
+    const openHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ personaId?: PersonaId }>).detail;
+      if (detail?.personaId) {
+        setSelectedKey(detail.personaId);
+      }
+      setOpen(true);
+    };
     const closeHandler = () => setOpen(false);
-    const toggleHandler = () => setOpen((prev) => !prev);
+    const toggleHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ personaId?: PersonaId }>).detail;
+      if (detail?.personaId) {
+        setSelectedKey(detail.personaId);
+      }
+      setOpen((prev) => !prev);
+    };
     const onContext = (event: Event) => {
       const detail = (event as CustomEvent<CopilotContext | undefined>).detail ?? undefined;
       setContext(detail);
@@ -124,7 +143,12 @@ export function CopilotDock({ debug = false }: { debug?: boolean }) {
     getAiEmployeeUsageStats()
       .then((data) => {
         if (isMounted) {
-          setUsageStats(data);
+          setUsageStats(
+            data.map((stat) => ({
+              ...stat,
+              personaKey: normalizePersonaKey(stat.personaKey)
+            }))
+          );
         }
       })
       .catch((error) => {
@@ -246,11 +270,14 @@ export function CopilotDock({ debug = false }: { debug?: boolean }) {
         <button
           type="button"
           aria-label="Open Hatch Copilot"
-          className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg"
+          className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition hover:scale-[1.02]"
           onClick={() => setOpen(true)}
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-lg font-semibold tracking-tight">
-            AI
+          <span
+            className="flex h-8 w-8 items-center justify-center rounded-full text-lg font-semibold tracking-tight animate-pulse"
+            style={{ backgroundColor: hatchPersona?.avatarBg ?? 'rgba(37,99,235,0.14)', color: hatchPersona?.color ?? 'white' }}
+          >
+            {hatchPersona?.avatarEmoji ?? '🤖'}
           </span>
         </button>
       )}

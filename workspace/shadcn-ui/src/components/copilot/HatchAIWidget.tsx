@@ -115,7 +115,7 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
   // For animation: controls mounting/unmounting
   const [show, setShow] = React.useState(false);
   const [expanded, setExpanded] = React.useState(true);
-  const [activePersonaId, setActivePersonaId] = React.useState<PersonaId>('agent_copilot');
+  const [activePersonaId, setActivePersonaId] = React.useState<PersonaId>('hatch_assistant');
   const [messages, setMessages] = React.useState<UIMsg[]>([]);
   const [input, setInput] = React.useState('');
   const [isSending, setIsSending] = React.useState(false);
@@ -295,7 +295,7 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
         }}
         className="fixed bottom-6 right-6 z-40 flex h-12 items-center gap-2 rounded-full bg-[#1F5FFF] px-4 text-sm font-medium text-white shadow-lg antialiased [text-rendering:geometricPrecision] transition-all duration-200 motion-safe:will-change-transform scale-100 hover:scale-105 active:scale-97"
       >
-        <AiPersonaFace personaId="agent_copilot" size="sm" animated />
+        <AiPersonaFace personaId="hatch_assistant" size="sm" animated />
         <span>Ask Hatch AI</span>
       </button>
     );

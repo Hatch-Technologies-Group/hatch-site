@@ -9,6 +9,7 @@ type FormEntry = {
   title: string;
   jurisdiction: string;
   s3Key: string;
+  url?: string;
 };
 
 async function loadManifest(): Promise<FormEntry[]> {
@@ -33,14 +34,24 @@ async function bootstrap() {
 
   const manifest = await loadManifest();
   for (const form of manifest) {
-    const url = `https://${bucket}.s3.${region}.amazonaws.com/${form.s3Key}`;
-    // Reuse ingestLawDoc so KnowledgeDocument + OrgFile + indexing is triggered.
-    await ingestion.ingestLawDoc({
-      url,
-      title: form.title,
-      jurisdiction: form.jurisdiction,
-      organizationId: orgId
-    });
+    const url = form.url ?? `https://${bucket}.s3.${region}.amazonaws.com/${form.s3Key}`;
+    // If s3Key already exists in the bucket, skip download and just register it.
+    const usesExistingKey = Boolean(form.s3Key);
+    await ingestion.ingestLawDoc(
+      usesExistingKey
+        ? {
+            s3Key: form.s3Key,
+            title: form.title,
+            jurisdiction: form.jurisdiction,
+            organizationId: orgId
+          }
+        : {
+            url,
+            title: form.title,
+            jurisdiction: form.jurisdiction,
+            organizationId: orgId
+          }
+    );
     // eslint-disable-next-line no-console
     console.log(`Ingested form: ${form.title}`);
   }
