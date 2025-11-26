@@ -1,4 +1,5 @@
 import { apiFetch } from './hatch';
+import { ApiError } from './errors';
 
 export interface OfferIntentPayload {
   listingId: string;
@@ -58,8 +59,16 @@ export async function fetchOfferIntents(orgId: string, params?: { status?: strin
   if (params?.listingId) query.set('listingId', params.listingId);
   const qs = query.toString();
   const url = `organizations/${orgId}/offer-intents${qs ? `?${qs}` : ''}`;
-  const records = await apiFetch<OfferIntentRecord[]>(url);
-  return records ?? [];
+  try {
+    const records = await apiFetch<OfferIntentRecord[]>(url);
+    return records ?? [];
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      // Offer intents not available in this environment; treat as empty list.
+      return [];
+    }
+    throw error;
+  }
 }
 
 export async function updateOfferIntentStatus(

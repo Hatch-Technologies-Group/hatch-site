@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/hatch';
+import { ApiError } from '@/lib/api/errors';
 
 export interface AccountingIntegrationConfig {
   id: string;
@@ -62,7 +63,15 @@ export interface AccountingSyncStatusResponse {
 }
 
 export async function fetchAccountingSyncStatus(orgId: string): Promise<AccountingSyncStatusResponse> {
-  return apiFetch<AccountingSyncStatusResponse>(`organizations/${orgId}/accounting/sync-status`);
+  try {
+    return await apiFetch<AccountingSyncStatusResponse>(`organizations/${orgId}/accounting/sync-status`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      // Accounting not configured in this environment; return a safe empty state instead of throwing.
+      return { config: null, transactions: [], rentalLeases: [] };
+    }
+    throw error;
+  }
 }
 
 export async function connectAccounting(
