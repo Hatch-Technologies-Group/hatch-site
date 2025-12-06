@@ -1,6 +1,6 @@
 [build]
-# Force Railway to use the monorepo Dockerfile and Node 22
-builder = "docker"
+# Use the repo Dockerfile in this directory
+builder = "Dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
