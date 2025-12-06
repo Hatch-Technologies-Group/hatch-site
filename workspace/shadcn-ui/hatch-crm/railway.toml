@@ -1,0 +1,8 @@
+[build]
+# Force Railway to use the monorepo Dockerfile and Node 22
+builder = "docker"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Start command for the API service
+startCommand = "pnpm --filter @hatch/api start"
