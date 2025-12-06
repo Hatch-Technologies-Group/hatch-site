@@ -15,5 +15,5 @@ RUN pnpm install --frozen-lockfile --prod=false
 # Build API (and generate Prisma client)
 RUN pnpm --filter @hatch/db run generate && pnpm --filter @hatch/api run build:dist
 
-# Start the API
-CMD ["pnpm", "--filter", "@hatch/api", "start"]
+# Run migrations on startup (idempotent) then start the API
+CMD ["sh", "-c", "pnpm --filter @hatch/db migrate && pnpm --filter @hatch/api start"]

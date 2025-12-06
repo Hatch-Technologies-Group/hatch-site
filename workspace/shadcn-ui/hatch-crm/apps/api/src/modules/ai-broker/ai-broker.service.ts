@@ -3,7 +3,14 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { NotificationType, OrgEventType, WorkflowTaskTrigger, UserRole } from '@hatch/db';
+import {
+  ComplianceStatus,
+  NotificationType,
+  OrgEventType,
+  WorkflowTaskStatus,
+  WorkflowTaskTrigger,
+  UserRole
+} from '@hatch/db';
 
 import { PrismaService } from '@/modules/prisma/prisma.service';
 import { AiService } from '@/modules/ai/ai.service';
@@ -20,6 +27,17 @@ import { EvaluateComplianceDto } from './dto/evaluate-compliance.dto';
 import { ComplianceEvaluationResponseDto } from './dto/compliance-evaluation-response.dto';
 
 type JsonValue = Record<string, any> | null;
+type RiskSeverity = 'LOW' | 'MEDIUM' | 'HIGH';
+type RiskSignal = {
+  source: string;
+  code: string;
+  severity: RiskSeverity;
+  description?: string;
+  category?: string;
+  ttlHours?: number;
+  detectedAt?: string;
+  meta?: Record<string, any>;
+};
 
 @Injectable()
 export class AiBrokerService {
@@ -164,6 +182,8 @@ export class AiBrokerService {
           actorId
         );
       }
+
+      await this.recomputeAgentRisk(orgId, listing.agentProfileId);
     }
 
     await this.orgEvents.logOrgEvent({
@@ -233,6 +253,8 @@ export class AiBrokerService {
           actorId
         );
       }
+
+      await this.recomputeAgentRisk(orgId, transaction.agentProfileId);
     }
 
     await this.orgEvents.logOrgEvent({
@@ -254,6 +276,70 @@ export class AiBrokerService {
     }
   }
 
+  private computeRiskScore(signals: RiskSignal[], now = new Date()) {
+    const pointsBySeverity: Record<RiskSeverity, number> = {
+      LOW: 5,
+      MEDIUM: 15,
+      HIGH: 30
+    };
+    const categoryCap = 40;
+    const categoryTotals = new Map<string, number>();
+
+    const effectiveSignals = signals.filter((signal) => {
+      if (!signal.ttlHours) return true;
+      const detectedAt = signal.detectedAt ? new Date(signal.detectedAt) : now;
+      const expiresAt = detectedAt.getTime() + signal.ttlHours * 60 * 60 * 1000;
+      return expiresAt >= now.getTime();
+    });
+
+    let total = 0;
+    for (const signal of effectiveSignals) {
+      const categoryKey = signal.category ?? signal.source;
+      const already = categoryTotals.get(categoryKey) ?? 0;
+      const available = Math.max(0, categoryCap - already);
+      const add = Math.min(pointsBySeverity[signal.severity] ?? 0, available);
+      if (add > 0) {
+        categoryTotals.set(categoryKey, already + add);
+        total += add;
+      }
+    }
+
+    const clamped = Math.min(100, total);
+    const level: RiskSeverity = clamped >= 70 ? 'HIGH' : clamped >= 35 ? 'MEDIUM' : 'LOW';
+    const severityOrder: Record<RiskSeverity, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const reasons = [...effectiveSignals]
+      .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity])
+      .slice(0, 5)
+      .map((signal) => ({
+        code: signal.code,
+        source: signal.source,
+        severity: signal.severity,
+        description: signal.description
+      }));
+
+    return { score: clamped, level, reasons, signals: effectiveSignals };
+  }
+
+  private upsertRiskSignals(existing: unknown, signals: RiskSignal[]): Record<string, any> {
+    const base =
+      existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...(existing as Record<string, any>) } : {};
+    base.riskSignals = this.trimSignalsForStorage(signals);
+    return base;
+  }
+
+  private trimSignalsForStorage(signals: RiskSignal[]): RiskSignal[] {
+    return signals.slice(0, 12).map((signal) => ({
+      source: signal.source,
+      code: signal.code,
+      severity: signal.severity,
+      description: signal.description,
+      category: signal.category,
+      detectedAt: signal.detectedAt ?? new Date().toISOString(),
+      ttlHours: signal.ttlHours,
+      meta: signal.meta
+    }));
+  }
+
   private mergeRiskFlags(existing: unknown, entry: Record<string, unknown>): Record<string, any> {
     const base =
       existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...(existing as Record<string, any>) } : {};
@@ -261,6 +347,237 @@ export class AiBrokerService {
     history.push(entry);
     base.aiCompliance = history.slice(-5);
     return base;
+  }
+
+  private buildAgentSignals(profile: {
+    id: string;
+    organizationId: string;
+    isCompliant: boolean;
+    requiresAction: boolean;
+    riskFlags: any;
+    licenseExpiresAt: Date | null;
+    ceHoursRequired: number | null;
+    ceHoursCompleted: number | null;
+    memberships: Array<{ status: string; expiresAt: Date | null; type: string; name: string }>;
+  }): RiskSignal[] {
+    const now = new Date();
+    const msInDay = 24 * 60 * 60 * 1000;
+    const signals: RiskSignal[] = [];
+
+    const daysToExpiry = profile.licenseExpiresAt
+      ? Math.floor((profile.licenseExpiresAt.getTime() - now.getTime()) / msInDay)
+      : null;
+    if (daysToExpiry !== null) {
+      if (daysToExpiry < 0) {
+        signals.push({
+          source: 'LICENSE',
+          code: 'LICENSE_EXPIRED',
+          severity: 'HIGH',
+          description: `License expired ${Math.abs(daysToExpiry)} day(s) ago`,
+          category: 'COMPLIANCE'
+        });
+      } else if (daysToExpiry <= 30) {
+        signals.push({
+          source: 'LICENSE',
+          code: 'LICENSE_EXPIRING_SOON',
+          severity: 'MEDIUM',
+          description: `License expires in ${daysToExpiry} day(s)`,
+          category: 'COMPLIANCE'
+        });
+      }
+    }
+
+    if (profile.ceHoursRequired && profile.ceHoursCompleted !== null) {
+      const gap = profile.ceHoursRequired - profile.ceHoursCompleted;
+      if (gap > 0) {
+        const completionRatio = profile.ceHoursCompleted / profile.ceHoursRequired;
+        const severity: RiskSeverity = completionRatio < 0.5 ? 'HIGH' : 'MEDIUM';
+        signals.push({
+          source: 'CE',
+          code: 'CE_HOURS_INCOMPLETE',
+          severity,
+          description: `CE gap of ${gap} hour(s) (${profile.ceHoursCompleted}/${profile.ceHoursRequired})`,
+          category: 'TRAINING',
+          meta: { gap, required: profile.ceHoursRequired, completed: profile.ceHoursCompleted }
+        });
+      }
+    }
+
+    for (const membership of profile.memberships ?? []) {
+      const status = (membership.status ?? '').toUpperCase();
+      if (status === 'EXPIRED') {
+        signals.push({
+          source: 'MEMBERSHIP',
+          code: 'MEMBERSHIP_EXPIRED',
+          severity: 'HIGH',
+          description: `${membership.name} membership expired`,
+          category: 'COMPLIANCE'
+        });
+      } else if (status === 'PENDING') {
+        signals.push({
+          source: 'MEMBERSHIP',
+          code: 'MEMBERSHIP_PENDING',
+          severity: 'MEDIUM',
+          description: `${membership.name} membership pending`,
+          category: 'COMPLIANCE'
+        });
+      } else if (membership.expiresAt) {
+        const days = Math.floor((membership.expiresAt.getTime() - now.getTime()) / msInDay);
+        if (days <= 30) {
+          signals.push({
+            source: 'MEMBERSHIP',
+            code: 'MEMBERSHIP_EXPIRING_SOON',
+            severity: 'MEDIUM',
+            description: `${membership.name} expires in ${days} day(s)`,
+            category: 'COMPLIANCE'
+          });
+        }
+      }
+    }
+
+    if (!profile.isCompliant || profile.requiresAction) {
+      signals.push({
+        source: 'AGENT_COMPLIANCE',
+        code: profile.requiresAction ? 'ACTION_REQUIRED' : 'NON_COMPLIANT',
+        severity: profile.requiresAction ? 'HIGH' : 'MEDIUM',
+        description: profile.requiresAction ? 'Agent flagged for broker action' : 'Agent is marked non-compliant',
+        category: 'COMPLIANCE'
+      });
+    }
+
+    const aiHistory = Array.isArray((profile.riskFlags as any)?.aiCompliance)
+      ? (profile.riskFlags as any).aiCompliance
+      : [];
+    for (const entry of aiHistory) {
+      const severity = this.normalizeSeverity((entry as any)?.riskLevel);
+      if (!severity) continue;
+      signals.push({
+        source: 'AI',
+        code: 'AI_COMPLIANCE',
+        severity,
+        description: (entry as any)?.summary ?? 'AI compliance review',
+        category: 'AI',
+        detectedAt: (entry as any)?.timestamp
+      });
+    }
+
+    const storedSignals = Array.isArray((profile.riskFlags as any)?.riskSignals)
+      ? (profile.riskFlags as any).riskSignals
+      : [];
+    for (const entry of storedSignals) {
+      const severity = this.normalizeSeverity((entry as any)?.severity);
+      if (!severity) continue;
+      signals.push({
+        source: (entry as any)?.source ?? 'HISTORICAL',
+        code: (entry as any)?.code ?? 'HISTORICAL_SIGNAL',
+        severity,
+        description: (entry as any)?.description,
+        category: (entry as any)?.category,
+        detectedAt: (entry as any)?.detectedAt
+      });
+    }
+
+    return signals;
+  }
+
+  private normalizeSeverity(value: any): RiskSeverity | null {
+    if (value === 'HIGH' || value === 'MEDIUM' || value === 'LOW') return value;
+    return null;
+  }
+
+  async recomputeAgentRisk(orgId: string, agentProfileId: string) {
+    const [profile, openTransactions, failingDocs, openTasks] = await Promise.all([
+      this.prisma.agentProfile.findUnique({
+        where: { id: agentProfileId },
+        include: { memberships: true }
+      }),
+      this.prisma.orgTransaction.count({
+        where: { organizationId: orgId, agentProfileId, requiresAction: true }
+      }),
+      this.prisma.orgFile.count({
+        where: {
+          orgId: orgId,
+          complianceStatus: { in: [ComplianceStatus.FAILED, ComplianceStatus.PENDING] },
+          OR: [
+            { listing: { agentProfileId } },
+            { transaction: { agentProfileId } }
+          ]
+        }
+      }),
+      this.prisma.agentWorkflowTask.count({
+        where: {
+          organizationId: orgId,
+          agentProfileId,
+          status: { in: [WorkflowTaskStatus.PENDING, WorkflowTaskStatus.IN_PROGRESS] }
+        }
+      })
+    ]);
+    if (!profile || profile.organizationId !== orgId) {
+      return null;
+    }
+
+    const signals = this.buildAgentSignals({
+      id: profile.id,
+      organizationId: profile.organizationId,
+      isCompliant: profile.isCompliant,
+      requiresAction: profile.requiresAction,
+      riskFlags: profile.riskFlags,
+      licenseExpiresAt: profile.licenseExpiresAt,
+      ceHoursRequired: profile.ceHoursRequired,
+      ceHoursCompleted: profile.ceHoursCompleted,
+      memberships: profile.memberships.map((m) => ({
+        status: m.status,
+        expiresAt: m.expiresAt,
+        type: m.type,
+        name: m.name
+      }))
+    });
+
+    if (openTransactions > 0) {
+      signals.push({
+        source: 'TRANSACTION',
+        code: 'OPEN_COMPLIANCE_ISSUES',
+        severity: openTransactions > 2 ? 'HIGH' : 'MEDIUM',
+        description: `${openTransactions} transaction(s) need compliance action`,
+        category: 'COMPLIANCE'
+      });
+    }
+
+    if (failingDocs > 0) {
+      signals.push({
+        source: 'DOCUMENTS',
+        code: 'DOCS_PENDING_OR_FAILED',
+        severity: failingDocs > 2 ? 'HIGH' : 'MEDIUM',
+        description: `${failingDocs} document(s) pending or failed compliance`,
+        category: 'DOCUMENTS'
+      });
+    }
+
+    if (openTasks > 0) {
+      signals.push({
+        source: 'WORKFLOW',
+        code: 'OPEN_COMPLIANCE_TASKS',
+        severity: openTasks > 3 ? 'HIGH' : 'MEDIUM',
+        description: `${openTasks} compliance tasks open`,
+        category: 'WORKFLOW'
+      });
+    }
+
+    const { score, level, signals: normalizedSignals } = this.computeRiskScore(signals);
+    const requiresAction = profile.requiresAction || level !== 'LOW';
+    const nextFlags = this.upsertRiskSignals(profile.riskFlags, normalizedSignals);
+
+    await this.prisma.agentProfile.update({
+      where: { id: profile.id },
+      data: {
+        riskScore: score,
+        riskLevel: level,
+        riskFlags: nextFlags,
+        requiresAction
+      }
+    });
+
+    return { score, level };
   }
 
   private normalizeAiAnswer(rawText: string | null, fallback: string): AiAnswerDto {
