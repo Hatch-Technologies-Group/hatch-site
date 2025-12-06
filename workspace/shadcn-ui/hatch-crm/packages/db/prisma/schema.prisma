@@ -1199,7 +1199,6 @@ model VectorChunk {
   chunkIndex  Int                    @map("chunk_index")
   content     String
   embeddingF8 Float[]                @map("embedding_f8")
-  embeddingV  Unsupported("vector")? @map("embedding_v")
   meta        Json?                  @map("meta")
   createdAt   DateTime               @default(now()) @map("created_at")
   tenant      Tenant                 @relation(fields: [tenantId], references: [id])

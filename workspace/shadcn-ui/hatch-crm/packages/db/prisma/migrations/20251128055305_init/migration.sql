@@ -1,6 +1,5 @@
 -- CreateExtension
 CREATE EXTENSION IF NOT EXISTS "citext";
-CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- CreateEnum
 CREATE TYPE "UserRole" AS ENUM ('BROKER', 'TEAM_LEAD', 'AGENT', 'ISA', 'MARKETING', 'LENDER', 'CONSUMER');
@@ -597,7 +596,6 @@ CREATE TABLE "VectorChunk" (
     "chunk_index" INTEGER NOT NULL,
     "content" TEXT NOT NULL,
     "embedding_f8" DOUBLE PRECISION[],
-    "embedding_v" vector,
     "meta" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

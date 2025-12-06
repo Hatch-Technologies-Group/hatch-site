@@ -4,3 +4,4 @@ node_modules
 tmp
 *.log
 Dockerfile
+apps/web/hooks/hooks
