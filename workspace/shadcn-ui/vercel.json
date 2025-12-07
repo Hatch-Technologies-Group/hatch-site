@@ -25,11 +25,11 @@
     },
     {
       "src": "/favicon.ico",
-      "dest": "favicon.svg"
+      "dest": "favicon.png"
     },
     {
-      "src": "/favicon.svg",
-      "dest": "favicon.svg"
+      "src": "/favicon.png",
+      "dest": "favicon.png"
     },
     {
       "src": "/robots.txt",
