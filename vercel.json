@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "framework": "vite",
+  "installCommand": "cd workspace/shadcn-ui && pnpm install --frozen-lockfile",
+  "buildCommand": "cd workspace/shadcn-ui && pnpm run build",
+  "outputDirectory": "workspace/shadcn-ui/dist",
+  "ignoreCommand": "echo \"using Vite site only\""
+}
