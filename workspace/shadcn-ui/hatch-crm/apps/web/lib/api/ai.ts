@@ -19,7 +19,7 @@ export async function requestAiEmailDraft(
 ): Promise<AiEmailDraftResponse> {
   return apiFetch<AiEmailDraftResponse>('ai/email-draft', {
     method: 'POST',
-    body: payload
+    body: JSON.stringify(payload)
   });
 }
 
