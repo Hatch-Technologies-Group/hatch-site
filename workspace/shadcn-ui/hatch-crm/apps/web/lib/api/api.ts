@@ -73,7 +73,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       (init.headers as Headers).set('Content-Type', 'application/json');
       init.body = JSON.stringify(options.body);
     } else {
-      init.body = options.body;
+      init.body = options.body as BodyInit;
     }
   }
 
