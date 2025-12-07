@@ -10,6 +10,6 @@ export interface RegisterConsumerPayload {
 export async function registerConsumer(payload: RegisterConsumerPayload) {
   return apiFetch<{ accessToken: string }>('auth/register-consumer', {
     method: 'POST',
-    body: payload
+    body: JSON.stringify(payload)
   });
 }

@@ -1,6 +1,6 @@
 import { ApiError, toApiError } from './errors';
 
-type BodyLike = BodyInit | Record<string, unknown> | null | undefined;
+type BodyLike = BodyInit | object | null | undefined;
 
 export interface ApiFetchOptions {
   method?: string;
