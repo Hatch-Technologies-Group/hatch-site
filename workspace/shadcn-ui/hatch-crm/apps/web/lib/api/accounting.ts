@@ -78,13 +78,13 @@ export async function connectAccounting(
 export async function syncTransactionRecord(orgId: string, transactionId: string) {
   return apiFetch<TransactionAccountingRecord>(`organizations/${orgId}/accounting/sync-transaction`, {
     method: 'POST',
-    body: { transactionId }
+    body: JSON.stringify({ transactionId })
   });
 }
 
 export async function syncRentalLeaseRecord(orgId: string, leaseId: string) {
   return apiFetch<RentalLeaseAccountingRecord>(`organizations/${orgId}/accounting/sync-lease`, {
     method: 'POST',
-    body: { leaseId }
+    body: JSON.stringify({ leaseId })
   });
 }
