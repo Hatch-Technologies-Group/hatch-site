@@ -36,6 +36,8 @@ type HatchAIWidgetProps = {
     personaId: PersonaId;
     history: UIMsg[];
   }) => Promise<{ activePersonaId: PersonaId; replies: UIMsg[] }>;
+  isOpen: boolean;
+  onClose: () => void;
 };
 
 // Enhanced Thinking Indicator Component with animations
@@ -77,7 +79,7 @@ const ThinkingIndicator: React.FC<{ isThinking: boolean }> = ({ isThinking }) =>
   );
 };
 
-export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
+export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
   // ...existing code...
   // ...existing code...
   const [showAllPersonas, setShowAllPersonas] = React.useState(false);
@@ -111,7 +113,7 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
   // Number of persona chips to show before the "+N more" button
   const SHOW_PERSONA_CHIPS = 4;
 
-  const [open, setOpen] = React.useState(false);
+  // Widget open state is now controlled by parent
   // For animation: controls mounting/unmounting
   const [show, setShow] = React.useState(false);
   const [expanded, setExpanded] = React.useState(true);
@@ -274,31 +276,19 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
 
 
   // Handle mounting/unmounting for animation
+  // Animation state for transitions
+  const [show, setShow] = React.useState(isOpen);
   React.useEffect(() => {
-    if (open && !show) {
-      // Mount first, then trigger transition on next tick
+    if (isOpen && !show) {
       setShow(true);
-    } else if (!open && show) {
-      // Delay unmount for animation
+    } else if (!isOpen && show) {
       const timeout = setTimeout(() => setShow(false), 250);
       return () => clearTimeout(timeout);
     }
-  }, [open, show]);
+  }, [isOpen, show]);
 
-  if (!open && !show) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          setShow(true);
-          setTimeout(() => setOpen(true), 10); // ensure mount before open for animation
-        }}
-        className="fixed bottom-6 right-6 z-40 flex h-12 items-center gap-2 rounded-full bg-[#1F5FFF] px-4 text-sm font-medium text-white shadow-lg antialiased [text-rendering:geometricPrecision] transition-all duration-200 motion-safe:will-change-transform scale-100 hover:scale-105 active:scale-97"
-      >
-        <AiPersonaFace personaId="hatch_assistant" size="sm" animated />
-        <span>Ask Hatch AI</span>
-      </button>
-    );
+  if (!isOpen && !show) {
+    return null;
   }
 
   return (
@@ -330,7 +320,7 @@ export function HatchAIWidget({ onSend }: HatchAIWidgetProps) {
                 className={`h-4 w-4 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
               />
             </button>
-            <button type="button" className="rounded-full p-1 hover:bg-muted" onClick={() => setOpen(false)} aria-label="Close">
+            <button type="button" className="rounded-full p-1 hover:bg-muted" onClick={onClose} aria-label="Close">
               <X className="h-4 w-4" />
             </button>
           </div>

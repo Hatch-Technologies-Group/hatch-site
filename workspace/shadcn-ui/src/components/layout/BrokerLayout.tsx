@@ -166,9 +166,7 @@ export default function BrokerLayout({ showBackButton = false }: BrokerLayoutPro
         </main>
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
         <CopilotDock debug={debug} />
-        {chatOpen && (
-          <HatchAIWidget onSend={handleWidgetSend} />
-        )}
+        <HatchAIWidget isOpen={chatOpen} onClose={() => setChatOpen(false)} onSend={handleWidgetSend} />
       </div>
     </div>
   )
