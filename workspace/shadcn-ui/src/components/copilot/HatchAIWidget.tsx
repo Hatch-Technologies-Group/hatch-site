@@ -36,8 +36,8 @@ type HatchAIWidgetProps = {
     personaId: PersonaId;
     history: UIMsg[];
   }) => Promise<{ activePersonaId: PersonaId; replies: UIMsg[] }>;
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 };
 
 // Enhanced Thinking Indicator Component with animations
@@ -96,31 +96,21 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [showAllPersonas]);
-  // Close persona modal on Escape key
-  React.useEffect(() => {
-    if (!showAllPersonas) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAllPersonas(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [showAllPersonas]);
 
   // Number of persona chips to show before the "+N more" button
   const SHOW_PERSONA_CHIPS = 4;
 
-  // Widget open state is now controlled by parent
+  const isControlled = isOpen !== undefined;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = isControlled ? Boolean(isOpen) : internalOpen;
   // For animation: controls mounting/unmounting
-  const [show, setShow] = React.useState(false);
+  const [show, setShow] = React.useState<boolean>(() => open);
   const [expanded, setExpanded] = React.useState(true);
   const [activePersonaId, setActivePersonaId] = React.useState<PersonaId>('hatch_assistant');
   const [messages, setMessages] = React.useState<UIMsg[]>([]);
   const [input, setInput] = React.useState('');
   const [isSending, setIsSending] = React.useState(false);
+  const [lastFailedMessage, setLastFailedMessage] = React.useState<string | null>(null);
   const [emailDialogOpen, setEmailDialogOpen] = React.useState(false);
   const [emailDefaults, setEmailDefaults] = React.useState({ subject: '', body: '' });
   const [pendingSendIntent, setPendingSendIntent] = React.useState(false);
@@ -235,6 +225,7 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
     }
 
     setIsSending(true);
+    setLastFailedMessage(null); // Clear any previous failure
     try {
       const sentFromPersona = sendingPersona;
       const result = await onSend({
@@ -253,12 +244,34 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
       setMessages((prev) => [...prev, ...attributed]);
     } catch (error) {
       console.error(error);
+      setLastFailedMessage(text); // Save failed message for retry
+
+      // Determine error type for better messaging
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNetworkError = errorMessage.toLowerCase().includes('network') ||
+                            errorMessage.toLowerCase().includes('fetch') ||
+                            errorMessage.toLowerCase().includes('connection');
+      const isTimeoutError = errorMessage.toLowerCase().includes('timeout');
+
+      let userFriendlyMessage = 'Sorry — something went wrong talking to your AI coworker.';
+      if (isNetworkError) {
+        userFriendlyMessage = 'Connection issue detected. Check your internet connection and try again.';
+      } else if (isTimeoutError) {
+        userFriendlyMessage = 'The request timed out. The AI might be busy — please try again.';
+      } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
+        userFriendlyMessage = 'Authentication error. You may need to sign in again.';
+      } else if (errorMessage.includes('429')) {
+        userFriendlyMessage = 'Too many requests. Please wait a moment before trying again.';
+      } else if (errorMessage.includes('500') || errorMessage.includes('502') || errorMessage.includes('503')) {
+        userFriendlyMessage = 'Server error. Our team has been notified. Please try again in a moment.';
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: 'Sorry — something went wrong talking to your AI coworker. Try again in a moment.',
+          content: userFriendlyMessage,
           personaId: sendingPersona
         }
       ]);
@@ -274,29 +287,70 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
     }
   };
 
+  const openWidget = React.useCallback(() => {
+    if (isControlled) return;
+    setShow(true);
+    setTimeout(() => setInternalOpen(true), 10);
+  }, [isControlled]);
+
+  const closeWidget = React.useCallback(() => {
+    if (!isControlled) {
+      setInternalOpen(false);
+    }
+    onClose?.();
+  }, [isControlled, onClose]);
+
 
   // Handle mounting/unmounting for animation
   React.useEffect(() => {
-    if (isOpen && !show) {
-      setShow(true);
-    } else if (!isOpen && show) {
+    if (open && !show) setShow(true);
+    else if (!open && show) {
       const timeout = setTimeout(() => setShow(false), 250);
       return () => clearTimeout(timeout);
     }
-  }, [isOpen, show]);
+  }, [open, show]);
 
-  if (!isOpen && !show) {
-    return null;
+  // Keyboard shortcut: Cmd+K (Mac) or Ctrl+K (Windows/Linux) to open
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+      if (!isControlled && (event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault(); // Prevent browser's default search behavior
+        if (!open) openWidget();
+      }
+      // ESC to close
+      if (event.key === 'Escape' && open) {
+        closeWidget();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closeWidget, isControlled, open, openWidget]);
+
+  if (!open && !show) {
+    if (isControlled) return null;
+    return (
+      <button
+        type="button"
+        onClick={openWidget}
+        aria-label="Open Hatch AI"
+        className="fixed bottom-4 sm:bottom-6 right-4 sm:right-6 z-40 flex h-14 sm:h-12 items-center gap-2 rounded-full bg-[#1F5FFF] px-4 sm:px-4 text-sm font-medium text-white shadow-lg antialiased [text-rendering:geometricPrecision] transition-all duration-200 motion-safe:will-change-transform scale-100 hover:scale-105 active:scale-95 touch-manipulation"
+      >
+        <AiPersonaFace personaId="hatch_assistant" size="sm" animated />
+        <span className="hidden sm:inline">Ask Hatch AI</span>
+      </button>
+    );
   }
 
   return (
     <div>
     <div
-      className={`fixed bottom-4 right-4 z-40 flex flex-col items-end transition-all duration-300 ease-in-out
+      className={`fixed bottom-0 sm:bottom-4 right-0 sm:right-4 left-0 sm:left-auto z-40 flex flex-col items-end transition-all duration-300 ease-in-out
         ${open ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'}`}
       style={{ willChange: 'opacity, transform' }}
     >
-      <div className="w-[460px] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <div className="w-full sm:w-[460px] max-h-[100vh] sm:max-h-[80vh] overflow-hidden rounded-t-2xl sm:rounded-2xl border border-border bg-background shadow-2xl">
         {/* HEADER */}
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-3">
@@ -318,7 +372,7 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
                 className={`h-4 w-4 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
               />
             </button>
-            <button type="button" className="rounded-full p-1 hover:bg-muted" onClick={onClose} aria-label="Close">
+            <button type="button" className="rounded-full p-1 hover:bg-muted" onClick={closeWidget} aria-label="Close">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -403,7 +457,7 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
           )}
 
           {/* MESSAGES */}
-          <div className="max-h-[300px] space-y-4 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
+          <div className="max-h-[40vh] sm:max-h-[300px] space-y-4 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
             {messages.length === 0 ? (
               <div className="rounded-xl bg-muted/60 px-3 py-3 text-[12px] text-muted-foreground">
                 Ask {persona.name} anything about{' '}
@@ -455,9 +509,22 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
             <ThinkingIndicator isThinking={isSending} />
           </div>
 
-          {/* QUICK SUGGESTIONS */}
+          {/* QUICK SUGGESTIONS / RETRY */}
           <div className="flex flex-wrap gap-1 px-4 pb-2">
-            {persona.examples.map((example) => (
+            {lastFailedMessage && (
+              <button
+                key="retry"
+                type="button"
+                onClick={() => {
+                  setInput(lastFailedMessage);
+                  setLastFailedMessage(null);
+                }}
+                className="rounded-full border border-red-300 bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors"
+              >
+                ↻ Try Again
+              </button>
+            )}
+            {!lastFailedMessage && persona.examples.map((example) => (
               <button
                 key={example}
                 type="button"
@@ -503,7 +570,12 @@ export function HatchAIWidget({ onSend, isOpen, onClose }: HatchAIWidgetProps) {
                 )}
               </Button>
             </div>
-            <p className="mt-2 text-[10px] text-muted-foreground">Press Enter to send · Shift + Enter for a new line.</p>
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              <kbd className="hidden sm:inline rounded bg-muted px-1 py-0.5">⌘K</kbd>
+              <kbd className="hidden sm:inline rounded bg-muted px-1 py-0.5 ml-1">Ctrl+K</kbd>
+              <span className="hidden sm:inline"> to open · </span>
+              Enter to send · Shift+Enter for new line
+            </p>
           </div>
         </div>
       </div>

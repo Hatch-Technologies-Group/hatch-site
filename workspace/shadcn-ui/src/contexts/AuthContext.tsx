@@ -11,6 +11,7 @@ import React, {
 } from 'react'
 import { supabase } from '@/lib/api/client'
 import { fetchSession, type SessionMembership, type SessionResponse } from '@/lib/api/session'
+import { login as backendLogin } from '@/lib/api/auth'
 
 interface AuthContextValue {
   loading: boolean
@@ -339,31 +340,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     clearDevSession()
 
-    const authOperation = () => supabase.auth.signInWithPassword({ email, password })
-    const authPromise = withRetry(authOperation, { retries: 1, baseDelayMs: 600 })
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('supabase_signin_timeout')), SIGN_IN_TIMEOUT_MS)
-    })
-
-    let authResponse: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>
+    // Try backend API login first (uses AWS Cognito)
     try {
-      authResponse = await Promise.race([authPromise, timeoutPromise])
-    } catch (error) {
-      console.warn('Supabase sign-in failed', error)
-      fallback()
-      return
-    }
+      const response = await backendLogin({ email, password })
 
-    if (authResponse.error) {
-      console.error('Supabase sign-in error', authResponse.error)
-      throw authResponse.error
-    }
+      // Store tokens in localStorage
+      localStorage.setItem('accessToken', response.accessToken)
+      localStorage.setItem('refreshToken', response.refreshToken)
 
-    setDevAuth(null)
-    try {
+      // Refresh session to pick up the new tokens
+      setDevAuth(null)
       await refresh()
     } catch (error) {
-      console.warn('Post sign-in refresh failed', error)
+      console.warn('Backend login failed', error)
+      // Fall back to dev mode in development, or throw in production
+      if (import.meta.env.DEV && allowDevFallback) {
+        fallback()
+      } else {
+        throw error
+      }
     }
   }, [refresh, setDevAuth, clearDevSession])
 

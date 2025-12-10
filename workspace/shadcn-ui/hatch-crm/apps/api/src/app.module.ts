@@ -81,6 +81,8 @@ import { QuickBooksModule } from './modules/integrations/quickbooks/quickbooks.m
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { OrgLoisModule } from './modules/org-lois/org-lois.module';
 import { AgentProfilesModule } from './modules/agent-profiles/agent-profiles.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { AgentInvitesModule } from './modules/agent-invites/agent-invites.module';
 
 const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
 const throttlerEnabled =
@@ -218,7 +220,9 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
     OrgTransactionsModule,
     QuickBooksModule,
     AccountingModule,
-    AgentProfilesModule
+    AgentProfilesModule,
+    OrganizationsModule,
+    AgentInvitesModule
   ],
   controllers: [],
   providers: [

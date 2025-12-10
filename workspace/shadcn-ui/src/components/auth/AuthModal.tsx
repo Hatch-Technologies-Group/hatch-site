@@ -11,6 +11,8 @@ import { Alert, AlertDescription } from '../ui/alert'
 import { Loader2, Apple } from 'lucide-react'
 import { getRedirectUrl } from '../../utils/url'
 import { PasswordResetModal } from './PasswordResetModal'
+import { login, registerConsumer } from '../../lib/api/auth'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -18,11 +20,12 @@ interface AuthModalProps {
   defaultView?: 'sign_in' | 'sign_up'
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  defaultView = 'sign_in' 
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  defaultView = 'sign_in'
 }) => {
+  const { refresh } = useAuth()
   const [view, setView] = useState<'sign_in' | 'sign_up'>(defaultView)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -43,45 +46,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (view === 'sign_up') {
-        const { data, error } = await supabase.auth.signUp({
+        // Use backend API for registration
+        const response = await registerConsumer({
           email,
           password,
-          options: {
-            data: {
-              first_name: firstName,
-              last_name: lastName,
-            },
-            emailRedirectTo: getRedirectUrl('/auth/callback')
-          }
+          firstName,
+          lastName
         })
-        
-        if (error) throw error
-        
-        if (data.user && !data.session) {
-          setMessage('Please check your email for the confirmation link!')
-        } else {
-          onClose()
-        }
+
+        // Store tokens in localStorage
+        localStorage.setItem('accessToken', response.accessToken)
+        localStorage.setItem('refreshToken', response.refreshToken)
+
+        // Refresh auth context to pick up the new session
+        await refresh()
+        onClose()
       } else {
         console.log('[AuthModal] signing in with password', { email })
-        const { data, error } = await supabase.auth.signInWithPassword({
+
+        // Use backend API for login
+        const response = await login({
           email,
-          password,
+          password
         })
-        console.log('[AuthModal] signInWithPassword result', { data, error })
-        
-        if (error) {
-          if (error.message.toLowerCase().includes('invalid') || 
-              error.message.toLowerCase().includes('password') ||
-              error.message.toLowerCase().includes('credentials')) {
-            setShowForgotPassword(true)
-          }
-          throw error
-        }
+
+        console.log('[AuthModal] login result', { response })
+
+        // Store tokens in localStorage
+        localStorage.setItem('accessToken', response.accessToken)
+        localStorage.setItem('refreshToken', response.refreshToken)
+
+        // Refresh auth context to pick up the new session
+        await refresh()
         onClose()
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      if (errorMessage.toLowerCase().includes('invalid') ||
+          errorMessage.toLowerCase().includes('password') ||
+          errorMessage.toLowerCase().includes('credentials')) {
+        setShowForgotPassword(true)
+      }
       setError(errorMessage)
     } finally {
       setLoading(false)
