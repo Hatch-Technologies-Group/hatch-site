@@ -502,6 +502,33 @@ export class AiEmployeesService {
       reply = plan.reply;
     }
 
+    const actions = await this.handlePlanActions({
+      plan,
+      sessionId: session.id,
+      instance,
+      tenantId: input.tenantId,
+      orgId: input.orgId,
+      actorId: input.userId,
+      actorRole: input.actorRole ?? UserRole.AGENT,
+      allowedTools
+    });
+
+    // Attach any executed tool outputs to the assistant reply so the user sees results.
+    const executedActionIds = actions.filter((a) => a.status === ACTION_STATUS.EXECUTED).map((a) => a.id);
+    if (executedActionIds.length > 0) {
+      const outputs = await this.prisma.aiExecutionLog.findMany({
+        where: { proposedActionId: { in: executedActionIds }, success: true },
+        orderBy: { createdAt: 'desc' },
+        take: 3
+      });
+      const summaries = outputs
+        .map((o) => this.humanizeToolResult(o.toolKey ?? 'tool', o.output))
+        .filter((text) => text && text.trim().length > 0);
+      if (summaries.length > 0) {
+        reply = `${reply}\n\nResults:\n${summaries.join('\n')}`;
+      }
+    }
+
     await this.recordConversationLog({
       employeeInstanceId: instance.id,
       sessionId: session.id,
@@ -514,17 +541,6 @@ export class AiEmployeesService {
     await this.prisma.aiEmployeeSession.update({
       where: { id: session.id },
       data: { lastInteractionAt: new Date() }
-    });
-
-    const actions = await this.handlePlanActions({
-      plan,
-      sessionId: session.id,
-      instance,
-      tenantId: input.tenantId,
-      orgId: input.orgId,
-      actorId: input.userId,
-      actorRole: input.actorRole ?? UserRole.AGENT,
-      allowedTools
     });
 
     return {
@@ -611,7 +627,7 @@ export class AiEmployeesService {
       results.push(dto);
     }
 
-    return results;
+    return this.hydrateActionResults(results);
   }
 
   async executeProposedAction(params: {
@@ -663,7 +679,9 @@ export class AiEmployeesService {
     }
 
     const refreshed = await this.prisma.aiProposedAction.findUnique({ where: { id: action.id } });
-    return this.toActionDto(refreshed ?? updatedAction);
+    const dto = this.toActionDto(refreshed ?? updatedAction);
+    const [hydrated] = await this.hydrateActionResults([dto]);
+    return hydrated;
   }
 
   private async executeActionRecord(
@@ -1153,8 +1171,67 @@ export class AiEmployeesService {
       errorMessage: row.errorMessage ?? null,
       executedAt: row.executedAt ? row.executedAt.toISOString() : null,
       sessionId: row.sessionId ?? null,
-      dryRun: Boolean(actionWithDryRun.dryRun)
+      dryRun: Boolean(actionWithDryRun.dryRun),
+      result: null
     };
+  }
+
+  private async hydrateActionResults(actions: AiEmployeeActionDto[]): Promise<AiEmployeeActionDto[]> {
+    const executedIds = actions.filter((a) => a.status === ACTION_STATUS.EXECUTED).map((a) => a.id);
+    if (executedIds.length === 0) return actions;
+
+    const logs = await this.prisma.aiExecutionLog.findMany({
+      where: { proposedActionId: { in: executedIds }, success: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    const latestByAction = new Map<string, any>();
+    for (const log of logs) {
+      if (!log.proposedActionId) continue;
+      if (latestByAction.has(log.proposedActionId)) continue;
+      latestByAction.set(log.proposedActionId, log.output);
+    }
+    return actions.map((action) => {
+      if (action.status === ACTION_STATUS.EXECUTED && latestByAction.has(action.id)) {
+        const output = latestByAction.get(action.id);
+        const normalized =
+          output && typeof output === 'object' && !Array.isArray(output)
+            ? (output as Prisma.JsonObject)
+            : ({ value: output } as Prisma.JsonObject);
+        const pretty = this.humanizeToolResult(action.actionType, normalized);
+        const rendered = pretty ?? null;
+        return { ...action, payload: normalized, result: normalized, replyText: rendered } as AiEmployeeActionDto & {
+          replyText?: string | null;
+        };
+      }
+      return action;
+    });
+  }
+
+  private humanizeToolResult(tool: string, result: Prisma.JsonValue | null | undefined): string | null {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      try {
+        return result ? String(result) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    if (tool === 'get_daily_summary') {
+      const totals = (result['totals'] as Record<string, unknown>) ?? {};
+      const tasks = (result['tasks'] as Record<string, unknown>) ?? {};
+      const newLeads = totals['newLeads'] ?? 0;
+      const idleLeads = totals['idleLeads'] ?? 0;
+      const activeLeads = totals['activeLeads'] ?? 0;
+      const openTasks = tasks['open'] ?? 0;
+      const dueSoon = tasks['dueSoon'] ?? 0;
+      return `Daily summary: ${newLeads} new leads, ${activeLeads} active, ${idleLeads} idle. Tasks: ${openTasks} open, ${dueSoon} due soon.`;
+    }
+
+    try {
+      return `${tool}: ${JSON.stringify(result)}`;
+    } catch {
+      return null;
+    }
   }
 
   private async logActionReview(

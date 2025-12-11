@@ -135,6 +135,9 @@ export class AiEmployeeActionDto {
 
   @ApiProperty()
   dryRun!: boolean;
+
+  @ApiPropertyOptional({ type: 'object', additionalProperties: true, nullable: true })
+  result?: Record<string, unknown> | null;
 }
 
 export class AiEmployeeChatResponseDto {
