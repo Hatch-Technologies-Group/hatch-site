@@ -39,6 +39,7 @@ const DEV_TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant-hatch'
 const DEV_ORG_ID = import.meta.env.VITE_ORG_ID || 'org-hatch'
 const SIGN_IN_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_SIGNIN_TIMEOUT_MS ?? 8000)
 const DEV_AUTH_CACHE_KEY = 'hatch_dev_auth'
+const AUTH_STORAGE_KEY = 'hatch_auth_tokens'
 const DEMO_MODE_ENABLED = (import.meta.env.VITE_DEMO_MODE ?? 'false').toLowerCase() === 'true'
 const DEMO_ORG_ID = import.meta.env.VITE_DEMO_ORG_ID || DEV_ORG_ID
 const CAN_CACHE_AUTH = import.meta.env.DEV || DEMO_MODE_ENABLED
@@ -326,12 +327,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Store tokens in localStorage
       localStorage.setItem('accessToken', response.accessToken)
       localStorage.setItem('refreshToken', response.refreshToken)
+      localStorage.setItem(
+        AUTH_STORAGE_KEY,
+        JSON.stringify({
+          accessToken: response.accessToken,
+          refreshToken: response.refreshToken,
+          user: { id: response.user.id, role: response.user.role }
+        })
+      )
 
       // Refresh session to pick up the new tokens
       setDevAuth(null)
       await refresh()
     } catch (error) {
       console.warn('Backend login failed', error)
+      if (options?.allowDevFallback && import.meta.env.DEV) {
+        const session = buildDevSession(email)
+        setDevAuth(session)
+        return
+      }
       setStatus('unauthenticated')
       throw error
     }
@@ -342,6 +356,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setDevAuth(null)
       return
     }
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem(AUTH_STORAGE_KEY)
     await supabase.auth.signOut()
     applySupabaseSession(null)
   }, [devSession, setDevAuth, applySupabaseSession])
