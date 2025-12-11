@@ -154,7 +154,6 @@ export default function Register() {
             onClick={() => navigate('/')}
             className="flex items-center text-blue-600 hover:text-blue-700"
           >
-            <HomeIcon className="h-5 w-5 mr-2" />
             <HatchLogo className="h-12 md:h-16" />
           </Button>
         </div>
