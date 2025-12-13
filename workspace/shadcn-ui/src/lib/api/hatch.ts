@@ -2040,6 +2040,9 @@ export interface AiEmployeeAction {
   errorMessage?: string | null;
   executedAt?: string | null;
   sessionId?: string | null;
+  result?: Record<string, unknown> | null;
+  replyText?: string | null;
+  dryRun?: boolean;
 }
 
 export interface AiEmployeeChatResponse {
@@ -2114,6 +2117,7 @@ export async function chatAiPersona(payload: {
   text: string;
   currentPersonaId: PersonaId;
   history?: PersonaChatMessage[];
+  forceCurrentPersona?: boolean;
 }): Promise<PersonaChatResponse> {
   return apiFetch('ai/personas/chat', {
     method: 'POST',

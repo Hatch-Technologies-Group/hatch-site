@@ -2049,6 +2049,172 @@ async function main() {
     }
   });
 
+  const now = new Date();
+
+  // Additional demo leads so lead scoring / prioritization can be exercised.
+  const demoLeads: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    primaryEmail: string;
+    primaryPhone: string;
+    ownerId: string;
+    stage: 'NEW' | 'ACTIVE';
+    tags: string[];
+    source: string;
+    leadScore: number;
+    scoreTier: LeadScoreTier;
+    stageId: string | null;
+    stageEnteredAt: Date;
+    lastActivityAt: Date;
+  }> = [
+    {
+      id: 'contact-demo-ava',
+      firstName: 'Ava',
+      lastName: 'Alvarez',
+      primaryEmail: 'ava.alvarez@hatchcrm.test',
+      primaryPhone: '+14155550125',
+      ownerId: agent.id,
+      stage: 'ACTIVE',
+      tags: ['hot', 'buyer'],
+      source: 'website',
+      leadScore: 91,
+      scoreTier: LeadScoreTier.A,
+      stageId: stageS5Id ?? stageS3Id ?? stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -20),
+      lastActivityAt: addHours(now, -2)
+    },
+    {
+      id: 'contact-demo-ben',
+      firstName: 'Ben',
+      lastName: 'Brooks',
+      primaryEmail: 'ben.brooks@hatchcrm.test',
+      primaryPhone: '+14155550126',
+      ownerId: agent.id,
+      stage: 'ACTIVE',
+      tags: ['seller'],
+      source: 'referral',
+      leadScore: 78,
+      scoreTier: LeadScoreTier.B,
+      stageId: stageS3Id ?? stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -72),
+      lastActivityAt: addHours(now, -10)
+    },
+    {
+      id: 'contact-demo-chloe',
+      firstName: 'Chloe',
+      lastName: 'Chen',
+      primaryEmail: 'chloe.chen@hatchcrm.test',
+      primaryPhone: '+14155550127',
+      ownerId: agent.id,
+      stage: 'ACTIVE',
+      tags: ['buyer'],
+      source: 'open_house',
+      leadScore: 72,
+      scoreTier: LeadScoreTier.B,
+      stageId: stageS3Id ?? stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -40),
+      lastActivityAt: addHours(now, -6)
+    },
+    {
+      id: 'contact-demo-diego',
+      firstName: 'Diego',
+      lastName: 'Diaz',
+      primaryEmail: 'diego.diaz@hatchcrm.test',
+      primaryPhone: '+14155550128',
+      ownerId: isa.id,
+      stage: 'ACTIVE',
+      tags: ['idle', 'buyer'],
+      source: 'portal',
+      leadScore: 58,
+      scoreTier: LeadScoreTier.C,
+      stageId: stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -200),
+      lastActivityAt: subDays(now, 8)
+    },
+    {
+      id: 'contact-demo-ella',
+      firstName: 'Ella',
+      lastName: 'Evans',
+      primaryEmail: 'ella.evans@hatchcrm.test',
+      primaryPhone: '+14155550129',
+      ownerId: isa.id,
+      stage: 'NEW',
+      tags: ['new-lead'],
+      source: 'instagram',
+      leadScore: 43,
+      scoreTier: LeadScoreTier.C,
+      stageId: stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -6),
+      lastActivityAt: subDays(now, 4)
+    },
+    {
+      id: 'contact-demo-finn',
+      firstName: 'Finn',
+      lastName: 'Foster',
+      primaryEmail: 'finn.foster@hatchcrm.test',
+      primaryPhone: '+14155550130',
+      ownerId: isa.id,
+      stage: 'ACTIVE',
+      tags: ['idle', 'seller'],
+      source: 'zillow',
+      leadScore: 34,
+      scoreTier: LeadScoreTier.D,
+      stageId: stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -260),
+      lastActivityAt: subDays(now, 12)
+    },
+    {
+      id: 'contact-demo-grace',
+      firstName: 'Grace',
+      lastName: 'Green',
+      primaryEmail: 'grace.green@hatchcrm.test',
+      primaryPhone: '+14155550131',
+      ownerId: agent.id,
+      stage: 'ACTIVE',
+      tags: ['hot', 'buyer'],
+      source: 'referral',
+      leadScore: 87,
+      scoreTier: LeadScoreTier.A,
+      stageId: stageS5Id ?? stageS3Id ?? stageS1Id ?? null,
+      stageEnteredAt: addHours(now, -30),
+      lastActivityAt: addHours(now, -3)
+    }
+  ];
+
+  for (const demoLead of demoLeads) {
+    const update: Prisma.PersonUncheckedUpdateInput = {
+      organizationId: organization.id,
+      tenantId: tenant.id,
+      ownerId: demoLead.ownerId,
+      firstName: demoLead.firstName,
+      lastName: demoLead.lastName,
+      primaryEmail: demoLead.primaryEmail,
+      primaryPhone: demoLead.primaryPhone,
+      stage: demoLead.stage,
+      tags: demoLead.tags,
+      source: demoLead.source,
+      pipelineId: sSeriesPipeline.pipeline.id,
+      stageId: demoLead.stageId,
+      stageEnteredAt: demoLead.stageEnteredAt,
+      leadScore: demoLead.leadScore,
+      scoreTier: demoLead.scoreTier,
+      scoreUpdatedAt: now,
+      lastActivityAt: demoLead.lastActivityAt,
+      doNotContact: false,
+      deletedAt: null
+    };
+
+    await prisma.person.upsert({
+      where: { id: demoLead.id },
+      update,
+      create: {
+        id: demoLead.id,
+        ...update
+      }
+    });
+  }
+
   await prisma.leadFit.upsert({
     where: { personId: contactWithBba.id },
     update: {

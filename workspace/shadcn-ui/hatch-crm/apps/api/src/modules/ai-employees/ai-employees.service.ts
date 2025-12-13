@@ -135,6 +135,27 @@ export class AiEmployeesService {
   }
 
   private async ensureInstancesForTenant(ctx: RequestContext) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const envAutoMode = String(process.env.AI_EMPLOYEE_DEFAULT_AUTO_MODE ?? '').trim().toLowerCase();
+    const defaultAutoMode: AiEmployeeInstance['autoMode'] =
+      envAutoMode === 'auto-run' || envAutoMode === 'requires-approval' || envAutoMode === 'suggest-only'
+        ? (envAutoMode as AiEmployeeInstance['autoMode'])
+        : isProd
+          ? 'requires-approval'
+          : 'auto-run';
+
+    // Local/dev ergonomics: keep instances usable without manual activation.
+    if (!isProd) {
+      await this.prisma.aiEmployeeInstance.updateMany({
+        where: { tenantId: ctx.tenantId, status: 'enabled' },
+        data: { status: 'active' }
+      });
+      await this.prisma.aiEmployeeInstance.updateMany({
+        where: { tenantId: ctx.tenantId, status: { not: 'deleted' }, autoMode: { not: defaultAutoMode } },
+        data: { autoMode: defaultAutoMode }
+      });
+    }
+
     const [templates, existingInstances] = await Promise.all([
       this.prisma.aiEmployeeTemplate.findMany({
         where: { isActive: true },
@@ -158,8 +179,8 @@ export class AiEmployeesService {
           data: {
             templateId: template.id,
             tenantId: ctx.tenantId,
-            status: 'enabled',
-            autoMode: 'requires-approval',
+            status: 'active',
+            autoMode: defaultAutoMode,
             settings: this.toJsonValue(template.defaultSettings),
             nameOverride: null,
             userId: null
@@ -502,32 +523,147 @@ export class AiEmployeesService {
       reply = plan.reply;
     }
 
-    const actions = await this.handlePlanActions({
-      plan,
-      sessionId: session.id,
-      instance,
+	    // Hatch orchestrator fallback: if the user explicitly mentioned other personas but the model
+	    // forgot to add the workflow tool, inject it so the delegation actually runs.
+	    if (instance.template.key === 'hatch_assistant' && allowedTools.includes('coordinate_workflow')) {
+	      const mentioned = /\b(echo|lumen|haven|atlas|nova)\b/i.test(input.message);
+	      const alreadyPlanned = plan.actions.some((action) => action.tool === 'coordinate_workflow');
+	      if (mentioned && !alreadyPlanned) {
+	        plan.actions.push({
+	          tool: 'coordinate_workflow',
+	          input: { message: input.message },
+	          requiresApproval: false
+	        });
+	      }
+
+	      const hasWorkflow = plan.actions.some((action) => action.tool === 'coordinate_workflow');
+	      if (hasWorkflow) {
+	        const replyTrimmed = (reply ?? '').trim();
+	        const looksLikePreamble =
+	          replyTrimmed.length > 0 &&
+	          replyTrimmed.length < 220 &&
+	          /\b(coordinate|workflow|loop\s+in|delegate|assign)\b/i.test(replyTrimmed) &&
+	          !/\n|- /.test(replyTrimmed);
+	        if (looksLikePreamble) {
+	          reply = '';
+	          plan.reply = '';
+	        }
+	      }
+	    }
+
+    // Echo fallback: if the user asked for lead-score prioritization but the model didn't
+    // call tools, inject get_hot_leads so we can show real CRM data.
+	    if (instance.template.key === 'agent_copilot' && allowedTools.includes('get_hot_leads')) {
+	      const message = input.message ?? '';
+	      const isMetaQuestion =
+	        /\b(what\s+(data|information|signals)|what\s+do\s+you\s+have|available\s+(data|information|signals))\b/i.test(
+	          message
+	        );
+      const asksForTargets =
+        /\b(hot\s+leads|hottest\s+leads|call\s+targets|who\s+should\s+i\s+call)\b/i.test(message) ||
+        (/\btop\s+\d+\b/i.test(message) && /\b(calls?|leads?|targets?)\b/i.test(message)) ||
+        (/\b(lead\s*score|score\s*tier)\b/i.test(message) && /\b(calls?|leads?|targets?)\b/i.test(message)) ||
+        (/\bprioritiz(e|ing)\b/i.test(message) && /\b(calls?|leads?|targets?)\b/i.test(message));
+      const wantsHotLeads = asksForTargets && !isMetaQuestion;
+
+      const topMatch = message.match(/\btop\s+(\d+)\b/i);
+      const requested = topMatch ? Number(topMatch[1]) : NaN;
+      const limit = Number.isFinite(requested) ? Math.min(50, Math.max(1, requested)) : 10;
+
+	      const alreadyPlanned = plan.actions.some((action) => action.tool === 'get_hot_leads');
+	      if (wantsHotLeads && !alreadyPlanned) {
+	        plan.actions.push({
+	          tool: 'get_hot_leads',
+	          input: { limit },
+	          requiresApproval: false
+	        });
+	      }
+
+	      if (isMetaQuestion) {
+	        reply = [
+	          '- Lead score + tier',
+	          '- Last activity (days since last touch)',
+	          '- Stage (new/active/idle)',
+	          '- Overdue/open tasks + due dates',
+	          '- Recent notes/messages (when you provide a leadId)',
+	          '- Owner/assignee (who should call)'
+	        ].join('\n');
+	        plan.reply = reply;
+	        plan.actions = [];
+	      }
+
+	      const replyLower = (reply ?? '').toLowerCase();
+	      if (wantsHotLeads && /\b(do not|don't|dont)\s+have\s+access\b|\bno\s+access\b/.test(replyLower)) {
+	        reply = `Pulling your top leads by score now.`;
+	        plan.reply = reply;
+	      }
+
+	      if (wantsHotLeads && !isMetaQuestion) {
+	        const replyTrimmed = (reply ?? '').trim();
+	        const looksLikePreamble =
+	          replyTrimmed.length > 0 &&
+	          replyTrimmed.length < 180 &&
+	          /^(i\s+will|i'?ll|retrieving|pulling|getting|fetching)\b/i.test(replyTrimmed) &&
+	          !/\n|- /.test(replyTrimmed);
+	        if (looksLikePreamble) {
+	          reply = '';
+	          plan.reply = '';
+	        }
+	      }
+	    }
+
+	    // Lumen fallback: if the user asks for follow-up texts for idle leads, inject a deterministic tool
+	    // so the response always includes draft texts (not just "I'll retrieve...").
+	    if (instance.template.key === 'lead_nurse' && allowedTools.includes('draft_idle_lead_followups')) {
+	      const message = input.message ?? '';
+	      const wantsIdleFollowups =
+	        /\bidle\b/i.test(message) &&
+	        /\bfollow[- ]?up\b/i.test(message) &&
+	        /\b(texts?|sms)\b/i.test(message) &&
+	        /\b(top\s+\d+|for\s+each|each\b|per\s+lead)\b/i.test(message);
+
+	      const topMatch = message.match(/\btop\s+(\d+)\b/i);
+	      const requested = topMatch ? Number(topMatch[1]) : NaN;
+	      const limit = Number.isFinite(requested) ? Math.min(10, Math.max(1, requested)) : 3;
+
+	      const alreadyPlanned = plan.actions.some((action) => action.tool === 'draft_idle_lead_followups');
+	      if (wantsIdleFollowups && !alreadyPlanned) {
+	        plan.actions = plan.actions.filter((action) => action.tool !== 'get_idle_leads');
+	        plan.actions.push({
+	          tool: 'draft_idle_lead_followups',
+	          input: { limit },
+	          requiresApproval: false
+	        });
+	      }
+
+	      if (wantsIdleFollowups) {
+	        reply = '';
+	        plan.reply = '';
+	      }
+	    }
+
+	    // Guard rail: prevent Lumen from running idle-lead drafting tools unless the user explicitly asked for idle leads.
+	    // This avoids unrelated "idle lead" tool outputs leaking into other requests (e.g., workflow outreach texts).
+	    if (instance.template.key === 'lead_nurse') {
+	      const msg = input.message ?? '';
+	      const mentionsIdle = /\bidle\b/i.test(msg);
+	      if (!mentionsIdle) {
+	        plan.actions = plan.actions.filter(
+	          (action) => action.tool !== 'draft_idle_lead_followups' && action.tool !== 'get_idle_leads'
+	        );
+	      }
+	    }
+
+	    const actions = await this.handlePlanActions({
+	      plan,
+	      sessionId: session.id,
+	      instance,
       tenantId: input.tenantId,
       orgId: input.orgId,
       actorId: input.userId,
       actorRole: input.actorRole ?? UserRole.AGENT,
       allowedTools
     });
-
-    // Attach any executed tool outputs to the assistant reply so the user sees results.
-    const executedActionIds = actions.filter((a) => a.status === ACTION_STATUS.EXECUTED).map((a) => a.id);
-    if (executedActionIds.length > 0) {
-      const outputs = await this.prisma.aiExecutionLog.findMany({
-        where: { proposedActionId: { in: executedActionIds }, success: true },
-        orderBy: { createdAt: 'desc' },
-        take: 3
-      });
-      const summaries = outputs
-        .map((o) => this.humanizeToolResult(o.toolKey ?? 'tool', o.output))
-        .filter((text) => text && text.trim().length > 0);
-      if (summaries.length > 0) {
-        reply = `${reply}\n\nResults:\n${summaries.join('\n')}`;
-      }
-    }
 
     await this.recordConversationLog({
       employeeInstanceId: instance.id,
@@ -1216,6 +1352,19 @@ export class AiEmployeesService {
       }
     }
 
+    const asDateString = (value: unknown): string | null => {
+      if (typeof value === 'string') return value;
+      if (value instanceof Date) return value.toISOString();
+      if (value && typeof value === 'object' && typeof (value as { toISOString?: unknown }).toISOString === 'function') {
+        try {
+          return (value as { toISOString: () => string }).toISOString();
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    };
+
     if (tool === 'get_daily_summary') {
       const totals = (result['totals'] as Record<string, unknown>) ?? {};
       const tasks = (result['tasks'] as Record<string, unknown>) ?? {};
@@ -1227,11 +1376,183 @@ export class AiEmployeesService {
       return `Daily summary: ${newLeads} new leads, ${activeLeads} active, ${idleLeads} idle. Tasks: ${openTasks} open, ${dueSoon} due soon.`;
     }
 
-    try {
-      return `${tool}: ${JSON.stringify(result)}`;
-    } catch {
-      return null;
+    if (tool === 'get_hot_leads') {
+      const requestedLimit = typeof result['requestedLimit'] === 'number' ? result['requestedLimit'] : null;
+      const availableCount = typeof result['availableCount'] === 'number' ? result['availableCount'] : null;
+      const leads = result['leads'];
+      if (Array.isArray(leads)) {
+        const lines = leads
+          .map((lead) => {
+            if (!lead || typeof lead !== 'object' || Array.isArray(lead)) return null;
+            const record = lead as Record<string, unknown>;
+            const leadId = typeof record.id === 'string' ? record.id : null;
+            const firstName = typeof record.firstName === 'string' ? record.firstName.trim() : '';
+            const lastName = typeof record.lastName === 'string' ? record.lastName.trim() : '';
+            const name = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown lead';
+            const tier = typeof record.scoreTier === 'string' ? record.scoreTier : null;
+            const score = typeof record.leadScore === 'number' ? record.leadScore : null;
+            const stage = typeof record.stage === 'string' ? record.stage : null;
+            const lastActivityAt = asDateString(record.lastActivityAt);
+            const createdAt = asDateString(record.createdAt);
+            const activityTimestamp = lastActivityAt ?? createdAt;
+            const activityDate = activityTimestamp ? new Date(activityTimestamp) : null;
+            const daysSinceActivity =
+              activityDate && Number.isFinite(activityDate.getTime())
+                ? Math.max(0, Math.round((Date.now() - activityDate.getTime()) / (1000 * 60 * 60 * 24)))
+                : null;
+            const bits = [
+              leadId ? `leadId: ${leadId}` : null,
+              tier ? `Tier ${tier}` : null,
+              typeof score === 'number' ? `score ${Math.round(score)}` : null,
+              stage ? stage.replace(/[_-]+/g, ' ').toLowerCase() : null,
+              lastActivityAt ? `last activity ${new Date(lastActivityAt).toLocaleDateString()}` : null
+            ].filter((value): value is string => Boolean(value));
+            const meta = bits.length > 0 ? ` (${bits.join(', ')})` : '';
+            const intent =
+              tier ? `Tier ${tier}` : typeof score === 'number' ? `score ${Math.round(score)}` : null;
+            const recency =
+              daysSinceActivity === 0
+                ? 'active today'
+                : typeof daysSinceActivity === 'number' && daysSinceActivity > 0
+                  ? `${daysSinceActivity}d since last activity`
+                  : null;
+            const whyParts = [intent, recency].filter((value): value is string => Boolean(value));
+            const why = whyParts.length > 0 ? ` — Why: ${whyParts.join(', ')}` : '';
+            return `- ${name}${meta}${why}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          const showingNote =
+            typeof requestedLimit === 'number' && lines.length < requestedLimit
+              ? ` (showing ${lines.length} of ${requestedLimit} requested${
+                  typeof availableCount === 'number' ? `; ${availableCount} available` : ''
+                })`
+              : '';
+          return `Hot leads${showingNote}:\n\n${lines.join('\n')}`;
+        }
+      }
     }
+
+    if (tool === 'get_idle_leads') {
+      const leads = result['leads'];
+      if (Array.isArray(leads)) {
+        const lines = leads
+          .map((lead) => {
+            if (!lead || typeof lead !== 'object' || Array.isArray(lead)) return null;
+            const record = lead as Record<string, unknown>;
+            const firstName = typeof record.firstName === 'string' ? record.firstName.trim() : '';
+            const lastName = typeof record.lastName === 'string' ? record.lastName.trim() : '';
+            const name = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown lead';
+            const tier = typeof record.scoreTier === 'string' ? record.scoreTier : null;
+            const score = typeof record.leadScore === 'number' ? record.leadScore : null;
+            const stage = typeof record.stage === 'string' ? record.stage : null;
+            const lastActivityAt = asDateString(record.lastActivityAt);
+            const createdAt = asDateString(record.createdAt);
+            const activityTimestamp = lastActivityAt ?? createdAt;
+            const activityDate = activityTimestamp ? new Date(activityTimestamp) : null;
+            const daysIdle =
+              activityDate && Number.isFinite(activityDate.getTime())
+                ? Math.max(0, Math.round((Date.now() - activityDate.getTime()) / (1000 * 60 * 60 * 24)))
+                : null;
+            const bits = [
+              tier ? `Tier ${tier}` : null,
+              typeof score === 'number' ? `score ${Math.round(score)}` : null,
+              stage ? stage.replace(/[_-]+/g, ' ').toLowerCase() : null,
+              lastActivityAt ? `last activity ${new Date(lastActivityAt).toLocaleDateString()}` : 'no recent activity',
+              typeof daysIdle === 'number' ? `${daysIdle}d idle` : null
+            ].filter((value): value is string => Boolean(value));
+            const meta = bits.length > 0 ? ` (${bits.join(', ')})` : '';
+            return `- ${name}${meta}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          return `Idle leads:\n\n${lines.join('\n')}`;
+        }
+      }
+    }
+
+    if (tool === 'draft_idle_lead_followups') {
+      const drafts = result['drafts'];
+      if (Array.isArray(drafts)) {
+        const lines = drafts
+          .map((draft) => {
+            if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null;
+            const record = draft as Record<string, unknown>;
+            const name = typeof record.name === 'string' ? record.name.trim() : null;
+            const text = typeof record.text === 'string' ? record.text.trim() : null;
+            if (!text) return null;
+            const label = name ?? 'Lead';
+            return `- ${label}: ${text}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          return `Follow-up texts (idle leads):\n\n${lines.join('\n')}`;
+        }
+      }
+    }
+
+    if (tool === 'get_overdue_tasks') {
+      const tasks = result['tasks'];
+      if (Array.isArray(tasks)) {
+        const firstTask = tasks.find((task) => task && typeof task === 'object' && !Array.isArray(task)) as
+          | Record<string, unknown>
+          | undefined;
+        const doFirstTitle = firstTask && typeof firstTask.title === 'string' ? firstTask.title.trim() : null;
+        const doFirstDueAt = firstTask ? asDateString(firstTask.dueAt) : null;
+        const doFirstLabel =
+          doFirstTitle && doFirstDueAt
+            ? `Do first: ${doFirstTitle} (due ${new Date(doFirstDueAt).toLocaleDateString()})`
+            : doFirstTitle
+              ? `Do first: ${doFirstTitle}`
+              : null;
+
+        const lines = tasks
+          .map((task) => {
+            if (!task || typeof task !== 'object' || Array.isArray(task)) return null;
+            const record = task as Record<string, unknown>;
+            const title = typeof record.title === 'string' ? record.title.trim() : 'Task';
+            const dueAt = asDateString(record.dueAt);
+            const dueLabel = dueAt ? ` (due ${new Date(dueAt).toLocaleDateString()})` : '';
+            return `- ${title}${dueLabel}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          return `${doFirstLabel ? `${doFirstLabel}\n\n` : ''}Overdue tasks:\n\n${lines.join('\n')}`;
+        }
+      }
+    }
+
+    if (tool === 'delegate_to_employee') {
+      const personaName = typeof result['personaName'] === 'string' ? result['personaName'] : null;
+      const reply = typeof result['reply'] === 'string' ? result['reply'] : typeof result['value'] === 'string' ? result['value'] : null;
+      if (reply) {
+        return personaName ? `${personaName}: ${reply}` : reply;
+      }
+    }
+
+    if (tool === 'coordinate_workflow') {
+      const results = result['results'];
+      if (Array.isArray(results)) {
+        const lines = results
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+            const record = entry as Record<string, unknown>;
+            const personaName = typeof record.personaName === 'string' ? record.personaName : typeof record.personaKey === 'string' ? record.personaKey : 'Teammate';
+            const reply = typeof record.reply === 'string' ? record.reply : null;
+            if (!reply) return null;
+            return `${personaName}: ${reply}`;
+          })
+          .filter((line): line is string => Boolean(line));
+        if (lines.length > 0) {
+          return lines.join('\n\n');
+        }
+      }
+      const value = typeof result['value'] === 'string' ? result['value'] : null;
+      if (value) return value;
+    }
+
+    // Avoid dumping raw JSON into the chat UI; only return summaries for tools we explicitly format.
+    return null;
   }
 
   private async logActionReview(

@@ -138,6 +138,9 @@ export class AiEmployeeActionDto {
 
   @ApiPropertyOptional({ type: 'object', additionalProperties: true, nullable: true })
   result?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Human-friendly result summary for executed tools' })
+  replyText?: string | null;
 }
 
 export class AiEmployeeChatResponseDto {

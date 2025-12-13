@@ -19,6 +19,90 @@ type PersonaChatPanelProps = {
 
 type QuickPrompt = { label: string; text: string };
 
+const formatActionName = (actionType?: string) => {
+  if (!actionType) return 'Action';
+  const normalized = actionType.replace(/[_-]+/g, ' ').trim();
+  if (!normalized) return 'Action';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+};
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const summarizeActionPayload = (payload: Record<string, unknown> | null | undefined): string | null => {
+  if (!isPlainObject(payload)) return null;
+
+  const tasks = isPlainObject(payload.tasks) ? payload.tasks : null;
+  const totals = isPlainObject(payload.totals) ? payload.totals : null;
+  const parts: string[] = [];
+
+  if (totals) {
+    const newLeads = toNumber(totals.newLeads);
+    const activeLeads = toNumber(totals.activeLeads);
+    const idleLeads = toNumber(totals.idleLeads);
+    const leadBits = [
+      typeof newLeads === 'number' ? `${newLeads} new` : null,
+      typeof activeLeads === 'number' ? `${activeLeads} active` : null,
+      typeof idleLeads === 'number' ? `${idleLeads} idle` : null
+    ].filter(Boolean);
+    if (leadBits.length) {
+      parts.push(`Leads: ${leadBits.join(', ')}`);
+    }
+  }
+
+  if (tasks) {
+    const open = toNumber(tasks.open);
+    const dueSoon = toNumber(tasks.dueSoon);
+    const taskBits = [
+      typeof open === 'number' ? `${open} open` : null,
+      typeof dueSoon === 'number' ? `${dueSoon} due soon` : null
+    ].filter(Boolean);
+    if (taskBits.length) {
+      parts.push(`Tasks: ${taskBits.join(', ')}`);
+    }
+  }
+
+  if (parts.length) return parts.join(' · ');
+
+  const primitivePairs = Object.entries(payload).filter(
+    ([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+  );
+  if (primitivePairs.length) {
+    return primitivePairs
+      .slice(0, 3)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(', ');
+  }
+
+  return null;
+};
+
+const summarizeAction = (action: AiEmployeeAction): string => {
+  const name = formatActionName(action.actionType);
+  const rawStatus = (action.status ?? '').toLowerCase();
+  const displayStatus = rawStatus.replace(/[_-]+/g, ' ');
+  const needsApproval =
+    action.requiresApproval && (rawStatus === 'proposed' || rawStatus === 'requires-approval');
+  const statusText = needsApproval ? 'awaiting approval' : displayStatus;
+  const payloadSummary = summarizeActionPayload(action.payload);
+
+  const segments = [statusText ? `${name} (${statusText})` : name];
+  if (payloadSummary) segments.push(payloadSummary);
+  if (action.errorMessage) segments.push(`Error: ${action.errorMessage}`);
+
+  return segments.join('. ').trim();
+};
+
 export function PersonaChatPanel({ persona, context, onActionsCreated }: PersonaChatPanelProps) {
   const [messages, setMessages] = useState<PersonaMessage[]>([]);
   const [input, setInput] = useState('');
@@ -279,77 +363,31 @@ function QuickPromptRow({
 }
 
 function MessageBubble({ message }: { message: PersonaMessage }) {
+  const isUser = message.role === 'user';
+  const actionSummaries =
+    message.role === 'assistant' && message.actions
+      ? message.actions.map((action) => ({ id: action.id, summary: summarizeAction(action) }))
+      : [];
+
   return (
-    <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-[90%] rounded-2xl px-3 py-2 text-sm ${
-          message.role === 'user'
-            ? 'bg-blue-600 text-white'
-            : 'bg-slate-100 text-slate-900'
+          isUser ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-900'
         }`}
       >
-        <p>{message.content}</p>
-        {message.role === 'assistant' && message.actions && message.actions.length > 0 && (
-          <div className="mt-2 space-y-1 text-xs text-slate-600">
-            {message.actions.map((action) => {
-              const status = (action.status ?? '').toLowerCase();
-              const waitingApproval =
-                action.requiresApproval && (status === 'proposed' || status === 'requires-approval');
-              return (
-                <div
-                  key={action.id}
-                  className="rounded-xl border border-slate-200 bg-white/70 p-2 text-left"
-                >
-                  <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide">
-                    <span className="text-slate-700">{action.actionType}</span>
-                    <InlineStatus status={action.status} />
-                  </div>
-                  {status === 'executed' && (
-                    <p className="text-[11px] text-emerald-600">Completed successfully.</p>
-                  )}
-                  {status === 'failed' && action.errorMessage && (
-                    <p className="text-[11px] text-red-600">{action.errorMessage}</p>
-                  )}
-                  {waitingApproval && (
-                    <p className="text-[11px] text-amber-600">
-                      Requires approval before executing.
-                    </p>
-                  )}
-                  {action.payload && (
-                    <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-slate-950/5 p-2 text-[11px] text-slate-500">
-                      {JSON.stringify(action.payload, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              );
-            })}
+        <p className="whitespace-pre-wrap">{message.content}</p>
+        {actionSummaries.length > 0 && (
+          <div className="mt-2 space-y-1 text-[12px] leading-relaxed text-slate-700">
+            {actionSummaries.map(({ id, summary }) => (
+              <p key={id} className="flex items-start gap-2">
+                <span aria-hidden="true">•</span>
+                <span>{summary}</span>
+              </p>
+            ))}
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function InlineStatus({ status }: { status: string }) {
-  const normalized = (status ?? '').toLowerCase();
-  const variants: Record<string, { label: string; className: string }> = {
-    executed: { label: 'Executed', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    failed: { label: 'Failed', className: 'bg-red-50 text-red-600 border-red-200' },
-    approved: { label: 'Approved', className: 'bg-blue-50 text-blue-700 border-blue-200' },
-    rejected: { label: 'Rejected', className: 'bg-red-50 text-red-600 border-red-200' },
-    'requires-approval': {
-      label: 'Needs approval',
-      className: 'bg-amber-50 text-amber-700 border-amber-200'
-    },
-    proposed: { label: 'Proposed', className: 'bg-slate-200 text-slate-700 border-slate-300' }
-  };
-  const variant = variants[normalized] ?? {
-    label: status,
-    className: 'bg-slate-200 text-slate-700 border-slate-300'
-  };
-  return (
-    <span className={`ml-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${variant.className}`}>
-      {variant.label}
-    </span>
   );
 }

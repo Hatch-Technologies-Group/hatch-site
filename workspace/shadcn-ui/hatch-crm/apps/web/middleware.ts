@@ -11,8 +11,6 @@ const PUBLIC_PATHS = [
   '/favicon',
   '/icon',
   '/favicon.png',
-  '/apple-touch-icon',
-  '/apple-touch-icon.png',
   '/Hatch Icon.jpg',
   '/manifest'
 ];

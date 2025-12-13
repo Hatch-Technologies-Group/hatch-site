@@ -8,7 +8,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Alert, AlertDescription } from '../ui/alert'
-import { Loader2, Apple } from 'lucide-react'
+import { Glasses, Loader2 } from 'lucide-react'
 import { getRedirectUrl } from '../../utils/url'
 import { PasswordResetModal } from './PasswordResetModal'
 import { login, registerConsumer } from '../../lib/api/auth'
@@ -93,7 +93,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }
 
-  const handleOAuthSignIn = async (provider: 'google' | 'apple') => {
+  const handleOAuthSignIn = async (provider: 'google' | 'github') => {
     setLoading(true)
     setError(null)
 
@@ -179,15 +179,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="button"
                   variant="outline"
                   className="w-full"
-                  onClick={() => handleOAuthSignIn('apple')}
+                  onClick={() => handleOAuthSignIn('github')}
                   disabled={loading}
                 >
                   {loading ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
-                    <Apple className="w-4 h-4 mr-2" />
+                    <Glasses className="w-4 h-4 mr-2" />
                   )}
-                  Continue with Apple
+                  Continue with Glass
                 </Button>
               </div>
 

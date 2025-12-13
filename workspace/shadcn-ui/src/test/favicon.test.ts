@@ -9,9 +9,9 @@ describe("favicons and manifest", () => {
   it("routes favicons to Hatch Icon.jpg", () => {
     const vercel = JSON.parse(readFileSync(path.join(projectRoot, "vercel.json"), "utf8"));
     const dests = vercel.routes
-      .filter((route: { src: string }) => ["/favicon.ico", "/favicon.png", "/apple-touch-icon.png"].includes(route.src))
+      .filter((route: { src: string }) => ["/favicon.ico", "/favicon.png"].includes(route.src))
       .map((route: { dest: string }) => route.dest);
-    expect(dests).toEqual(["Hatch Icon.jpg", "Hatch Icon.jpg", "Hatch Icon.jpg"]);
+    expect(dests).toEqual(["Hatch Icon.jpg", "Hatch Icon.jpg"]);
   });
 
   it("links manifest and icons from index.html", () => {

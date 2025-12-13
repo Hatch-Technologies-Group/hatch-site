@@ -20,14 +20,12 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 const faviconPng = '/Hatch Icon.jpg';
-const appleTouch = '/Hatch Icon.jpg';
 
 export const metadata: Metadata = {
   title: 'Hatch',
   icons: {
     icon: faviconPng,
-    shortcut: faviconPng,
-    apple: appleTouch
+    shortcut: faviconPng
   }
 };
 
