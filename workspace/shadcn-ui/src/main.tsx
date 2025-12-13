@@ -1,8 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import App from './App.tsx';
+import App from './App';
 import './index.css';
-import CognitoAuthProvider from './providers/CognitoAuthProvider.tsx';
+import CognitoAuthProvider from './providers/CognitoAuthProvider';
 
 const queryClient = new QueryClient();
 
