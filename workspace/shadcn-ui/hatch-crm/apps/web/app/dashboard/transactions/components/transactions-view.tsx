@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +20,9 @@ const filters = [
   { id: 'UNDER_CONTRACT', label: 'Under contract' },
   { id: 'CONTINGENT', label: 'Contingent' },
   { id: 'CLOSED', label: 'Closed' },
-  { id: 'ATTENTION', label: 'Needs attention' }
+  { id: 'ATTENTION', label: 'Needs attention' },
+  { id: 'MISSING_DOCS', label: 'Missing docs' },
+  { id: 'MISSING_DOCS_30D', label: 'Closing (30d) missing docs' }
 ] as const;
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -29,6 +32,7 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 });
 
 export function TransactionsView({ orgId }: TransactionsViewProps) {
+  const searchParams = useSearchParams() as unknown as URLSearchParams | null;
   const [filter, setFilter] = useState<(typeof filters)[number]['id']>('ALL');
   const [assistant, setAssistant] = useState<{
     transactionId: string | null;
@@ -36,6 +40,21 @@ export function TransactionsView({ orgId }: TransactionsViewProps) {
     answer: string | null;
     error: string | null;
   }>({ transactionId: null, loading: false, answer: null, error: null });
+
+  useEffect(() => {
+    const filterParam = searchParams?.get('filter');
+    if (filterParam !== 'missing-docs') {
+      return;
+    }
+
+    const withinDaysRaw = searchParams?.get('withinDays');
+    const withinDays = withinDaysRaw ? Number(withinDaysRaw) : NaN;
+    if (withinDays === 30) {
+      setFilter('MISSING_DOCS_30D');
+    } else {
+      setFilter('MISSING_DOCS');
+    }
+  }, [searchParams]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', 'transactions', orgId],
@@ -64,6 +83,10 @@ export function TransactionsView({ orgId }: TransactionsViewProps) {
           return txn.status === 'CLOSED';
         case 'ATTENTION':
           return txn.requiresAction || txn.isCompliant === false;
+        case 'MISSING_DOCS':
+          return hasMissingDocs(txn);
+        case 'MISSING_DOCS_30D':
+          return hasMissingDocs(txn) && isClosingWithinDays(txn.closingDate, 30);
         default:
           return true;
       }
@@ -236,6 +259,27 @@ const isClosingSoon = (closingDate?: string | null) => {
   const now = Date.now();
   const TWO_WEEKS = 1000 * 60 * 60 * 24 * 14;
   return closing - now <= TWO_WEEKS && closing >= now;
+};
+
+const isClosingWithinDays = (closingDate: string | null | undefined, days: number) => {
+  if (!closingDate) return false;
+  const closing = new Date(closingDate).getTime();
+  if (Number.isNaN(closing)) return false;
+  const now = Date.now();
+  const windowMs = 1000 * 60 * 60 * 24 * days;
+  return closing - now <= windowMs && closing >= now;
+};
+
+const REQUIRED_TRANSACTION_DOC_TYPES = ['PURCHASE_CONTRACT', 'ADDENDUM', 'CLOSING_DOC', 'PROOF_OF_FUNDS'] as const;
+const NON_PASSING_DOC_STATUSES = new Set(['FAILED', 'NEEDS_REVIEW', 'UNKNOWN', 'PENDING']);
+
+const hasMissingDocs = (txn: OrgTransactionRecord) => {
+  const docs = (txn.documents ?? []).map((doc) => doc.orgFile).filter(Boolean);
+  const missingRequired = REQUIRED_TRANSACTION_DOC_TYPES.some(
+    (required) => !docs.some((doc) => doc?.documentType === required)
+  );
+  const failingDocs = docs.some((doc) => NON_PASSING_DOC_STATUSES.has(doc?.complianceStatus ?? ''));
+  return missingRequired || failingDocs;
 };
 
 const formatStatus = (status: string) => status.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());

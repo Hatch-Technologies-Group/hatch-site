@@ -56,7 +56,7 @@ function ComplianceSummary({ orgId }: { orgId: string }) {
   });
 
   return (
-    <Card className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <Card className="!rounded-2xl p-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Mission Control</p>
@@ -80,7 +80,7 @@ function ComplianceSummary({ orgId }: { orgId: string }) {
 
 function KpiCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
-    <Card className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+    <Card className="!rounded-2xl px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="text-3xl font-semibold text-slate-900">{value}</p>
       {helper ? <p className="text-xs text-slate-500">{helper}</p> : null}
@@ -134,7 +134,7 @@ function ComplianceTabs({ orgId }: { orgId: string }) {
     updateSearchParam('filter', value === 'ALL' ? null : value);
   };
   return (
-    <Card className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <Card className="!rounded-2xl p-5">
       <div className="flex items-center justify-between border-b border-slate-100 pb-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Compliance views</h2>

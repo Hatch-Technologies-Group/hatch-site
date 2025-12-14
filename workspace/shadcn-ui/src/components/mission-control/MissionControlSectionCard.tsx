@@ -24,8 +24,7 @@ export const MissionControlSectionCard: React.FC<SectionCardProps> = ({
     <section
       {...rest}
       className={cn(
-        'rounded-[24px] border border-slate-200/70 bg-white/90',
-        'p-4 md:p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]',
+        'relative overflow-hidden rounded-[24px] border border-[color:var(--hatch-card-border)] bg-card/[var(--hatch-card-alpha)] p-4 shadow-brand backdrop-blur-[var(--hatch-card-blur)] md:p-5',
         className
       )}
     >

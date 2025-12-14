@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { DraftMappingResult, ExtractedLabelValue } from '@hatch/shared';
 import { buildCanonicalDraft } from '@hatch/shared';
-import { createHash } from 'crypto';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import pdfParseModule from 'pdf-parse';
 
 type PdfParseFn = (dataBuffer: Buffer, options?: Record<string, unknown>) => Promise<{
@@ -41,28 +39,11 @@ export interface DraftIngestResult {
 @Injectable()
 export class DraftsService {
   private readonly logger = new Logger(DraftsService.name);
-  private readonly supabase: SupabaseClient | null;
-  private readonly imageBucket: string;
   private readonly maxImagesPerPdf: number;
 
   constructor() {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    this.imageBucket =
-      process.env.SUPABASE_STORAGE_PROPERTY_PHOTOS_BUCKET ?? 'property-photos';
     const maxImagesEnv = Number(process.env.PDF_MAX_IMAGE_EXTRACTIONS ?? '40');
     this.maxImagesPerPdf = Number.isFinite(maxImagesEnv) && maxImagesEnv > 0 ? maxImagesEnv : 40;
-    this.supabase =
-      supabaseUrl && supabaseServiceRoleKey
-        ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-            auth: { persistSession: false }
-          })
-        : null;
-    if (!this.supabase) {
-      this.logger.warn(
-        '[pdf-ingest] Supabase storage client not configured; extracted photos will be skipped'
-      );
-    }
   }
 
   async ingestPdf(buffer: Buffer, options: DraftIngestOptions): Promise<DraftIngestResult> {
@@ -101,23 +82,7 @@ export class DraftsService {
     }
 
     const embeddedImages = await this.extractImagesFromPdf(buffer);
-    let uploadedImageUrls: string[] = [];
-    if (embeddedImages.length > 0) {
-      if (this.supabase) {
-        uploadedImageUrls = await this.uploadExtractedImages(embeddedImages, options);
-        if (uploadedImageUrls.length === 0) {
-          this.logger.warn(
-            '[pdf-ingest] Supabase upload returned 0 URLs; falling back to inline data URLs'
-          );
-          uploadedImageUrls = this.encodeImagesAsDataUrls(embeddedImages);
-        }
-      } else {
-        this.logger.warn(
-          '[pdf-ingest] Supabase storage unavailable; generating inline data URLs for extracted photos'
-        );
-        uploadedImageUrls = this.encodeImagesAsDataUrls(embeddedImages);
-      }
-    }
+    const uploadedImageUrls = embeddedImages.length > 0 ? this.encodeImagesAsDataUrls(embeddedImages) : [];
 
     this.extractFieldsFromText(parsedText).forEach((item) => extracted.push(item));
 
@@ -724,86 +689,12 @@ export class DraftsService {
     return names;
   }
 
-  private async uploadExtractedImages(
-    images: ExtractedPdfImage[],
-    options: DraftIngestOptions
-  ): Promise<string[]> {
-    if (!this.supabase || images.length === 0) {
-      return [];
-    }
-
-    const urls: string[] = [];
-    const tenantSegment = this.sanitizeStorageKeySegment(options.tenantId ?? 'tenant');
-    const baseSegment = this.sanitizeStorageKeySegment(
-      options.filename.replace(/\.[^/.]+$/, '') || 'listing'
-    );
-    const timestamp = Date.now();
-
-    for (let index = 0; index < images.length; index += 1) {
-      const image = images[index];
-      try {
-        const hash = createHash('sha1').update(image.data).digest('hex').slice(0, 12);
-        const storageKey = `${tenantSegment}/drafts/${baseSegment}/${timestamp}-${index}-${hash}.${image.extension}`;
-        const { error } = await this.supabase.storage
-          .from(this.imageBucket)
-          .upload(storageKey, image.data, {
-            contentType: image.mimeType,
-            upsert: false
-          });
-
-        if (error) {
-          if (process.env.NODE_ENV !== 'production') {
-            this.logger.warn(
-              `[pdf-ingest] failed to upload extracted image ${storageKey}: ${error.message}`
-            );
-          }
-          continue;
-        }
-
-        const { data: publicUrl } = this.supabase.storage
-          .from(this.imageBucket)
-          .getPublicUrl(storageKey);
-
-        if (publicUrl?.publicUrl) {
-          urls.push(publicUrl.publicUrl);
-          continue;
-        }
-
-        const { data: signed, error: signedError } = await this.supabase.storage
-          .from(this.imageBucket)
-          .createSignedUrl(storageKey, 60 * 60 * 24 * 30);
-
-        if (!signedError && signed?.signedUrl) {
-          urls.push(signed.signedUrl);
-        }
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          this.logger.warn(
-            `[pdf-ingest] unexpected error uploading extracted image: ${(error as Error).message}`
-          );
-        }
-      }
-    }
-
-    return urls;
-  }
-
   private encodeImagesAsDataUrls(images: ExtractedPdfImage[]): string[] {
     return images.map((image) => {
       const mimeType = image.mimeType || 'image/jpeg';
       const base64 = image.data.toString('base64');
       return `data:${mimeType};base64,${base64}`;
     });
-  }
-
-  private sanitizeStorageKeySegment(value: string, fallback = 'draft'): string {
-    const cleaned = value
-      .toLowerCase()
-      .replace(/[^a-z0-9/_-]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/\/{2,}/g, '/')
-      .replace(/^-+|-+$/g, '');
-    return cleaned.length > 0 ? cleaned : fallback;
   }
 
   private splitInlineFields(

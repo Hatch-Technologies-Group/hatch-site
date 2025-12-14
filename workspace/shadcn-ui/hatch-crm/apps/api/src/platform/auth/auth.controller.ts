@@ -23,7 +23,10 @@ import { CognitoService } from '../../modules/auth/cognito.service';
 import { UserRole, AgentInviteStatus } from '@hatch/db';
 import * as bcrypt from 'bcryptjs';
 
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const ACCESS_TOKEN_COOKIE = 'access_token';
+const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
 interface OidcRequest extends FastifyRequest {
   user?: {
@@ -40,6 +43,15 @@ export class AuthController {
     private readonly prisma: PrismaService,
     private readonly cognito: CognitoService
   ) {}
+
+  private normalizeRedirectTarget(value?: string | null) {
+    if (!value) return '/portal';
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) {
+      return '/portal';
+    }
+    return trimmed;
+  }
 
   @Get('login')
   @UseGuards(AuthGuard('oidc'))
@@ -60,10 +72,10 @@ export class AuthController {
     });
     const refreshToken = this.tokens.issueRefresh({ sub: userId });
 
-    reply.setCookie('refresh_token', refreshToken, {
+    reply.setCookie(REFRESH_TOKEN_COOKIE, refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV !== 'development',
+      secure: process.env.NODE_ENV === 'production',
       maxAge: THIRTY_DAYS_MS,
       path: '/'
     });
@@ -71,6 +83,75 @@ export class AuthController {
     return {
       accessToken
     };
+  }
+
+  @Get('cognito/login')
+  cognitoLogin(@Query('redirect') redirectTo: string | undefined, @Res() reply: FastifyReply) {
+    const normalized = this.normalizeRedirectTarget(redirectTo);
+    const url = this.cognito.generateLoginUrl(normalized);
+    return reply.redirect(302, url);
+  }
+
+  @Post('refresh')
+  async refresh(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    const refreshToken = (req as any)?.cookies?.[REFRESH_TOKEN_COOKIE];
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+
+    let payload: any;
+    try {
+      payload = this.tokens.verifyRefresh(refreshToken);
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const userId = typeof payload?.sub === 'string' ? payload.sub : null;
+    if (!userId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, tenantId: true, organizationId: true }
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const accessToken = this.tokens.issueAccess({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      roles: [user.role.toLowerCase()],
+      tenantId: user.tenantId,
+      orgId: user.organizationId
+    });
+
+    reply.setCookie(ACCESS_TOKEN_COOKIE, accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: FIFTEEN_MINUTES_MS,
+      path: '/'
+    });
+
+    return { accessToken };
+  }
+
+  @Post('logout')
+  logout(@Res({ passthrough: true }) reply: FastifyReply) {
+    const cookieOptions = {
+      httpOnly: true,
+      sameSite: 'lax' as const,
+      secure: process.env.NODE_ENV !== 'development',
+      path: '/'
+    };
+
+    reply.clearCookie(ACCESS_TOKEN_COOKIE, cookieOptions);
+    reply.clearCookie(REFRESH_TOKEN_COOKIE, cookieOptions);
+
+    return { success: true };
   }
 
   @Post('register-consumer')
@@ -154,38 +235,12 @@ export class AuthController {
    * - Consider adding honeypot fields to detect bots
    */
   @Get('cognito/callback')
-  async cognitoCallback(@Query() query: CognitoCallbackDto) {
+  async cognitoCallback(@Req() req: FastifyRequest, @Query() query: CognitoCallbackDto, @Res() reply: FastifyReply) {
     const { code, state, idToken, email, cognitoSub } = query;
 
-    // Decode state parameter to get invite token
-    if (!state) {
-      throw new BadRequestException('Missing state parameter');
-    }
-
-    const { inviteToken } = this.cognito.decodeState(state);
-    if (!inviteToken) {
-      throw new BadRequestException('Invalid state parameter - no invite token found');
-    }
-
-    // Look up the invite
-    const invite = await this.prisma.agentInvite.findUnique({
-      where: { token: inviteToken },
-      include: { organization: true }
-    });
-
-    if (!invite) {
-      throw new NotFoundException('Invite not found');
-    }
-
-    // Validate invite status
-    if (invite.status !== AgentInviteStatus.PENDING) {
-      throw new BadRequestException(`Invite already ${invite.status.toLowerCase()}`);
-    }
-
-    // Validate invite expiration
-    if (invite.expiresAt && new Date() > invite.expiresAt) {
-      throw new BadRequestException('Invite has expired');
-    }
+    const decodedState = state ? this.cognito.decodeState(state) : {};
+    const inviteToken = decodedState.inviteToken;
+    const redirectTo = this.normalizeRedirectTarget(decodedState.redirectTo);
 
     // Exchange authorization code for tokens (if we have code instead of idToken)
     let userInfo: { sub: string; email: string } | null = null;
@@ -207,18 +262,81 @@ export class AuthController {
       throw new BadRequestException('Could not extract user info from Cognito response');
     }
 
-    // Check if user already exists
-    let user = await this.prisma.user.findUnique({
-      where: { email: userInfo.email.toLowerCase() }
-    });
+    const normalizedEmail = userInfo.email.toLowerCase();
 
-    if (user) {
-      // User exists - just update their org membership if needed
-      const membership = await this.prisma.userOrgMembership.findUnique({
-        where: { userId_orgId: { userId: user.id, orgId: invite.organizationId } }
+    let user:
+      | {
+          id: string;
+          email: string;
+          role: UserRole;
+          tenantId: string;
+          organizationId: string;
+        }
+      | null = null;
+
+    if (inviteToken) {
+      const invite = await this.prisma.agentInvite.findUnique({
+        where: { token: inviteToken },
+        include: { organization: true }
       });
 
-      if (!membership) {
+      if (!invite) {
+        throw new NotFoundException('Invite not found');
+      }
+
+      if (invite.email.toLowerCase() !== normalizedEmail) {
+        throw new BadRequestException('Authenticated email does not match invite email');
+      }
+
+      if (invite.status !== AgentInviteStatus.PENDING) {
+        throw new BadRequestException(`Invite already ${invite.status.toLowerCase()}`);
+      }
+
+      if (invite.expiresAt && new Date() > invite.expiresAt) {
+        throw new BadRequestException('Invite has expired');
+      }
+
+      user = await this.prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, email: true, role: true, tenantId: true, organizationId: true }
+      });
+
+      if (user) {
+        const membership = await this.prisma.userOrgMembership.findUnique({
+          where: { userId_orgId: { userId: user.id, orgId: invite.organizationId } }
+        });
+
+        if (!membership) {
+          await this.prisma.userOrgMembership.create({
+            data: {
+              userId: user.id,
+              orgId: invite.organizationId,
+              isOrgAdmin: false
+            }
+          });
+        }
+      } else {
+        const tenant = await this.prisma.tenant.findFirst({
+          where: { organizationId: invite.organizationId }
+        });
+
+        if (!tenant) {
+          throw new NotFoundException('Tenant not found for organization');
+        }
+
+        user = await this.prisma.user.create({
+          data: {
+            email: normalizedEmail,
+            organizationId: invite.organizationId,
+            tenantId: tenant.id,
+            role: UserRole.AGENT,
+            // No password hash - using Cognito auth only
+            firstName: normalizedEmail.split('@')[0],
+            lastName: ''
+          },
+          select: { id: true, email: true, role: true, tenantId: true, organizationId: true }
+        });
+
         await this.prisma.userOrgMembership.create({
           data: {
             userId: user.id,
@@ -226,56 +344,34 @@ export class AuthController {
             isOrgAdmin: false
           }
         });
+
+        await this.prisma.agentProfile.create({
+          data: {
+            userId: user.id,
+            organizationId: invite.organizationId
+          }
+        });
       }
+
+      await this.prisma.agentInvite.update({
+        where: { id: invite.id },
+        data: { status: AgentInviteStatus.ACCEPTED }
+      });
     } else {
-      // Create new user account
-      const tenant = await this.prisma.tenant.findFirst({
-        where: { organizationId: invite.organizationId }
+      user = await this.prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, email: true, role: true, tenantId: true, organizationId: true }
       });
 
-      if (!tenant) {
-        throw new NotFoundException('Tenant not found for organization');
+      if (!user) {
+        throw new UnauthorizedException('No user found for this email');
       }
-
-      user = await this.prisma.user.create({
-        data: {
-          email: userInfo.email.toLowerCase(),
-          organizationId: invite.organizationId,
-          tenantId: tenant.id,
-          role: UserRole.AGENT,
-          // No password hash - using Cognito auth only
-          firstName: userInfo.email.split('@')[0], // Placeholder - will be updated by user
-          lastName: ''
-        }
-      });
-
-      // Create org membership
-      await this.prisma.userOrgMembership.create({
-        data: {
-          userId: user.id,
-          orgId: invite.organizationId,
-          isOrgAdmin: false
-        }
-      });
-
-      // Create agent profile
-      await this.prisma.agentProfile.create({
-        data: {
-          userId: user.id,
-          organizationId: invite.organizationId
-        }
-      });
     }
 
-    // Mark invite as accepted
-    await this.prisma.agentInvite.update({
-      where: { id: invite.id },
-      data: {
-        status: AgentInviteStatus.ACCEPTED
-      }
-    });
+    if (!user) {
+      throw new UnauthorizedException('Unable to resolve user');
+    }
 
-    // Issue JWT tokens for our system
     const accessToken = this.tokens.issueAccess({
       sub: user.id,
       email: user.email,
@@ -286,18 +382,38 @@ export class AuthController {
     });
     const refreshToken = this.tokens.issueRefresh({ sub: user.id });
 
-    // Return tokens and redirect URL
-    // In production, you'd redirect to frontend with tokens in URL/cookies
-    return {
-      success: true,
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        organizationId: user.organizationId
-      }
-    };
+    reply.setCookie(ACCESS_TOKEN_COOKIE, accessToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: FIFTEEN_MINUTES_MS,
+      path: '/'
+    });
+    reply.setCookie(REFRESH_TOKEN_COOKIE, refreshToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: THIRTY_DAYS_MS,
+      path: '/'
+    });
+
+    const accept = req.headers['accept'];
+    const wantsJson = typeof accept === 'string' && accept.includes('application/json');
+
+    if (wantsJson) {
+      return reply.send({
+        success: true,
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          organizationId: user.organizationId
+        }
+      });
+    }
+
+    return reply.redirect(302, redirectTo);
   }
 }

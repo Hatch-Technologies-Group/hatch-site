@@ -251,7 +251,7 @@ export class MissionControlService {
       () =>
         (this.prisma as any).orgFile.groupBy({
           by: ['category'] as const,
-          where: { orgId: orgId },
+          where: orgFileWhere,
           _count: { _all: true }
         }),
       () => this.prisma.orgConversation.count({ where: { organizationId: orgId, type: 'CHANNEL' } }),
@@ -284,7 +284,7 @@ export class MissionControlService {
       () => this.prisma.orgTransaction.count({ where: transactionWhere }),
       () =>
         this.prisma.orgTransaction.count({
-          where: { ...transactionWhere, status: { in: ['UNDER_CONTRACT', 'CONTINGENT'] } }
+          where: { ...transactionWhere, status: 'UNDER_CONTRACT' }
         }),
       () =>
         this.prisma.orgTransaction.count({
@@ -565,6 +565,7 @@ export class MissionControlService {
 
     const totalAgents = await this.prisma.agentProfile.count({ where: agentProfileWhere });
     overview.totalAgents = totalAgents;
+    overview.activeAgents = Math.max(0, totalAgents - agentsInOnboardingCount - agentsInOffboardingCount);
     overview.pendingInvites = pendingInvites;
     overview.comms.channels = channelsCount;
     overview.comms.directConversations = directCount;
@@ -793,7 +794,6 @@ export class MissionControlService {
     }
     overview.vaultFileCounts = { total: totalFiles, byCategory };
 
-    let active = 0;
     let nonCompliant = 0;
     let highRisk = 0;
     for (const summary of agentsSummary) {
@@ -801,14 +801,10 @@ export class MissionControlService {
       if (!summary.isCompliant) {
         nonCompliant += count;
       }
-      if (!summary.requiresAction && summary.isCompliant) {
-        active += count;
-      }
       if (summary.riskLevel === 'HIGH') {
         highRisk += count;
       }
     }
-    overview.activeAgents = active;
     overview.nonCompliantAgents = nonCompliant;
     overview.highRiskAgents = highRisk;
 

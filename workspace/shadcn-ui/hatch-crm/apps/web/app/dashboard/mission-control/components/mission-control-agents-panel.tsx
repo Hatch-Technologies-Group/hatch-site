@@ -155,10 +155,10 @@ function AgentRow({ agent }: { agent: MissionControlAgentRow }) {
       <td className="py-3">
         <div className="flex flex-wrap gap-2">
           <Button asChild size="sm" variant="secondary">
-            <Link href={`/dashboard/team?agent=${agent.agentProfileId}`}>View profile</Link>
+            <Link href={`/dashboard/agents/${agent.agentProfileId}`}>View profile</Link>
           </Button>
           <Button asChild size="sm" variant="ghost">
-            <Link href={`/dashboard/compliance?agent=${agent.agentProfileId}`}>Training</Link>
+            <Link href={`/dashboard/agents/${agent.agentProfileId}#training`}>Training</Link>
           </Button>
         </div>
       </td>

@@ -114,8 +114,16 @@ function FinancialsView({ orgId }: { orgId: string }) {
 
   return (
     <section className="space-y-6">
-      <header className="overflow-hidden rounded-3xl border border-white/60 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-6 shadow-xl shadow-sky-100">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <header className="relative overflow-hidden rounded-3xl border border-[var(--glass-border)] bg-[var(--glass-background)] p-6 shadow-brand-lg backdrop-blur-xl">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-brand-blue-600/16 via-white/0 to-brand-green-500/14 dark:from-brand-blue-600/24 dark:to-brand-green-500/18"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.55),transparent_60%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_60%)]"
+        />
+        <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">Brokerage Financials</p>
             <h1 className="text-3xl font-semibold text-slate-900">Accounting & QuickBooks</h1>
@@ -123,7 +131,7 @@ function FinancialsView({ orgId }: { orgId: string }) {
               Connect QuickBooks, monitor sync queues, and track portfolio metrics without leaving Hatch.
             </p>
           </div>
-          <div className="flex flex-col gap-2 rounded-2xl bg-white/70 px-4 py-3 backdrop-blur">
+          <div className="flex flex-col gap-2 rounded-2xl border border-white/30 bg-white/35 px-4 py-3 backdrop-blur-xl dark:border-white/15 dark:bg-white/10">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
               <span>Sync status</span>
               <Badge
@@ -206,7 +214,7 @@ function SummaryCards({ metrics }: { metrics: MetricCard[] }) {
       {metrics.map((metric) => (
         <Card
           key={metric.label}
-          className="rounded-2xl border border-slate-100/70 bg-white/80 px-4 py-3 shadow-lg shadow-slate-100 transition hover:-translate-y-0.5"
+          className="!rounded-2xl px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-brand-md"
         >
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{metric.label}</p>
           <p className="text-2xl font-semibold text-slate-900">{metric.value}</p>
@@ -279,7 +287,7 @@ function ConnectionCard({
   isSubmitting: boolean;
 }) {
   return (
-    <Card className="space-y-3 rounded-2xl border border-slate-100/80 bg-white/80 p-4 shadow-lg shadow-slate-100">
+    <Card className="space-y-3 !rounded-2xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">QuickBooks connection</p>
@@ -289,7 +297,7 @@ function ConnectionCard({
           {config?.realmId ? 'Connected' : 'Not connected'}
         </Badge>
       </div>
-      <div className="space-y-1 rounded-xl bg-slate-50/60 px-3 py-2 text-sm text-slate-700">
+      <div className="space-y-1 rounded-xl border border-[color:var(--hatch-card-border)] bg-card/45 px-3 py-2 text-sm text-slate-700 backdrop-blur-sm">
         <p>
           Provider: <span className="font-medium">{config?.provider ?? 'QUICKBOOKS'}</span>
         </p>
@@ -313,7 +321,7 @@ function ConnectionCard({
           </Button>
           <Button
             variant="outline"
-            className="w-full border-slate-200 bg-white sm:w-40"
+            className="w-full border-[var(--glass-border)] bg-white/25 sm:w-40 dark:bg-white/10"
             onClick={onOAuthConnect}
             disabled={isSubmitting || isLoading}
           >
@@ -337,7 +345,7 @@ function StatusCallout({
   total: number;
 }) {
   return (
-    <Card className="rounded-2xl border border-slate-100/70 bg-white/80 p-4 shadow-lg shadow-slate-100">
+    <Card className="!rounded-2xl p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>
       <div className="mt-3 flex items-end gap-6">
         <div>
@@ -371,8 +379,8 @@ function SyncQueueTable({
   onRefresh: () => void;
 }) {
   return (
-    <Card className="overflow-hidden rounded-2xl border border-slate-100/70 bg-white/85 shadow-lg shadow-slate-100">
-      <div className="flex items-center justify-between border-b border-slate-100/80 px-4 py-3">
+    <Card className="overflow-hidden !rounded-2xl">
+      <div className="flex items-center justify-between border-b border-[color:var(--hatch-card-border)] bg-white/10 px-4 py-3 backdrop-blur-sm dark:bg-white/5">
         <div>
           <p className="text-sm font-semibold text-slate-900">{title}</p>
           <p className="text-xs text-slate-500">Focus on pending + failed items</p>
@@ -383,7 +391,7 @@ function SyncQueueTable({
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-100 text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-[0.15em] text-slate-500">
+          <thead className="bg-white/10 text-xs uppercase tracking-[0.15em] text-slate-500 dark:bg-white/5">
             <tr>
               <th className="px-4 py-3 text-left">Record</th>
               <th className="px-4 py-3 text-left">Status</th>
@@ -420,9 +428,9 @@ function SyncQueueTable({
                   <tr
                     key={record.id}
                     className={cn(
-                      'border-t border-slate-100',
-                      index % 2 === 0 && 'bg-slate-50/40',
-                      'hover:bg-slate-50'
+                      'border-t border-[color:var(--hatch-card-border)]',
+                      index % 2 === 0 && 'bg-white/5 dark:bg-white/0',
+                      'hover:bg-white/10 dark:hover:bg-white/5'
                     )}
                   >
                     <td className="px-4 py-3">

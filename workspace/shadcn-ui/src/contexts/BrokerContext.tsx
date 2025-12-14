@@ -2127,7 +2127,7 @@ const extractDate = (value?: string | null): string | undefined => {
         propertyPayload?.city,
       ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
 
-      console.log('🚀 Promoting draft property via Supabase', {
+      console.log('🚀 Promoting draft property', {
         id: draftProperty.id,
         firmId: payload.firmId,
         hasPhotos: photos.length > 0,
@@ -2165,7 +2165,7 @@ const extractDate = (value?: string | null): string | undefined => {
         continue
       }
 
-      console.log('✅ Supabase promotion completed', {
+      console.log('✅ Draft property promotion completed', {
         id: draftProperty.id,
         durationMs: Math.round(performance.now() - promotionStart),
       })

@@ -3029,7 +3029,7 @@ export default function DraftListings() {
           parts.push(`${warnings.timeouts} listing${warnings.timeouts === 1 ? '' : 's'} timed out`)
         }
         if (warnings.failures) {
-          parts.push(`${warnings.failures} listing${warnings.failures === 1 ? '' : 's'} failed to reach Supabase`)
+          parts.push(`${warnings.failures} listing${warnings.failures === 1 ? '' : 's'} failed to sync`)
         }
 
         toast({

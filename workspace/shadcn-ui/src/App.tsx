@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext'
 import { BrokerProvider } from './contexts/BrokerContext'
 import { MessengerProvider } from './contexts/MessengerContext'
-import { CustomerExperienceProvider } from './contexts/CustomerExperienceContext'
 import { Toaster } from '@/components/ui/toaster'
 
 // Public Pages
@@ -13,6 +12,7 @@ import Register from './pages/Register'
 import DemoLanding from './pages/DemoLanding'
 import PerfBenchPage from './pages/dev/PerfBench'
 import TermsPage from './pages/Terms'
+import Portal from './pages/Portal'
 
 // Layout Components
 import BrokerLayout from './components/layout/BrokerLayout'
@@ -52,15 +52,6 @@ import ContractsPage from './pages/broker/Contracts'
 import BrokerAccountsPage from './pages/broker/Accounts'
 import BrokerOpportunitiesPage from './pages/broker/Opportunities'
 
-// Customer Pages
-import CustomerDashboard from './pages/customer/Dashboard'
-import CustomerProfile from './pages/customer/Profile'
-import CustomerFavorites from './pages/customer/Favorites'
-import CustomerSaved from './pages/customer/CustomerSaved'
-import CustomerInquiries from './pages/customer/Inquiries'
-import CustomerPropertyDetail from './pages/customer/CustomerPropertyDetail'
-import CustomerSearch from './pages/customer/CustomerSearch'
-
 // CRM
 import CRM from './pages/CRM'
 import LeadDetailPage from './pages/broker/LeadDetail'
@@ -68,94 +59,85 @@ import LeadDetailPage from './pages/broker/LeadDetail'
 function App() {
   return (
     <AuthProvider>
-      <CustomerExperienceProvider>
-        <BrokerProvider>
-          <MessengerProvider>
-            <Router
-              future={{
-                v7_startTransition: true,
-                v7_relativeSplatPath: true,
-              }}
-            >
-              <div className="App">
-                <Toaster />
-                <Routes>
-                {/* Public Routes */}
-                <Route path="/" element={<Home />} />
-                <Route path="/home" element={<Home />} />
-                <Route path="/properties" element={<CustomerSearch />} />
-                <Route path="/properties/:id" element={<CustomerPropertyDetail />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/demo" element={<DemoLanding />} />
-                <Route path="/terms" element={<TermsPage />} />
-                <Route path="/dev/perf" element={<PerfBenchPage />} />
+      <BrokerProvider>
+        <MessengerProvider>
+          <Router
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
+            <div className="App">
+              <Toaster />
+              <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<Home />} />
+              <Route path="/home" element={<Home />} />
+              <Route path="/properties" element={<Navigate to="/broker/properties" replace />} />
+              <Route path="/properties/:id" element={<Navigate to="/broker/properties" replace />} />
+              <Route path="/customer/*" element={<Navigate to="/broker/dashboard" replace />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/portal" element={<Portal />} />
+              <Route path="/demo" element={<DemoLanding />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/dev/perf" element={<PerfBenchPage />} />
 
-                {/* Broker Routes with Layout */}
-                <Route path="/broker" element={<BrokerLayout />}>
-                  <Route path="dashboard" element={<Navigate to="/broker/mission-control" replace />} />
-                  <Route path="mission-control" element={<BrokerMissionControl />} />
-                  <Route path="crm" element={<CRM />} />
-                  <Route path="crm/leads/:id" element={<LeadDetailPage />} />
-                  <Route path="properties" element={<BrokerProperties />} />
-                  <Route path="transactions" element={<BrokerTransactions />} />
-                  <Route path="leads" element={<BrokerLeads />} />
-                  <Route path="team" element={<BrokerTeam />} />
-                  <Route path="compliance" element={<ComplianceCenter />} />
-                  <Route path="team-advanced" element={<BrokerTeamAdvanced />} />
-                  <Route path="calendar" element={<BrokerCalendar />} />
-                  <Route path="analytics" element={<BrokerAnalytics />} />
-                  <Route path="accounts" element={<BrokerAccountsPage />} />
-                  <Route path="marketing" element={<BrokerMarketingPage />} />
-                  <Route path="marketing/campaigns" element={<DripCampaignsPage />} />
-                  <Route path="notifications" element={<BrokerNotificationsPage />} />
-                  <Route path="opportunities" element={<BrokerOpportunitiesPage />} />
-                  <Route path="audit-log" element={<BrokerAuditLogPage />} />
-                  <Route path="commission-plans" element={<CommissionPlansPage />} />
-                  <Route path="lead-routing" element={<LeadRoutingDesk />} />
-                  <Route path="draft-listings" element={<DraftListingsPage />} />
-                  <Route path="ai-employees" element={<Navigate to="mission-control" replace />} />
-                  <Route path="pricing" element={<Pricing />} />
-                  <Route path="payment" element={<Payment />} />
-                  <Route path="forms" element={<FormsLibrary />} />
-                  <Route path="playbooks" element={<PlaybooksList />} />
-                  <Route path="playbooks/:playbookId" element={<PlaybookEditor />} />
-                  <Route path="live-activity" element={<LiveActivityPage />} />
-                  <Route path="financials" element={<BrokerFinancials />} />
-                  <Route path="offer-intents" element={<BrokerOfferIntents />} />
-                  <Route path="documents/:fileId" element={<DocumentViewerPage />} />
-                  <Route path="agent-performance" element={<AgentPerformanceList />} />
-                  <Route path="agent-performance/:agentProfileId" element={<AgentPerformanceDetail />} />
-                  <Route path="contracts" element={<ContractsPage />} />
-                  <Route path="settings" element={<BrokerSettingsPage />} />
-                  {/* Default broker route */}
-                  <Route index element={<Navigate to="mission-control" replace />} />
-                </Route>
+              {/* Broker Routes with Layout */}
+              <Route path="/broker" element={<BrokerLayout />}>
+                <Route path="dashboard" element={<Navigate to="/broker/mission-control" replace />} />
+                <Route path="mission-control" element={<BrokerMissionControl />} />
+                <Route path="crm" element={<CRM />} />
+                <Route path="crm/leads/:id" element={<LeadDetailPage />} />
+                <Route path="properties" element={<BrokerProperties />} />
+                <Route path="transactions" element={<BrokerTransactions />} />
+                <Route path="leads" element={<BrokerLeads />} />
+                <Route path="team" element={<BrokerTeam />} />
+                <Route path="compliance" element={<ComplianceCenter />} />
+                <Route path="team-advanced" element={<BrokerTeamAdvanced />} />
+                <Route path="calendar" element={<BrokerCalendar />} />
+                <Route path="analytics" element={<BrokerAnalytics />} />
+                <Route path="accounts" element={<BrokerAccountsPage />} />
+                <Route path="marketing" element={<BrokerMarketingPage />} />
+                <Route path="marketing/campaigns" element={<DripCampaignsPage />} />
+                <Route path="notifications" element={<BrokerNotificationsPage />} />
+                <Route path="opportunities" element={<BrokerOpportunitiesPage />} />
+                <Route path="audit-log" element={<BrokerAuditLogPage />} />
+                <Route path="commission-plans" element={<CommissionPlansPage />} />
+                <Route path="lead-routing" element={<LeadRoutingDesk />} />
+                <Route path="draft-listings" element={<DraftListingsPage />} />
+                <Route path="ai-employees" element={<Navigate to="mission-control" replace />} />
+                <Route path="pricing" element={<Pricing />} />
+                <Route path="payment" element={<Payment />} />
+                <Route path="forms" element={<FormsLibrary />} />
+                <Route path="playbooks" element={<PlaybooksList />} />
+                <Route path="playbooks/:playbookId" element={<PlaybookEditor />} />
+                <Route path="live-activity" element={<LiveActivityPage />} />
+                <Route path="financials" element={<BrokerFinancials />} />
+                <Route path="offer-intents" element={<BrokerOfferIntents />} />
+                <Route path="documents/:fileId" element={<DocumentViewerPage />} />
+                <Route path="agent-performance" element={<AgentPerformanceList />} />
+                <Route path="agent-performance/:agentProfileId" element={<AgentPerformanceDetail />} />
+                <Route path="contracts" element={<ContractsPage />} />
+                <Route path="settings" element={<BrokerSettingsPage />} />
+                {/* Default broker route */}
+                <Route index element={<Navigate to="mission-control" replace />} />
+              </Route>
 
-                <Route path="/dashboard/forms" element={<Navigate to="/broker/forms" replace />} />
+              <Route path="/dashboard/forms" element={<Navigate to="/broker/forms" replace />} />
 
-                {/* Customer Routes */}
-                <Route path="/customer/dashboard" element={<CustomerDashboard />} />
-                <Route path="/customer/search" element={<CustomerSearch />} />
-                <Route path="/customer/profile" element={<CustomerProfile />} />
-                <Route path="/customer/favorites" element={<CustomerFavorites />} />
-                <Route path="/customer/saved" element={<CustomerSaved />} />
-                <Route path="/customer/inquiries" element={<CustomerInquiries />} />
-                <Route path="/customer/property/:id" element={<CustomerPropertyDetail />} />
+              {/* CRM */}
+              <Route path="/crm" element={<Navigate to="/broker/crm" replace />} />
 
-                {/* CRM */}
-                <Route path="/crm" element={<Navigate to="/broker/crm" replace />} />
+              <Route path="/messages" element={<Messages />} />
 
-                <Route path="/messages" element={<Messages />} />
-
-                {/* Default redirect */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </div>
-            </Router>
-          </MessengerProvider>
-        </BrokerProvider>
-      </CustomerExperienceProvider>
+              {/* Default redirect */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </div>
+          </Router>
+        </MessengerProvider>
+      </BrokerProvider>
     </AuthProvider>
   )
 }
