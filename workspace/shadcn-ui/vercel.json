@@ -13,11 +13,11 @@
   "routes": [
     {
       "src": "/api",
-      "dest": "https://hatch-site-api.vercel.app/api"
+      "dest": "https://hatch-site-production.up.railway.app/api"
     },
     {
       "src": "/api/(.*)",
-      "dest": "https://hatch-site-api.vercel.app/api/$1"
+      "dest": "https://hatch-site-production.up.railway.app/api/$1"
     },
     {
       "src": "/assets/(.*)",
