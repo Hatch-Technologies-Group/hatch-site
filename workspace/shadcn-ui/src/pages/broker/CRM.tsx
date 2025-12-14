@@ -5,6 +5,7 @@ import { Loader2, Sparkles, Plus } from 'lucide-react';
 import PipelineBoard from '@/components/crm/PipelineBoard';
 import { ClientInsightsHub } from '@/components/crm/ClientInsightsHub';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { AgentCopilotModal, type AgentCopilotMessage } from '@/components/copilot/AgentCopilotModal';
 import { PersonaProfiles } from '@/components/ai/PersonaProfiles';
 import AddLeadModal from '@/components/AddLeadModal';
@@ -543,7 +544,7 @@ function PipelineHero({ pipelineName, stageCount, metrics, navItems, onOpenCopil
 
 function QuickMetrics({ cards, onRefresh }: { cards: Array<{ label: string; value: string; caption?: string }>; onRefresh: () => void }) {
   return (
-    <div className="rounded-3xl border bg-white p-6 shadow-sm">
+    <Card className="!rounded-3xl p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-400">Pipeline Snapshot</p>
@@ -555,14 +556,17 @@ function QuickMetrics({ cards, onRefresh }: { cards: Array<{ label: string; valu
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-inner">
+          <div
+            key={card.label}
+            className="rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/55 p-4 shadow-inner backdrop-blur-md"
+          >
             <p className="text-xs uppercase tracking-wide text-slate-500">{card.label}</p>
             <p className="mt-2 text-3xl font-semibold text-slate-900">{card.value}</p>
             {card.caption && <p className="text-xs text-slate-500">{card.caption}</p>}
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
 

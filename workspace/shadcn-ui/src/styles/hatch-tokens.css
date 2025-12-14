@@ -110,6 +110,11 @@
   --glass-background: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(157, 171, 197, 0.25);
 
+  /* Component surfaces */
+  --hatch-card-alpha: 0.95;
+  --hatch-card-blur: 0px;
+  --hatch-card-border: var(--border-subtle);
+
   /* Body + text */
   --text-primary: #1c1c1e;
   --text-secondary: #6b7280;
@@ -141,6 +146,8 @@
 
   --glass-background: rgba(20, 34, 55, 0.8);
   --glass-border: rgba(84, 110, 152, 0.35);
+
+  --hatch-card-border: var(--border-subtle);
 
   --status-success-surface: rgba(61, 185, 153, 0.18);
   --status-success-foreground: rgba(92, 232, 190, 0.9);

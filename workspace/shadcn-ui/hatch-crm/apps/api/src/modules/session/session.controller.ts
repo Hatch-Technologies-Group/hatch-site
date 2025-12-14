@@ -1,28 +1,39 @@
-import { Controller, Get, Req, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Req, UnauthorizedException, NotFoundException, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 
 import { UserRole } from '@hatch/db';
 
-import { resolveRequestContext } from '../common/request-context';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+
+interface AuthedRequest extends FastifyRequest {
+  user?: {
+    userId?: string;
+    tenantId?: string;
+    orgId?: string;
+    role?: UserRole;
+  };
+}
 
 @Controller()
 export class SessionController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get('me')
-  async getSession(@Req() req: FastifyRequest) {
-    const ctx = resolveRequestContext(req);
+  @UseGuards(JwtAuthGuard)
+  async getSession(@Req() req: AuthedRequest) {
+    const userId = req.user?.userId;
+    const tenantId = req.user?.tenantId;
+    const role = req.user?.role;
 
-    // Require authentication - no fallback session
-    if (!ctx.userId) {
+    if (!userId || !tenantId) {
       throw new UnauthorizedException('Authentication required');
     }
 
-    const orgId = ctx.orgId ?? ctx.tenantId;
+    const orgId = req.user?.orgId ?? tenantId;
     const [user, tenant] = await Promise.all([
       this.prisma.user.findFirst({
-        where: { id: ctx.userId },
+        where: { id: userId },
         select: {
           id: true,
           email: true,
@@ -32,7 +43,7 @@ export class SessionController {
         }
       }),
       this.prisma.tenant.findUnique({
-        where: { id: ctx.tenantId },
+        where: { id: tenantId },
         select: {
           id: true,
           name: true,
@@ -50,8 +61,9 @@ export class SessionController {
     const firstName = user.firstName ?? 'User';
     const lastName = user.lastName ?? '';
 
+    const effectiveRole = user.role ?? role;
     const membershipRole =
-      ctx.role === UserRole.BROKER || ctx.role === UserRole.TEAM_LEAD ? 'BROKER_OWNER' : 'AGENT';
+      effectiveRole === UserRole.BROKER || effectiveRole === UserRole.TEAM_LEAD ? 'BROKER_OWNER' : 'AGENT';
 
     return {
       user: {
@@ -67,7 +79,7 @@ export class SessionController {
       },
       memberships: [
         {
-          id: `${ctx.tenantId}-membership`,
+          id: `${tenantId}-membership`,
           org_id: orgId,
           role: membershipRole,
           status: 'active',

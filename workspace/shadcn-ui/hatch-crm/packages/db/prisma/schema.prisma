@@ -802,6 +802,7 @@ model Organization {
   notificationPreferences NotificationPreference[]
   auditLogs             OrgAuditLog[]
   delegatedAccesses     DelegatedAccess[]
+  agentPortalConfig     AgentPortalConfig?
 }
 
 model Office {
@@ -3181,6 +3182,19 @@ model ConsumerPortalConfig {
 
   @@unique([tenantId])
   @@index([tenantId, viewPresetId])
+}
+
+model AgentPortalConfig {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  allowedPaths   String[] @default([])
+  landingPath    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model Sequence {

@@ -103,6 +103,12 @@
 }
 
 @layer base {
+  .hatch-broker-shell {
+    --hatch-card-alpha: 0.86;
+    --hatch-card-blur: 18px;
+    --hatch-card-border: var(--glass-border);
+  }
+
   * {
     @apply border-border;
   }

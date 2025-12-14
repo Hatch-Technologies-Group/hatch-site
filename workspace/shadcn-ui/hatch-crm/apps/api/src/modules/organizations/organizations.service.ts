@@ -8,6 +8,8 @@ import { CognitoService } from '../auth/cognito.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 
+const DEFAULT_AGENT_ALLOWED_PATHS = ['/broker/crm', '/broker/contracts', '/broker/transactions'] as const;
+
 @Injectable()
 export class OrganizationsService {
   private readonly logger = new Logger(OrganizationsService.name);
@@ -101,7 +103,7 @@ export class OrganizationsService {
     });
 
     // Generate Cognito signup URL with invite token embedded in state
-    const signupUrl = this.cognito.generateSignupUrl(token, dto.email);
+    const signupUrl = this.cognito.generateSignupUrl(token, dto.email, '/portal');
 
     // Send invite email
     const brokerName = broker.firstName && broker.lastName ? `${broker.firstName} ${broker.lastName}` : broker.email;
@@ -168,7 +170,7 @@ export class OrganizationsService {
       });
     } catch {}
 
-    return invite;
+    return { invite, signupUrl };
   }
 
   async getOrgInvites(orgId: string, brokerUserId: string) {
@@ -177,5 +179,97 @@ export class OrganizationsService {
       where: { organizationId: orgId },
       orderBy: { createdAt: 'desc' }
     });
+  }
+
+  private normalizeAllowedPaths(paths: unknown): string[] {
+    if (!Array.isArray(paths)) return [];
+    const normalized = paths
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.startsWith('/broker/') && !value.startsWith('//') && !value.includes('..') && !value.includes('\\'));
+    return Array.from(new Set(normalized));
+  }
+
+  private normalizeLandingPath(landingPath: unknown, allowedPaths: string[]): string {
+    const candidate = typeof landingPath === 'string' ? landingPath.trim() : '';
+    if (candidate && allowedPaths.includes(candidate)) {
+      return candidate;
+    }
+    return allowedPaths[0] ?? DEFAULT_AGENT_ALLOWED_PATHS[0];
+  }
+
+  private async ensureUserInOrg(orgId: string, userId: string) {
+    const [user, org, membership] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.prisma.organization.findUnique({ where: { id: orgId } }),
+      this.prisma.userOrgMembership.findUnique({ where: { userId_orgId: { userId, orgId } } })
+    ]);
+    if (!user) throw new NotFoundException('User not found');
+    if (!org) throw new NotFoundException('Organization not found');
+    if (!membership) throw new ForbiddenException('User is not a member of this organization');
+    return { user, org, membership };
+  }
+
+  async getAgentPortalConfig(orgId: string, userId: string) {
+    await this.ensureUserInOrg(orgId, userId);
+
+    const config = await this.prisma.agentPortalConfig.findUnique({
+      where: { organizationId: orgId }
+    });
+
+    const allowedPaths =
+      config && Array.isArray(config.allowedPaths) && config.allowedPaths.length > 0
+        ? this.normalizeAllowedPaths(config.allowedPaths)
+        : [...DEFAULT_AGENT_ALLOWED_PATHS];
+
+    if (allowedPaths.length === 0) {
+      allowedPaths.push(...DEFAULT_AGENT_ALLOWED_PATHS);
+    }
+
+    return {
+      organizationId: orgId,
+      allowedPaths,
+      landingPath: config ? this.normalizeLandingPath(config.landingPath, allowedPaths) : allowedPaths[0],
+      createdAt: config?.createdAt ?? null,
+      updatedAt: config?.updatedAt ?? null,
+      isDefault: !config
+    };
+  }
+
+  async upsertAgentPortalConfig(
+    orgId: string,
+    brokerUserId: string,
+    dto: { allowedPaths: string[]; landingPath?: string }
+  ) {
+    await this.ensureBrokerInOrg(orgId, brokerUserId);
+
+    const allowedPaths = this.normalizeAllowedPaths(dto.allowedPaths);
+    if (allowedPaths.length === 0) {
+      throw new BadRequestException('At least one agent portal path must be enabled');
+    }
+
+    const landingPath = this.normalizeLandingPath(dto.landingPath, allowedPaths);
+
+    const config = await this.prisma.agentPortalConfig.upsert({
+      where: { organizationId: orgId },
+      create: {
+        organizationId: orgId,
+        allowedPaths,
+        landingPath
+      },
+      update: {
+        allowedPaths,
+        landingPath
+      }
+    });
+
+    return {
+      organizationId: config.organizationId,
+      allowedPaths: config.allowedPaths,
+      landingPath: this.normalizeLandingPath(config.landingPath, config.allowedPaths),
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
+      isDefault: false
+    };
   }
 }

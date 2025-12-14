@@ -31,7 +31,7 @@ export const MissionControlKpiRow: React.FC<MissionControlKpiRowProps> = ({ item
         {Array.from({ length: 5 }).map((_, idx) => (
           <div
             key={idx}
-            className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 animate-pulse"
+            className="rounded-[24px] border border-[color:var(--hatch-card-border)] bg-card/60 p-4 animate-pulse backdrop-blur-[var(--hatch-card-blur)]"
           >
             <div className="h-3 w-16 rounded bg-slate-200 mb-3" />
             <div className="h-8 w-16 rounded bg-slate-300 mb-2" />
@@ -56,9 +56,8 @@ export const MissionControlKpiRow: React.FC<MissionControlKpiRowProps> = ({ item
         <article
           key={item.id}
           className={cn(
-            'group relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-white p-4',
-            'shadow-[0_20px_45px_rgba(15,23,42,0.08)] transition-all',
-            'hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(15,23,42,0.15)]'
+            'group relative overflow-hidden rounded-[24px] border border-[color:var(--hatch-card-border)] bg-card/[var(--hatch-card-alpha)] p-4 shadow-brand backdrop-blur-[var(--hatch-card-blur)] transition-all',
+            'hover:-translate-y-0.5 hover:shadow-brand-md'
           )}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#1F5FFF] via-[#38BDF8] to-[#1F5FFF]" />

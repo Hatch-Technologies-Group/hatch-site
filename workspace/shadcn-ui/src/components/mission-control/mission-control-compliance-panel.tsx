@@ -77,7 +77,9 @@ export function MissionControlCompliancePanel({ orgId }: MissionControlComplianc
           ))
         )}
         {!isLoading && metrics.length === 0 ? (
-          <div className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-500">No compliance data yet.</div>
+          <div className="rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 px-3 py-2 text-xs text-slate-600 backdrop-blur-sm">
+            No compliance data yet.
+          </div>
         ) : null}
       </div>
     </MissionControlSectionCard>
@@ -89,10 +91,10 @@ const ComplianceSkeleton = () => (
     {Array.from({ length: 4 }).map((_, idx) => (
       <div
         key={`compliance-skel-${idx}`}
-        className="flex flex-col gap-1 rounded-2xl border border-slate-100 bg-slate-50 p-3 animate-pulse"
+        className="flex flex-col gap-1 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 p-3 animate-pulse backdrop-blur-sm"
       >
-        <div className="h-3 w-32 rounded bg-slate-200" />
-        <div className="h-5 w-20 rounded bg-slate-300" />
+        <div className="h-3 w-32 rounded bg-slate-200/70" />
+        <div className="h-5 w-20 rounded bg-slate-300/70" />
       </div>
     ))}
   </div>

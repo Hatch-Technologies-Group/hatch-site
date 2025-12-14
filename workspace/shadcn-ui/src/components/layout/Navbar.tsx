@@ -30,10 +30,8 @@ export function Navbar() {
   const isAuthenticated = Boolean(user)
   const navigation = useMemo(
     () => [
-      { name: 'Buy', href: '/?persona=buyer#hero' },
-      { name: 'Sell', href: '/?persona=seller#hero' },
-      { name: 'Find an Agent', href: '/#agent-match' },
       { name: 'For Pros', href: '/#for-pros' },
+      { name: 'Demo', href: '/demo' },
     ],
     []
   )

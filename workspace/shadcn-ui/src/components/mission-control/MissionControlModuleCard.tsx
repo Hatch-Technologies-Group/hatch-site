@@ -45,7 +45,7 @@ export const MissionControlModuleCard: React.FC<MissionControlModuleCardProps> =
   return (
     <section
       aria-labelledby={id}
-      className="rounded-[24px] border border-slate-200/70 bg-white/90 p-4 md:p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]"
+      className="relative overflow-hidden rounded-[24px] border border-[color:var(--hatch-card-border)] bg-card/[var(--hatch-card-alpha)] p-4 shadow-brand backdrop-blur-[var(--hatch-card-blur)] md:p-5"
     >
       <button
         type="button"
@@ -66,20 +66,25 @@ export const MissionControlModuleCard: React.FC<MissionControlModuleCardProps> =
       </button>
 
       {open ? (
-        <div className="mt-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 border-t border-[color:var(--hatch-card-border)] pt-3">
           {loading ? (
             <div className="grid gap-3 md:grid-cols-2">
               {Array.from({ length: 4 }).map((_, idx) => (
-                <div key={`mc-module-skel-${idx}`} className="flex flex-col gap-1 rounded-2xl bg-slate-50 p-3 animate-pulse">
-                  <div className="h-3 w-24 rounded bg-slate-200" />
-                  <div className="h-5 w-12 rounded bg-slate-300" />
+                <div
+                  key={`mc-module-skel-${idx}`}
+                  className="flex flex-col gap-1 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/50 p-3 animate-pulse"
+                >
+                  <div className="h-3 w-24 rounded bg-slate-200/70" />
+                  <div className="h-5 w-12 rounded bg-slate-300/70" />
                 </div>
               ))}
             </div>
           ) : error ? (
             <div className="rounded-2xl bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
           ) : !hasMetrics ? (
-            <div className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-500">{emptyMessage}</div>
+            <div className="rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/50 px-3 py-2 text-xs text-slate-600">
+              {emptyMessage}
+            </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {metrics.map((metric) => (

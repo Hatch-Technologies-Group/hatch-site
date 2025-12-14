@@ -171,11 +171,29 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
     headers.set('Authorization', `Bearer ${options.token}`);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    cache: 'no-store'
-  });
+  const isRefreshEndpoint = versionedPath === 'v1/auth/refresh';
+
+  const doFetch = () =>
+    fetch(url, {
+      ...options,
+      headers,
+      cache: 'no-store',
+      credentials: 'include'
+    });
+
+  let response = await doFetch();
+
+  if (response.status === 401 && typeof window !== 'undefined' && !options.token && !isRefreshEndpoint) {
+    const refreshed = await fetch(`${API_URL}v1/auth/refresh`, {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'include'
+    }).then((res) => res.ok).catch(() => false);
+
+    if (refreshed) {
+      response = await doFetch();
+    }
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => undefined);

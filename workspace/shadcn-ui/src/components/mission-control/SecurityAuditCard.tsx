@@ -12,10 +12,10 @@ type SecurityAuditCardProps = {
 
 export function SecurityAuditCard({ orgId }: SecurityAuditCardProps) {
   return (
-    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
       <MlsSyncSummaryCard orgId={orgId} />
 
-      <Card className="rounded-[24px] border border-slate-200/70 bg-white/90 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+      <Card className="!rounded-[24px]">
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
@@ -38,7 +38,7 @@ export function SecurityAuditCard({ orgId }: SecurityAuditCardProps) {
         </CardContent>
       </Card>
 
-      <Card className="rounded-[24px] border border-slate-200/70 bg-white/90 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+      <Card className="!rounded-[24px]">
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">

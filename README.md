@@ -14,7 +14,7 @@ Hatch CRM Monorepo
 `infra/docker` — Local: Postgres, Redis, MinIO, Mailhog.
 Shadcn‑UI Site/Workbench
 Vite + React 19, Tailwind, shadcn/ui + Radix; broker CRM surface with Pipeline Board, Client Insights, AI Copilot, and Pipeline Designer.
-Supabase client utilities, Stripe client, and a thin API proxy for local dev.
+Cookie-based auth, Stripe client, and a thin API proxy for local dev.
 SDKs, OpenAPI, Docs
 `openapi/` generated spec + SDK workflow.
 `packages/sdk-lite` foundations for a lightweight client SDK.
@@ -50,7 +50,7 @@ Tech Highlights
 
 API: NestJS, Fastify, Prisma/PostgreSQL, BullMQ/Redis, OpenTelemetry, Zod, SendGrid.
 Web: Next.js + shadcn/ui, Tailwind, TanStack Query, React Hook Form.
-Site/Workbench: Vite + React 19, shadcn/ui + Radix, Supabase client, Stripe, dnd‑kit, framer‑motion.
+Site/Workbench: Vite + React 19, shadcn/ui + Radix, Stripe, dnd‑kit, framer‑motion.
 Documentation
 
 Architecture: workspace/shadcn-ui/hatch-crm/docs/architecture.md
