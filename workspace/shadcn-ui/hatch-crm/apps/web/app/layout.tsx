@@ -3,6 +3,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import type { ReactNode } from 'react';
+import { Analytics } from '@vercel/analytics/next';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { Toaster } from '@/components/ui/toaster';
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-screen bg-gray-50 text-[var(--hatch-text)] antialiased">
         <AppShell>{children}</AppShell>
         <Toaster />
+        <Analytics />
       </body>
     </html>
   );
