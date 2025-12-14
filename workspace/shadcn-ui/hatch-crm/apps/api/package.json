@@ -51,7 +51,6 @@
     "@prisma/instrumentation": "^5.22.0",
     "@sendgrid/helpers": "^8.0.0",
     "@sendgrid/mail": "^8.1.6",
-    "@supabase/supabase-js": "^2.76.1",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdf-parse": "^1.1.5",
     "@vercel/node": "^3.0.35",

@@ -112,18 +112,18 @@ const metricLinkMap: Record<string, string> = {
   'Indexed listings': '/dashboard/properties',
   'Active for sale': '/dashboard/properties',
   'Active rentals': '/dashboard/rentals',
-  'Total saved searches': '/dashboard/marketing',
-  'Alerts enabled': '/dashboard/marketing',
-  'Daily alerts': '/dashboard/marketing',
-  'Weekly alerts': '/dashboard/marketing',
-  'Saved listings': '/dashboard/marketing',
+  'Total saved searches': '/portal/saved-searches',
+  'Alerts enabled': '/portal/saved-searches',
+  'Daily alerts': '/portal/saved-searches',
+  'Weekly alerts': '/portal/saved-searches',
+  'Saved listings': '/portal/saved-homes',
   'Active listings': '/dashboard/properties',
   'Pending approval': '/dashboard/properties',
   'Under contract': '/dashboard/transactions',
   'Evaluations (30d)': '/dashboard/compliance',
   'Transactions w/ required docs': '/dashboard/transactions',
   'Transactions missing docs': '/dashboard/transactions?filter=missing-docs',
-  'Upcoming closings missing docs': '/dashboard/transactions?filter=missing-docs'
+  'Upcoming closings missing docs': '/dashboard/transactions?filter=missing-docs&withinDays=30'
 };
 
 function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {

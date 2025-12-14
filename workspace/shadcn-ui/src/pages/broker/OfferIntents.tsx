@@ -57,9 +57,9 @@ function OfferIntentsView({ orgId }: { orgId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm uppercase tracking-wide text-slate-500">Offer intents</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Consumer LOIs</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Offer LOIs</h1>
           <p className="text-sm text-slate-500">
-            Track submissions from the consumer portal and keep statuses aligned with your workflow.
+            Track incoming LOIs and keep statuses aligned with your workflow.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -87,7 +87,7 @@ function OfferIntentsView({ orgId }: { orgId: string }) {
             <tr>
               <th className="px-4 py-3 text-left">Offer</th>
               <th className="px-4 py-3 text-left">Listing</th>
-              <th className="px-4 py-3 text-left">Consumer / Lead</th>
+              <th className="px-4 py-3 text-left">Buyer / Lead</th>
               <th className="px-4 py-3 text-left">Status</th>
               <th className="px-4 py-3 text-left">Details</th>
             </tr>
@@ -102,7 +102,7 @@ function OfferIntentsView({ orgId }: { orgId: string }) {
             ) : offers.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                  No offers submitted yet. Consumer LOIs will appear here.
+                  No LOIs submitted yet. New LOIs will appear here.
                 </td>
               </tr>
             ) : (

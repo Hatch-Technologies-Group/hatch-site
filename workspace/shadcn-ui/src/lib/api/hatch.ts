@@ -4,7 +4,6 @@ import type { PersonaId } from '@/lib/ai/aiPersonas';
 
 const ensureTrailingSlash = (value: string) => (value.endsWith('/') ? value : `${value}/`);
 const DEFAULT_API_PREFIX = '/api/v1';
-const AUTH_STORAGE_KEY = 'hatch_auth_tokens';
 
 const resolveApiBaseUrl = (value?: string) => {
   const fallback = `http://localhost:4000${DEFAULT_API_PREFIX}`;
@@ -38,22 +37,10 @@ const resolveApiBaseUrl = (value?: string) => {
 };
 
 export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
-const API_TOKEN = import.meta.env.VITE_API_TOKEN;
 const CHAOS_MODE = (import.meta.env.VITE_CHAOS_MODE ?? 'false').toLowerCase() === 'true';
 interface FetchOptions extends RequestInit {
   token?: string;
 }
-
-const readAuthFromStorage = () => {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as { accessToken?: string; user?: { id?: string; role?: string } };
-  } catch {
-    return null;
-  }
-};
 
 async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const sanitizedPath = path.replace(/^\/+/, '');
@@ -68,28 +55,12 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
   const isFormData =
     typeof FormData !== 'undefined' && options.body instanceof FormData;
 
-  const stored = readAuthFromStorage();
-  if (stored?.user?.id && !headers.has('x-user-id')) {
-    headers.set('x-user-id', stored.user.id);
-  }
-  if (!headers.has('x-user-role') && stored?.user?.role) {
-    headers.set('x-user-role', stored.user.role.toUpperCase());
-  }
-  if (!headers.has('x-tenant-id')) {
-    headers.set('x-tenant-id', import.meta.env.VITE_TENANT_ID || 'tenant-hatch');
-  }
-  if (!headers.has('x-org-id')) {
-    headers.set('x-org-id', import.meta.env.VITE_ORG_ID || 'org-hatch');
-  }
-
   if (!headers.has('Content-Type') && options.body && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const storedToken = stored?.accessToken;
-  const authToken = options.token ?? storedToken ?? API_TOKEN;
-  if (authToken) {
-    headers.set('Authorization', `Bearer ${authToken}`);
+  if (options.token) {
+    headers.set('Authorization', `Bearer ${options.token}`);
   }
 
   if (CHAOS_MODE) {
@@ -100,10 +71,44 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
     }
   }
 
-  const response = await fetch(url.toString(), {
-    ...options,
-    headers,
-  });
+  const body: BodyInit | null | undefined = isFormData
+    ? (options.body as BodyInit | null | undefined)
+    : typeof options.body === 'string'
+      ? options.body
+      : options.body !== undefined
+        ? JSON.stringify(options.body)
+        : undefined;
+
+  const shouldAttemptRefresh = !sanitizedPath.startsWith('auth/refresh') && !sanitizedPath.startsWith('auth/logout');
+
+  const doFetch = async (attemptedRefresh: boolean): Promise<Response> => {
+    const response = await fetch(url.toString(), {
+      ...options,
+      headers,
+      body,
+      credentials: 'include',
+    });
+
+    if (response.status !== 401 || attemptedRefresh || !shouldAttemptRefresh) {
+      return response;
+    }
+
+    try {
+      const refreshUrl = API_BASE_URL.startsWith('http')
+        ? new URL('auth/refresh', API_BASE_URL).toString()
+        : `${API_BASE_URL}auth/refresh`;
+      const refreshResponse = await fetch(refreshUrl, { method: 'POST', credentials: 'include' });
+      if (!refreshResponse.ok) {
+        return response;
+      }
+    } catch {
+      return response;
+    }
+
+    return doFetch(true);
+  };
+
+  const response = await doFetch(false);
 
   if (!response.ok) {
     let payload: unknown;

@@ -35,7 +35,7 @@ interface MessengerWidgetProps {
 
 export function MessengerWidget({ onClose, initialContactId, onInitialContactConsumed }: MessengerWidgetProps) {
   const { toast } = useToast()
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
 
   const [conversations, setConversations] = useState<ConversationListItem[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -268,10 +268,10 @@ export function MessengerWidget({ onClose, initialContactId, onInitialContactCon
   }
 
   const isViewer = useMemo(() => {
-    if (!conversationDetail || !profile?.id) return false
-    const participant = conversationDetail.participants.find((participant) => participant.user?.id === profile.id)
+    if (!conversationDetail || !user?.id) return false
+    const participant = conversationDetail.participants.find((participant) => participant.user?.id === user.id)
     return participant?.role === 'VIEWER'
-  }, [conversationDetail, profile])
+  }, [conversationDetail, user?.id])
 
   useEffect(() => {
     if (!user || !initialContactId) return

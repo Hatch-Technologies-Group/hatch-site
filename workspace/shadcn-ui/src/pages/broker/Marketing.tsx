@@ -126,26 +126,29 @@ export default function BrokerMarketingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Marketing</p>
-          <h1 className="text-2xl font-bold text-slate-900">AI Campaign Center</h1>
-          <p className="text-sm text-muted-foreground">
-            Run AI-powered campaigns to your sphere, leads, and past clients. Draft with Haven or Lumen, review, and send with a click.
-          </p>
+      <Card className="!rounded-3xl p-6">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/45 via-white/12 to-white/0 dark:from-white/10 dark:via-white/5" />
+        <div className="relative flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Marketing</p>
+            <h1 className="text-2xl font-bold text-slate-900">AI Campaign Center</h1>
+            <p className="text-sm text-muted-foreground">
+              Run AI-powered campaigns to your sphere, leads, and past clients. Draft with Haven or Lumen, review, and send with a click.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/broker/marketing/campaigns">Drip campaigns</Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleNewAiEmail('lead_nurse')}>
+              New nurture email (Lumen)
+            </Button>
+            <Button size="sm" onClick={() => handleNewAiEmail('listing_concierge')}>
+              New listing email (Haven)
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/broker/marketing/campaigns">Drip campaigns</Link>
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleNewAiEmail('lead_nurse')}>
-            New nurture email (Lumen)
-          </Button>
-          <Button size="sm" onClick={() => handleNewAiEmail('listing_concierge')}>
-            New listing email (Haven)
-          </Button>
-        </div>
-      </div>
+      </Card>
 
       <MlsSyncPanel orgId={orgId} />
 

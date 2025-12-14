@@ -1,10 +1,8 @@
 import type { Database } from '@/types/database'
-import { request, functionsBaseUrl, supabaseAnonKey } from './client'
+import { request } from './client'
 import type { RequestOptions } from './client'
 
-
 export type BrokerPropertyRow = Database['public']['Views']['vw_broker_properties']['Row']
-type ConsumerPropertyRow = Database['public']['Views']['vw_consumer_properties']['Row']
 
 export const fetchBrokerProperties = (options?: RequestOptions) =>
   request<BrokerPropertyRow[]>('/properties', options)
@@ -75,70 +73,3 @@ export const promoteDraftProperty = (payload: PromoteDraftPayload, options?: Req
     method: 'POST',
     body: payload,
   })
-
-const requestConsumer = async <T>(
-  path: string,
-  searchParams?: URLSearchParams,
-  extraHeaders?: Record<string, string>
-): Promise<T> => {
-  if (!functionsBaseUrl) {
-    throw new Error('functions_base_url_missing')
-  }
-
-  const url = new URL(`${functionsBaseUrl}${path}`)
-  if (searchParams) {
-    url.search = searchParams.toString()
-  }
-
-  const headers = extraHeaders ? { ...extraHeaders } : {}
-  const response = await fetch(url.toString(), { headers })
-  const payload = await response.json()
-
-  if (!response.ok) {
-    const errorCode = payload?.error ?? response.statusText
-    throw new Error(typeof errorCode === 'string' ? errorCode : 'request_failed')
-  }
-
-  return payload?.data ?? payload
-}
-
-interface ConsumerSearchParams {
-  q?: string
-  bbox?: string
-  filters?: Record<string, unknown>
-  limit?: number
-}
-
-export const searchConsumerProperties = (params: ConsumerSearchParams = {}) => {
-  const search = new URLSearchParams()
-  if (params.q) search.set('q', params.q)
-  if (params.bbox) search.set('bbox', params.bbox)
-  if (params.limit) search.set('limit', String(params.limit))
-  if (params.filters && Object.keys(params.filters).length > 0) {
-    search.set('filters', JSON.stringify(params.filters))
-  }
-
-  const headers: Record<string, string> = {
-    apikey: supabaseAnonKey,
-    Authorization: `Bearer ${supabaseAnonKey}`,
-  }
-
-  return requestConsumer<ConsumerPropertyRow[]>(
-    '/consumer-properties',
-    search,
-    headers
-  )
-}
-
-export const getConsumerProperty = (identifier: string) => {
-  const headers: Record<string, string> = {
-    apikey: supabaseAnonKey,
-    Authorization: `Bearer ${supabaseAnonKey}`,
-  }
-
-  return requestConsumer<ConsumerPropertyRow>(
-    `/consumer-properties/${encodeURIComponent(identifier)}`,
-    undefined,
-    headers
-  )
-}

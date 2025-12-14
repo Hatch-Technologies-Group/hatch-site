@@ -156,11 +156,7 @@ function AgentComplianceTable({ agents, isLoading }: { agents: MissionControlAge
                     </p>
                   </td>
                   <td className="py-3 pr-4">
-                    {agent.requiresAction ? (
-                      <Badge className="border border-rose-100 bg-rose-50 text-rose-700">Action required</Badge>
-                    ) : (
-                      <Badge className="border border-emerald-100 bg-emerald-50 text-emerald-700">Compliant</Badge>
-                    )}
+                    <ComplianceBadge agent={agent} />
                     {agent.openComplianceIssues > 0 ? (
                       <p className="text-xs text-rose-500">{agent.openComplianceIssues} open issues</p>
                     ) : (
@@ -170,10 +166,10 @@ function AgentComplianceTable({ agents, isLoading }: { agents: MissionControlAge
                   <td className="py-3 pr-4">
                     <div className="flex flex-wrap gap-2">
                       <Button asChild size="sm" variant="secondary">
-                        <Link href={`/dashboard/mission-control?agent=${agent.agentProfileId}`}>Mission Control</Link>
+                        <Link href="/dashboard/mission-control">Mission Control</Link>
                       </Button>
                       <Button asChild size="sm" variant="ghost">
-                        <Link href={`/dashboard/team?agent=${agent.agentProfileId}`}>View profile</Link>
+                        <Link href={`/dashboard/agents/${agent.agentProfileId}`}>View profile</Link>
                       </Button>
                     </div>
                   </td>
@@ -185,6 +181,17 @@ function AgentComplianceTable({ agents, isLoading }: { agents: MissionControlAge
       </div>
     </Card>
   );
+}
+
+function ComplianceBadge({ agent }: { agent: MissionControlAgentRow }) {
+  const label = agent.requiresAction ? 'Action required' : agent.isCompliant ? 'Compliant' : 'Monitoring';
+  const tone = agent.requiresAction
+    ? 'border border-rose-100 bg-rose-50 text-rose-700'
+    : agent.isCompliant
+      ? 'border border-emerald-100 bg-emerald-50 text-emerald-700'
+      : 'border border-amber-100 bg-amber-50 text-amber-700';
+
+  return <Badge className={tone}>{label}</Badge>;
 }
 
 function AiEvaluationTable({ events, isLoading }: { events: MissionControlEvent[]; isLoading: boolean }) {
