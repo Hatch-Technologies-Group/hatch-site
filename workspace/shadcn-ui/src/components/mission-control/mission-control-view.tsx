@@ -302,7 +302,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, idx) => (
-                  <div key={`agents-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`agents-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (
@@ -330,7 +333,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, idx) => (
-                  <div key={`listings-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`listings-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (
@@ -358,7 +364,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, idx) => (
-                  <div key={`leads-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`leads-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (
@@ -386,7 +395,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, idx) => (
-                  <div key={`deals-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`deals-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (
@@ -414,7 +426,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-5">
                 {Array.from({ length: 5 }).map((_, idx) => (
-                  <div key={`oi-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`oi-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (
@@ -442,7 +457,10 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
             {overviewLoading ? (
               <div className="grid gap-3 md:grid-cols-4">
                 {Array.from({ length: 4 }).map((_, idx) => (
-                  <div key={`comp-skel-${idx}`} className="h-16 rounded-2xl bg-slate-50 animate-pulse" />
+                  <div
+                    key={`comp-skel-${idx}`}
+                    className="h-16 rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/45 animate-pulse backdrop-blur-sm"
+                  />
                 ))}
               </div>
             ) : overviewErrorMessage ? (

@@ -76,12 +76,22 @@ async function testInviteFlow() {
     // Step 3: Generate Cognito signup URL
     console.log('\n🔗 Step 3: Generating Cognito signup URL...');
 
-    const cognitoDomain = process.env.COGNITO_DOMAIN || 'https://us-east-1ch1jwrise.auth.us-east-1.amazoncognito.com';
-    const clientId = process.env.COGNITO_CLIENT_ID || '3offtahrkccej3n55avkl8mkkn';
-    const redirectUri = process.env.COGNITO_REDIRECT_URI || 'https://d84l1y8p4kdic.cloudfront.net';
+    const cognitoDomain = process.env.COGNITO_DOMAIN || 'https://us-east-28xfagdiwk.auth.us-east-2.amazoncognito.com';
+    const clientId = process.env.COGNITO_CLIENT_ID || '1nv2o77gk4h0tmf317oouo317k';
+    const callbackUrl =
+      process.env.COGNITO_CALLBACK_URL ||
+      (() => {
+        const base = process.env.COGNITO_REDIRECT_URI || 'http://localhost:3000';
+        const normalized = base.replace(/\/+$/, '');
+        if (normalized.endsWith('/api/v1/auth/cognito/callback')) return normalized;
+        if (normalized.endsWith('/api/v1')) return `${normalized}/auth/cognito/callback`;
+        return `${normalized}/api/v1/auth/cognito/callback`;
+      })();
 
-    const state = Buffer.from(JSON.stringify({ inviteToken: inviteData.token })).toString('base64');
-    const signupUrl = `${cognitoDomain}/signup?client_id=${clientId}&response_type=code&scope=openid+email+profile&redirect_uri=${redirectUri}/auth/cognito/callback&state=${state}&login_hint=${encodeURIComponent(testEmail)}`;
+    const state = Buffer.from(JSON.stringify({ inviteToken: inviteData.token })).toString('base64url');
+    const signupUrl = `${cognitoDomain}/signup?client_id=${clientId}&response_type=code&scope=openid+email&redirect_uri=${encodeURIComponent(
+      callbackUrl
+    )}&state=${encodeURIComponent(state)}&login_hint=${encodeURIComponent(testEmail)}`;
 
     console.log('✅ Cognito Signup URL generated!');
     console.log(`\n📋 Signup URL:\n${signupUrl}`);

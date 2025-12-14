@@ -1,14 +1,15 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
 import { RolesGuard } from '@/auth/roles.guard';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { CreateAgentInviteDto } from './dto/create-agent-invite.dto';
+import { UpdateAgentPortalConfigDto } from './dto/update-agent-portal-config.dto';
 import { OrganizationsService } from './organizations.service';
 
 interface AuthedRequest {
-  user?: { userId?: string };
+  user?: { userId?: string; orgId?: string };
 }
 
 @ApiTags('organizations')
@@ -47,7 +48,7 @@ export class OrganizationsController {
   ) {
     const userId = req.user?.userId;
     if (!userId) throw new Error('Missing user context');
-    const invite = await this.orgs.createAgentInvite(orgId, userId, dto);
+    const { invite, signupUrl } = await this.orgs.createAgentInvite(orgId, userId, dto);
     return {
       id: invite.id,
       email: invite.email,
@@ -56,6 +57,7 @@ export class OrganizationsController {
       invitedByUserId: invite.invitedByUserId,
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
+      signupUrl,
       // Returning token here is acceptable for broker to integrate email sending.
       token: invite.token
     };
@@ -76,5 +78,33 @@ export class OrganizationsController {
       expiresAt: i.expiresAt,
       createdAt: i.createdAt
     }));
+  }
+
+  @Get(':orgId/agent-portal-config')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker', 'agent', 'team_lead'))
+  async getAgentPortalConfig(@Param('orgId') orgId: string, @Req() req: AuthedRequest) {
+    const userId = req.user?.userId;
+    if (!userId) throw new Error('Missing user context');
+    const tokenOrgId = req.user?.orgId;
+    if (tokenOrgId && tokenOrgId !== orgId) {
+      throw new ForbiddenException('Organization mismatch');
+    }
+    return this.orgs.getAgentPortalConfig(orgId, userId);
+  }
+
+  @Put(':orgId/agent-portal-config')
+  @UseGuards(JwtAuthGuard, RolesGuard('broker'))
+  async upsertAgentPortalConfig(
+    @Param('orgId') orgId: string,
+    @Req() req: AuthedRequest,
+    @Body() dto: UpdateAgentPortalConfigDto
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new Error('Missing user context');
+    const tokenOrgId = req.user?.orgId;
+    if (tokenOrgId && tokenOrgId !== orgId) {
+      throw new ForbiddenException('Organization mismatch');
+    }
+    return this.orgs.upsertAgentPortalConfig(orgId, userId, dto);
   }
 }

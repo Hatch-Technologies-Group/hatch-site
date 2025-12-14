@@ -4,7 +4,6 @@ import { inject } from '@vercel/analytics';
 import React from 'react';
 import App from './App.tsx';
 import './index.css';
-import CognitoAuthProvider from './providers/CognitoAuthProvider.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 
 inject();
@@ -15,9 +14,7 @@ createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <CognitoAuthProvider>
-          <App />
-        </CognitoAuthProvider>
+        <App />
       </QueryClientProvider>
     </ErrorBoundary>
   </React.StrictMode>

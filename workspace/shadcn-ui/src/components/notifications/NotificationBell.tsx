@@ -97,7 +97,7 @@ export function NotificationBell() {
         onClick={handleToggle}
         aria-haspopup="true"
         aria-expanded={open}
-        className="relative rounded-full p-2 text-slate-600 bg-white hover:bg-blue-50 active:bg-blue-100 shadow-none hover:shadow-md active:shadow-lg transition-all duration-200 will-change-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-300"
+        className="relative rounded-full border border-white/35 bg-white/25 p-2 text-ink-700 shadow-brand backdrop-blur-xl transition-all duration-200 will-change-transform hover:scale-105 active:scale-95 hover:bg-white/40 active:bg-white/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] dark:border-white/15 dark:bg-white/10 dark:text-ink-100 dark:hover:bg-white/15 dark:active:bg-white/20"
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
@@ -108,45 +108,54 @@ export function NotificationBell() {
       </button>
       <div
         aria-hidden={!open}
-        className={`absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-lg transition-all duration-200
+        className={`absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-[var(--glass-background)] shadow-brand-lg backdrop-blur-xl transition-all duration-200
           ${open ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'}`}
         style={{ willChange: 'opacity, transform' }}
       >
-        <div className="flex items-center justify-between border-b px-3 py-2 text-xs font-semibold text-slate-600">
-          <span>Notifications</span>
-          <button type="button" onClick={handleMarkAll} className="text-blue-600 hover:underline">
-            Mark all as read
-          </button>
-        </div>
-        <div className="max-h-80 overflow-auto text-xs">
-          {loading && <div className="px-3 py-4 text-slate-500">Loading…</div>}
-          {!loading && items.length === 0 && <div className="px-3 py-4 text-slate-500">No notifications yet.</div>}
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className={`flex items-start justify-between border-b px-3 py-2 ${item.isRead ? 'bg-white' : 'bg-slate-50'}`}
-            >
-              <div className="flex-1">
-                <Link to={linkForNotification(item)} className="font-semibold text-slate-900 hover:underline">
-                  {item.title}
-                </Link>
-                {item.message ? (
-                  <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-2">{item.message}</p>
-                ) : null}
-                <p className="mt-0.5 text-[10px] text-slate-400">{new Date(item.createdAt).toLocaleString()}</p>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/45 via-white/12 to-white/0 dark:from-white/10 dark:via-white/5" />
+        <div className="relative">
+          <div className="flex items-center justify-between border-b border-[color:var(--hatch-card-border)] bg-white/10 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-xl dark:bg-white/5 dark:text-ink-100/80">
+            <span>Notifications</span>
+            <button type="button" onClick={handleMarkAll} className="text-brand-blue-600 hover:underline">
+              Mark all as read
+            </button>
+          </div>
+          <div className="max-h-80 overflow-auto text-xs">
+            {loading && <div className="px-3 py-4 text-slate-600">Loading…</div>}
+            {!loading && items.length === 0 && <div className="px-3 py-4 text-slate-600">No notifications yet.</div>}
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-start justify-between border-b border-[color:var(--hatch-card-border)] px-3 py-2 transition ${
+                  item.isRead ? 'bg-white/0' : 'bg-white/15'
+                } hover:bg-white/20 dark:hover:bg-white/10`}
+              >
+                <div className="flex-1">
+                  <Link to={linkForNotification(item)} className="font-semibold text-slate-900 hover:underline dark:text-ink-100">
+                    {item.title}
+                  </Link>
+                  {item.message ? (
+                    <p className="mt-0.5 text-[11px] text-slate-600 line-clamp-2 dark:text-ink-100/70">{item.message}</p>
+                  ) : null}
+                  <p className="mt-0.5 text-[10px] text-slate-500 dark:text-ink-100/55">{new Date(item.createdAt).toLocaleString()}</p>
+                </div>
+                {!item.isRead && (
+                  <button
+                    type="button"
+                    onClick={() => handleMarkRead(item.id)}
+                    className="ml-2 text-[10px] text-brand-blue-600 hover:underline"
+                  >
+                    Mark
+                  </button>
+                )}
               </div>
-              {!item.isRead && (
-                <button type="button" onClick={() => handleMarkRead(item.id)} className="ml-2 text-[10px] text-blue-600 hover:underline">
-                  Mark
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="px-3 py-2 text-center text-[11px]">
-          <Link to="/broker/notifications" className="text-blue-600 hover:underline">
-            View all notifications
-          </Link>
+            ))}
+          </div>
+          <div className="px-3 py-2 text-center text-[11px]">
+            <Link to="/broker/notifications" className="text-brand-blue-600 hover:underline">
+              View all notifications
+            </Link>
+          </div>
         </div>
       </div>
     </div>

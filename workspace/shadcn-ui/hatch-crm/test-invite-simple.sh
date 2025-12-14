@@ -67,12 +67,34 @@ if echo "$LOGIN_RESPONSE" | grep -q "accessToken"; then
     INVITE_TOKEN=$(echo "$INVITE_RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
     # Generate Cognito URL
-    COGNITO_DOMAIN="${COGNITO_DOMAIN:-https://us-east-1ch1jwrise.auth.us-east-1.amazoncognito.com}"
-    CLIENT_ID="${COGNITO_CLIENT_ID:-3offtahrkccej3n55avkl8mkkn}"
-    REDIRECT_URI="${COGNITO_REDIRECT_URI:-https://d84l1y8p4kdic.cloudfront.net}"
+    COGNITO_DOMAIN="${COGNITO_DOMAIN:-https://us-east-28xfagdiwk.auth.us-east-2.amazoncognito.com}"
+    CLIENT_ID="${COGNITO_CLIENT_ID:-1nv2o77gk4h0tmf317oouo317k}"
 
-    STATE=$(echo -n "{\"inviteToken\":\"$INVITE_TOKEN\"}" | base64)
-    SIGNUP_URL="${COGNITO_DOMAIN}/signup?client_id=${CLIENT_ID}&response_type=code&scope=openid+email+profile&redirect_uri=${REDIRECT_URI}/auth/cognito/callback&state=${STATE}&login_hint=${TEST_EMAIL}"
+    CALLBACK_URL="${COGNITO_CALLBACK_URL:-}"
+    if [ -z "$CALLBACK_URL" ]; then
+      BASE_REDIRECT="${COGNITO_REDIRECT_URI:-http://localhost:3000}"
+      BASE_REDIRECT="${BASE_REDIRECT%/}"
+      if [[ "$BASE_REDIRECT" == *"/api/v1/auth/cognito/callback" ]]; then
+        CALLBACK_URL="$BASE_REDIRECT"
+      elif [[ "$BASE_REDIRECT" == *"/api/v1" ]]; then
+        CALLBACK_URL="${BASE_REDIRECT}/auth/cognito/callback"
+      else
+        CALLBACK_URL="${BASE_REDIRECT}/api/v1/auth/cognito/callback"
+      fi
+    fi
+
+    urlencode() {
+      python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+    }
+
+    STATE_JSON="{\"inviteToken\":\"$INVITE_TOKEN\"}"
+    STATE=$(echo -n "$STATE_JSON" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+
+    ENCODED_CALLBACK_URL=$(urlencode "$CALLBACK_URL")
+    ENCODED_STATE=$(urlencode "$STATE")
+    ENCODED_EMAIL=$(urlencode "$TEST_EMAIL")
+
+    SIGNUP_URL="${COGNITO_DOMAIN}/signup?client_id=${CLIENT_ID}&response_type=code&scope=openid+email&redirect_uri=${ENCODED_CALLBACK_URL}&state=${ENCODED_STATE}&login_hint=${ENCODED_EMAIL}"
 
     echo ""
     echo "🔗 Cognito Signup URL:"

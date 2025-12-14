@@ -49,7 +49,7 @@ export function MissionControlOverview({ orgId }: MissionControlOverviewProps) {
             ? Array.from({ length: 8 }).map((_, index) => <SkeletonCard key={`mc-overview-skel-${index}`} />)
             : metrics.map((metric) => {
                 const card = (
-                  <Card className="relative flex flex-col gap-2 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm transition hover:bg-slate-50">
+                  <Card className="flex flex-col gap-2 !rounded-2xl px-4 py-3 transition hover:bg-card/90 hover:shadow-brand-md">
                     <DebugLinkHint href={metric.href} />
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{metric.category}</p>
                     <div className="text-[32px] font-semibold text-slate-900">{metric.value}</div>
@@ -334,9 +334,9 @@ function mapOverviewToMetrics(overview?: MissionControlOverviewData): Metric[] {
 }
 
 const SkeletonCard = () => (
-  <div className="animate-pulse rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-    <div className="h-3 w-24 rounded bg-slate-100" />
-    <div className="mt-3 h-8 w-20 rounded bg-slate-100" />
-    <div className="mt-2 h-3 w-32 rounded bg-slate-100" />
+  <div className="animate-pulse rounded-2xl border border-[color:var(--hatch-card-border)] bg-card/60 px-4 py-3 shadow-brand backdrop-blur-[var(--hatch-card-blur)]">
+    <div className="h-3 w-24 rounded bg-slate-200/70" />
+    <div className="mt-3 h-8 w-20 rounded bg-slate-200/70" />
+    <div className="mt-2 h-3 w-32 rounded bg-slate-200/70" />
   </div>
 );

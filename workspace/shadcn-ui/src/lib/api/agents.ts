@@ -21,15 +21,22 @@ export async function upsertAgentProfile(orgId: string, payload: UpsertAgentProf
 
 export type InviteAgentPayload = {
   email: string;
-  name: string;
-  licenseNumber?: string;
-  licenseState?: string;
-  licenseExpiresAt?: string;
+  expiresAt?: string;
 };
 
 export async function inviteAgent(orgId: string, payload: InviteAgentPayload) {
-  return apiFetch<{ sent: boolean; inviteLink: string; reason?: string }>(`organizations/${orgId}/agents/invite`, {
+  return apiFetch<{
+    id: string;
+    email: string;
+    status: string;
+    organizationId: string;
+    invitedByUserId: string;
+    expiresAt: string;
+    createdAt: string;
+    signupUrl: string;
+    token: string;
+  }>(`organizations/${orgId}/invites`, {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: payload
   });
 }

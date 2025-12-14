@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { fetchMissionControlAgents, type MissionControlAgentRow } from '@/lib/api/mission-control';
 import { inviteAgent, type InviteAgentPayload } from '@/lib/api/agents';
 import { useToast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 
 const DEFAULT_ORG_ID = import.meta.env.VITE_ORG_ID ?? 'org-hatch';
 
@@ -60,11 +61,7 @@ function TeamOverviewPanel({ orgId }: { orgId: string }) {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [form, setForm] = useState<InviteAgentPayload>({
-    email: '',
-    name: '',
-    licenseNumber: '',
-    licenseState: '',
-    licenseExpiresAt: ''
+    email: ''
   });
 
   const sendInvite = useMutation({
@@ -73,17 +70,31 @@ function TeamOverviewPanel({ orgId }: { orgId: string }) {
       queryClient.invalidateQueries({ queryKey: ['mission-control', 'team', orgId] });
       setIsDialogOpen(false);
       setForm({
-        email: '',
-        name: '',
-        licenseNumber: '',
-        licenseState: '',
-        licenseExpiresAt: ''
+        email: ''
       });
+
+      const inviteUrl = result?.signupUrl;
+      const canCopy = typeof inviteUrl === 'string' && inviteUrl.length > 0;
       toast({
-        title: result?.sent ? 'Invite sent' : 'Invite not sent',
-        description: result?.sent
-          ? 'We emailed the agent with a signup link.'
-          : result?.reason ?? 'Email send skipped; copy link and share manually.'
+        title: 'Invite created',
+        description: canCopy ? (
+          <div className="space-y-2">
+            <p>Share this signup link with the agent:</p>
+            <p className="break-all rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">{inviteUrl}</p>
+          </div>
+        ) : (
+          'Invite created, but no signup link was returned.'
+        ),
+        action: canCopy ? (
+          <ToastAction
+            altText="Copy invite link"
+            onClick={() => {
+              void navigator.clipboard?.writeText(inviteUrl);
+            }}
+          >
+            Copy link
+          </ToastAction>
+        ) : undefined
       });
     },
     onError: (error) => {
@@ -146,15 +157,6 @@ function TeamOverviewPanel({ orgId }: { orgId: string }) {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label htmlFor="agentName">Name</Label>
-              <Input
-                id="agentName"
-                value={form.name}
-                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Alex Agent"
-              />
-            </div>
-            <div className="space-y-1">
               <Label htmlFor="agentEmail">Email</Label>
               <Input
                 id="agentEmail"
@@ -162,35 +164,6 @@ function TeamOverviewPanel({ orgId }: { orgId: string }) {
                 value={form.email}
                 onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
                 placeholder="agent@hatch.test"
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="licenseNumber">License number</Label>
-                <Input
-                  id="licenseNumber"
-                  value={form.licenseNumber}
-                  onChange={(e) => setForm((prev) => ({ ...prev, licenseNumber: e.target.value }))}
-                  placeholder="SL1234567"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="licenseState">License state</Label>
-                <Input
-                  id="licenseState"
-                  value={form.licenseState}
-                  onChange={(e) => setForm((prev) => ({ ...prev, licenseState: e.target.value }))}
-                  placeholder="FL"
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="licenseExpiresAt">License expiry (ISO date)</Label>
-              <Input
-                id="licenseExpiresAt"
-                type="date"
-                value={form.licenseExpiresAt}
-                onChange={(e) => setForm((prev) => ({ ...prev, licenseExpiresAt: e.target.value }))}
               />
             </div>
           </div>
@@ -201,14 +174,10 @@ function TeamOverviewPanel({ orgId }: { orgId: string }) {
             <Button
               onClick={() =>
                 sendInvite.mutate({
-                  email: form.email.trim(),
-                  name: form.name.trim(),
-                  licenseNumber: form.licenseNumber.trim() || undefined,
-                  licenseState: form.licenseState.trim() || undefined,
-                  licenseExpiresAt: form.licenseExpiresAt ? form.licenseExpiresAt : undefined
+                  email: form.email.trim()
                 })
               }
-              disabled={sendInvite.isLoading || !form.email.trim() || !form.name.trim()}
+              disabled={sendInvite.isLoading || !form.email.trim()}
             >
               {sendInvite.isLoading ? 'Sending…' : 'Send invite'}
             </Button>

@@ -29,4 +29,12 @@ export class TokensService {
     }
     return jwt.verify(token, secret);
   }
+
+  verifyRefresh(token: string) {
+    const secret = process.env.JWT_REFRESH_SECRET;
+    if (!secret) {
+      throw new UnauthorizedException('JWT refresh secret is not configured');
+    }
+    return jwt.verify(token, secret);
+  }
 }

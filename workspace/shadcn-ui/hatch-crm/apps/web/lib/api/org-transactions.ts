@@ -29,6 +29,15 @@ export interface OrgTransactionRecord {
       email?: string | null;
     } | null;
   } | null;
+  documents?: Array<{
+    id: string;
+    type?: string | null;
+    orgFile?: {
+      id: string;
+      documentType?: string | null;
+      complianceStatus?: string | null;
+    } | null;
+  }>;
 }
 
 export async function fetchOrgTransactions(orgId: string): Promise<OrgTransactionRecord[]> {

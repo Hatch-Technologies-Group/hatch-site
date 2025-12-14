@@ -1,4 +1,4 @@
-export const HATCH_AUTH_COOKIE = 'hatch_auth';
+export const HATCH_AUTH_COOKIE = 'refresh_token';
 export const HATCH_AUTH_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export const hasAuthCookie = (cookieValue?: string | null) => Boolean(cookieValue && cookieValue.length > 0);

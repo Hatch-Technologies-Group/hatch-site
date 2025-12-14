@@ -1,11 +1,17 @@
 import React, { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { HatchLogo } from '@/components/HatchLogo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useToast } from '@/components/ui/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useUserRole } from '@/lib/auth/roles'
+import { fetchAgentPortalConfig, updateAgentPortalConfig } from '@/lib/api/agent-portal'
 
 type BrokerSettings = {
   brokerId: string
@@ -29,10 +35,95 @@ const DEFAULT_SETTINGS: BrokerSettings = {
   notes: 'Visible on broker-generated reports and client touchpoints.'
 }
 
+const DEFAULT_AGENT_ALLOWED_PATHS = ['/broker/crm', '/broker/contracts', '/broker/transactions'] as const
+
+const AGENT_PORTAL_MODULES: Array<{ path: string; label: string; description: string }> = [
+  { path: '/broker/crm', label: 'Leads & CRM', description: 'Contacts, leads, timelines, and tasks.' },
+  { path: '/broker/contracts', label: 'Contracts', description: 'Contract templates and signing workflows.' },
+  { path: '/broker/transactions', label: 'Transactions', description: 'Transaction pipeline and deal records.' },
+  { path: '/broker/properties', label: 'Active Listings', description: 'Live listings and property records.' },
+  { path: '/broker/draft-listings', label: 'Draft Listings', description: 'Draft and publish new listings.' },
+  { path: '/broker/offer-intents', label: 'Offer Intents', description: 'Offers and negotiation tracking.' },
+  { path: '/broker/opportunities', label: 'Opportunities', description: 'Opportunity pipeline view.' },
+  { path: '/broker/financials', label: 'Financials', description: 'Commissions and earnings snapshots.' },
+  { path: '/broker/analytics', label: 'Analytics', description: 'Performance dashboards and KPIs.' },
+  { path: '/broker/live-activity', label: 'Live Activity', description: 'Live presence and activity feed.' },
+  { path: '/broker/compliance', label: 'Compliance Hub', description: 'Compliance workflows and audits.' },
+  { path: '/broker/settings', label: 'Settings', description: 'Preferences and notifications.' }
+]
+
 export default function BrokerSettingsPage() {
-  const { setUser, session } = useAuth()
+  const { setUser, session, activeOrgId } = useAuth()
+  const role = useUserRole()
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [settings, setSettings] = useState<BrokerSettings>(DEFAULT_SETTINGS)
   const [saving, setSaving] = useState(false)
+
+  const orgId = activeOrgId ?? (import.meta.env.VITE_ORG_ID || null)
+  const canManageAgentPortal = (role === 'BROKER' || role === 'ADMIN') && !!orgId
+
+  const agentPortalQuery = useQuery({
+    queryKey: ['agent-portal-config', orgId],
+    queryFn: () => fetchAgentPortalConfig(orgId as string),
+    enabled: canManageAgentPortal,
+    staleTime: 60_000
+  })
+
+  const [agentPortalAllowedPaths, setAgentPortalAllowedPaths] = useState<string[]>([...DEFAULT_AGENT_ALLOWED_PATHS])
+  const [agentPortalLandingPath, setAgentPortalLandingPath] = useState<string>(DEFAULT_AGENT_ALLOWED_PATHS[0])
+  const [agentPortalDirty, setAgentPortalDirty] = useState(false)
+
+  React.useEffect(() => {
+    if (!agentPortalQuery.data) return
+    const nextAllowed = agentPortalQuery.data.allowedPaths?.length
+      ? agentPortalQuery.data.allowedPaths
+      : [...DEFAULT_AGENT_ALLOWED_PATHS]
+    const nextLanding = agentPortalQuery.data.landingPath ?? nextAllowed[0] ?? DEFAULT_AGENT_ALLOWED_PATHS[0]
+    setAgentPortalAllowedPaths(nextAllowed)
+    setAgentPortalLandingPath(nextLanding)
+    setAgentPortalDirty(false)
+  }, [agentPortalQuery.data])
+
+  React.useEffect(() => {
+    if (agentPortalAllowedPaths.includes(agentPortalLandingPath)) return
+    setAgentPortalLandingPath(agentPortalAllowedPaths[0] ?? DEFAULT_AGENT_ALLOWED_PATHS[0])
+  }, [agentPortalAllowedPaths, agentPortalLandingPath])
+
+  const moduleLabelByPath = useMemo(() => {
+    const map = new Map<string, string>()
+    AGENT_PORTAL_MODULES.forEach((module) => map.set(module.path, module.label))
+    return map
+  }, [])
+
+  const enabledLandingOptions = useMemo(() => {
+    const fallback = agentPortalAllowedPaths.length ? agentPortalAllowedPaths : [...DEFAULT_AGENT_ALLOWED_PATHS]
+    return fallback.slice().sort((a, b) => a.localeCompare(b))
+  }, [agentPortalAllowedPaths])
+
+  const agentPortalSaveMutation = useMutation({
+    mutationFn: async () => {
+      if (!orgId) throw new Error('missing_org_id')
+      const allowedPaths = agentPortalAllowedPaths.length ? agentPortalAllowedPaths : [...DEFAULT_AGENT_ALLOWED_PATHS]
+      const landingPath = allowedPaths.includes(agentPortalLandingPath) ? agentPortalLandingPath : allowedPaths[0]
+      return updateAgentPortalConfig(orgId, { allowedPaths, landingPath })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['agent-portal-config', orgId] })
+      setAgentPortalDirty(false)
+      toast({
+        title: 'Agent portal updated',
+        description: 'Invited agents will see the updated navigation immediately.'
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: 'Could not update agent portal',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive'
+      })
+    }
+  })
 
   const headerGradient = useMemo(
     () =>
@@ -142,6 +233,105 @@ export default function BrokerSettingsPage() {
           </section>
 
           <section className="space-y-4">
+            {canManageAgentPortal && (
+              <div className="rounded-2xl bg-white/80 backdrop-blur-md border border-slate-200 shadow-sm p-5 space-y-4">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Agent Portal</h3>
+                  <p className="text-sm text-slate-500">
+                    Control what invited agents can access and where they land after signing in.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {agentPortalQuery.isLoading ? (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 text-sm text-slate-600">
+                      Loading agent portal settings…
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {AGENT_PORTAL_MODULES.map((module) => {
+                        const checked = agentPortalAllowedPaths.includes(module.path)
+                        const disableToggle = checked && agentPortalAllowedPaths.length <= 1
+                        return (
+                          <div
+                            key={module.path}
+                            className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{module.label}</p>
+                              <p className="text-xs text-slate-500">{module.description}</p>
+                              <p className="mt-1 text-[11px] font-mono text-slate-400">{module.path}</p>
+                            </div>
+                            <Switch
+                              checked={checked}
+                              disabled={disableToggle}
+                              onCheckedChange={(next) => {
+                                setAgentPortalAllowedPaths((prev) => {
+                                  const has = prev.includes(module.path)
+                                  if (has && !next) {
+                                    if (prev.length <= 1) return prev
+                                    return prev.filter((p) => p !== module.path)
+                                  }
+                                  if (!has && next) {
+                                    return [...prev, module.path]
+                                  }
+                                  return prev
+                                })
+                                setAgentPortalDirty(true)
+                              }}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Agent landing page</Label>
+                  <Select
+                    value={agentPortalLandingPath}
+                    onValueChange={(value) => {
+                      setAgentPortalLandingPath(value)
+                      setAgentPortalDirty(true)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a landing page" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {enabledLandingOptions.map((path) => (
+                        <SelectItem key={path} value={path}>
+                          {moduleLabelByPath.get(path) ?? path}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={agentPortalSaveMutation.isPending}
+                    onClick={() => {
+                      setAgentPortalAllowedPaths([...DEFAULT_AGENT_ALLOWED_PATHS])
+                      setAgentPortalLandingPath(DEFAULT_AGENT_ALLOWED_PATHS[0])
+                      setAgentPortalDirty(true)
+                    }}
+                  >
+                    Reset to default
+                  </Button>
+                  <Button
+                    disabled={!agentPortalDirty || agentPortalSaveMutation.isPending}
+                    onClick={() => agentPortalSaveMutation.mutate()}
+                    className="bg-sky-600 hover:bg-sky-700 text-white"
+                  >
+                    {agentPortalSaveMutation.isPending ? 'Saving…' : 'Save agent portal'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl bg-white/80 backdrop-blur-md border border-slate-200 shadow-sm p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>

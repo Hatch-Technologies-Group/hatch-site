@@ -29,9 +29,14 @@ import {
   Briefcase,
   Activity
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { HatchLogo } from '@/components/HatchLogo'
 import { useUserRole, userHasRole, type UserRole } from '@/lib/auth/roles'
+import { fetchAgentPortalConfig } from '@/lib/api/agent-portal'
+import { cn } from '@/lib/utils'
+
+const DEFAULT_AGENT_ALLOWED_PATHS = ['/broker/crm', '/broker/contracts', '/broker/transactions'] as const
 
 type NavChild = {
   icon: React.ElementType
@@ -63,7 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
         label: 'Home',
         icon: Radar,
         path: '/broker/mission-control',
-        roles: ['BROKER', 'AGENT', 'ADMIN']
+        roles: ['BROKER', 'ADMIN']
       }
     ]
   },
@@ -168,10 +173,28 @@ const NAV_SECTIONS: NavSection[] = [
 export default function BrokerSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { signOut } = useAuth()
+  const { signOut, activeOrgId } = useAuth()
   const role = useUserRole()
+  const portalLabel = role === 'AGENT' ? 'Agent Portal' : 'Broker Portal'
 
   const [isCollapsed, setIsCollapsed] = React.useState(false)
+
+  const orgId = activeOrgId ?? (import.meta.env.VITE_ORG_ID || null)
+  const agentPortalQuery = useQuery({
+    queryKey: ['agent-portal-config', orgId],
+    queryFn: () => fetchAgentPortalConfig(orgId as string),
+    enabled: role === 'AGENT' && !!orgId,
+    staleTime: 60_000
+  })
+
+  const allowedPaths = React.useMemo(() => {
+    if (role !== 'AGENT') return null
+    const configured = agentPortalQuery.data?.allowedPaths
+    if (Array.isArray(configured) && configured.length > 0) {
+      return configured
+    }
+    return [...DEFAULT_AGENT_ALLOWED_PATHS]
+  }, [agentPortalQuery.data?.allowedPaths, role])
 
   const isPathActive = useCallback(
     (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`),
@@ -179,11 +202,21 @@ export default function BrokerSidebar() {
   )
 
   const sections = React.useMemo(() => {
+    const isAllowedForAgent = (path: string) => {
+      if (role !== 'AGENT') return true
+      if (!path.startsWith('/broker/')) return true
+      const allowList = allowedPaths ?? DEFAULT_AGENT_ALLOWED_PATHS
+      return allowList.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+    }
+
     return NAV_SECTIONS.map((section) => {
       const groups = section.groups
         .map((group) => {
-          const children = group.children?.filter((child) => userHasRole(role, child.roles)) ?? []
-          const canAccessGroup = userHasRole(role, group.roles) || children.length > 0
+          const children =
+            group.children?.filter((child) => userHasRole(role, child.roles) && isAllowedForAgent(child.path)) ?? []
+
+          const groupPathAllowed = group.path ? isAllowedForAgent(group.path) : false
+          const canAccessGroup = (userHasRole(role, group.roles) && (!group.path || groupPathAllowed)) || children.length > 0
           if (!canAccessGroup) return null
           return { ...group, children }
         })
@@ -191,7 +224,7 @@ export default function BrokerSidebar() {
 
       return { ...section, groups }
     }).filter((section) => section.groups.length > 0)
-  }, [role])
+  }, [allowedPaths, role])
 
   const activeGroupKey = React.useMemo(() => {
     for (const section of sections) {
@@ -262,117 +295,132 @@ export default function BrokerSidebar() {
 
   return (
     <div
-      className={`bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-200 ${
+      className={cn(
+        'relative flex h-full flex-col overflow-hidden border-r border-[var(--glass-border)] bg-[var(--glass-background)] backdrop-blur-xl transition-all duration-200',
         isCollapsed ? 'w-16' : 'w-64'
-      }`}
+      )}
     >
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-        <div
-          className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => navigate('/')}
-        >
-          <HatchLogo className={isCollapsed ? 'h-10 w-10' : 'h-12 md:h-16'} />
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100 ${isCollapsed ? 'mx-auto' : ''}`}
-          onClick={() => setIsCollapsed((prev) => !prev)}
-          title={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-        >
-          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
-      </div>
-      {!isCollapsed && <p className="px-4 text-sm text-gray-500 mt-1">Broker Portal</p>}
-
-      {/* Navigation Menu */}
-      <nav className="flex-1 p-3 space-y-3 overflow-y-auto">
-        {sections.map((section) => (
-          <div key={section.label} className="space-y-1">
-            {!isCollapsed && (
-              <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {section.label}
-              </div>
-            )}
-            <div className="space-y-1">
-              {section.groups.map((group) => {
-                const isGroupActive =
-                  (group.path && isPathActive(group.path)) ||
-                  group.children?.some((child) => isPathActive(child.path))
-                const showChildren = expandedSections[group.key] && !isCollapsed
-
-                return (
-                  <div key={group.key}>
-                    <Button
-                      variant={isGroupActive ? 'default' : 'ghost'}
-                      className={`w-full justify-between ${
-                        isGroupActive
-                          ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      } ${isCollapsed ? 'px-0 justify-center' : ''}`}
-                      onClick={() => handleGroupClick(group)}
-                      title={group.label}
-                    >
-                      <div className="flex items-center">
-                        <group.icon className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4`} />
-                        {!isCollapsed && <span>{group.label}</span>}
-                      </div>
-                      {group.children && group.children.length > 0 && !isCollapsed && (
-                        <ChevronDown
-                          className={`h-4 w-4 transition-transform ${showChildren ? 'rotate-180' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleGroup(group.key)
-                          }}
-                        />
-                      )}
-                    </Button>
-
-                    {group.children && group.children.length > 0 && (
-                      <div className={`${showChildren ? 'mt-2 space-y-1' : 'hidden'}`}>
-                        {group.children.map((child) => {
-                          const isChildActive = isPathActive(child.path)
-                          return (
-                            <Button
-                              key={child.path}
-                              variant="ghost"
-                              className={`w-full justify-start text-sm ${
-                                isChildActive
-                                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                  : 'text-gray-600 hover:bg-gray-100'
-                              } ${isCollapsed ? 'hidden' : 'pl-10'}`}
-                              onClick={() => navigate(child.path)}
-                              title={child.label}
-                            >
-                              <child.icon className="mr-3 h-4 w-4" />
-                              {child.label}
-                            </Button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/50 via-white/15 to-white/0 dark:from-white/10 dark:via-white/5" />
+      <div className="relative flex h-full flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[var(--glass-border)] p-4">
+          <div
+            className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => navigate('/')}
+          >
+            <HatchLogo className={isCollapsed ? 'h-10 w-10' : 'h-12 md:h-16'} />
           </div>
-        ))}
-      </nav>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-8 w-8 !text-slate-600 hover:!text-slate-900 hover:!bg-white/25 dark:!text-ink-100/70 dark:hover:!text-ink-100 dark:hover:!bg-white/10',
+              isCollapsed ? 'mx-auto' : ''
+            )}
+            onClick={() => setIsCollapsed((prev) => !prev)}
+            title={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
+        </div>
+        {!isCollapsed && <p className="mt-1 px-4 text-sm text-slate-500 dark:text-ink-100/60">{portalLabel}</p>}
 
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-200">
-        <Button
-          variant="ghost"
-          className={`w-full justify-start text-gray-500 hover:text-gray-700 hover:bg-gray-50 ${
-            isCollapsed ? 'justify-center' : ''
-          }`}
-          onClick={handleSignOut}
-          title="Sign Out"
-        >
-          <LogOut className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4`} />
-          {!isCollapsed && 'Sign Out'}
-        </Button>
+        {/* Navigation Menu */}
+        <nav className="flex-1 space-y-3 overflow-y-auto p-3">
+          {sections.map((section) => (
+            <div key={section.label} className="space-y-1">
+              {!isCollapsed && (
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-ink-100/45">
+                  {section.label}
+                </div>
+              )}
+              <div className="space-y-1">
+                {section.groups.map((group) => {
+                  const isGroupActive =
+                    (group.path && isPathActive(group.path)) ||
+                    group.children?.some((child) => isPathActive(child.path))
+                  const showChildren = expandedSections[group.key] && !isCollapsed
+
+                  return (
+                    <div key={group.key}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          'w-full justify-between !rounded-xl px-3 py-2',
+                          isGroupActive
+                            ? '!bg-white/50 !text-ink-900 shadow-brand border border-white/35 hover:!bg-white/60 dark:!bg-white/10 dark:!text-ink-100 dark:border-white/15 dark:hover:!bg-white/15'
+                            : '!text-ink-700 hover:!bg-white/25 hover:!text-ink-900 dark:!text-ink-100/75 dark:hover:!bg-white/10 dark:hover:!text-ink-100',
+                          isCollapsed ? '!px-0 justify-center' : ''
+                        )}
+                        onClick={() => handleGroupClick(group)}
+                        title={group.label}
+                      >
+                        <div className="flex items-center">
+                          <group.icon className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4`} />
+                          {!isCollapsed && <span>{group.label}</span>}
+                        </div>
+                        {group.children && group.children.length > 0 && !isCollapsed && (
+                          <ChevronDown
+                            className={`h-4 w-4 transition-transform ${showChildren ? 'rotate-180' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleGroup(group.key)
+                            }}
+                          />
+                        )}
+                      </Button>
+
+                      {group.children && group.children.length > 0 && (
+                        <div className={`${showChildren ? 'mt-2 space-y-1' : 'hidden'}`}>
+                          {group.children.map((child) => {
+                            const isChildActive = isPathActive(child.path)
+                            return (
+                              <Button
+                                key={child.path}
+                                variant="ghost"
+                                size="sm"
+                                className={cn(
+                                  'w-full justify-start !rounded-xl text-sm',
+                                  isChildActive
+                                    ? '!bg-brand-blue-600/12 !text-brand-blue-700 border border-brand-blue-600/20 hover:!bg-brand-blue-600/18 dark:!bg-brand-blue-600/20 dark:!text-brand-blue-300 dark:border-brand-blue-400/25'
+                                    : '!text-ink-600 hover:!bg-white/20 hover:!text-ink-900 dark:!text-ink-100/70 dark:hover:!bg-white/10 dark:hover:!text-ink-100',
+                                  isCollapsed ? 'hidden' : 'pl-10'
+                                )}
+                                onClick={() => navigate(child.path)}
+                                title={child.label}
+                              >
+                                <child.icon className="mr-3 h-4 w-4" />
+                                {child.label}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t border-[var(--glass-border)] p-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-start !text-slate-600 hover:!text-slate-900 hover:!bg-white/25 dark:!text-ink-100/70 dark:hover:!text-ink-100 dark:hover:!bg-white/10',
+              isCollapsed ? 'justify-center' : ''
+            )}
+            onClick={handleSignOut}
+            title="Sign Out"
+          >
+            <LogOut className={`${isCollapsed ? '' : 'mr-3'} h-4 w-4`} />
+            {!isCollapsed && 'Sign Out'}
+          </Button>
+        </div>
       </div>
     </div>
   )
