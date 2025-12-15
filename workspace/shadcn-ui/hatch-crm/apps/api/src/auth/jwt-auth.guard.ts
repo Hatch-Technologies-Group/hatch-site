@@ -11,7 +11,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const request = context.switchToHttp().getRequest();
     const isDevBypassEnabled =
       process.env.NODE_ENV !== 'production' &&
-      (process.env.DISABLE_PERMISSIONS_GUARD ?? 'true').toLowerCase() === 'true';
+      (process.env.DISABLE_PERMISSIONS_GUARD ?? 'false').toLowerCase() === 'true';
 
     if (isDevBypassEnabled) {
       // In dev, fall back to a synthetic user so local frontends without JWTs don't get 403s.

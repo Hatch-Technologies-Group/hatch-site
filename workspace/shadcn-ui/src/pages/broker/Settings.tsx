@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS: BrokerSettings = {
   brokerageAddress: '123 Ocean Drive, Miami, FL 33139',
   brokeragePhone: '(305) 555-1234',
   brokerageEmail: 'brokers@hatch.test',
-  logoUrl: '/hatch logo.png',
+  logoUrl: '/hatch-logo.png',
   notes: 'Visible on broker-generated reports and client touchpoints.'
 }
 
@@ -345,14 +345,14 @@ export default function BrokerSettingsPage() {
               <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 flex flex-col items-center gap-3">
                 <div className="w-full h-32 rounded-lg bg-gradient-to-r from-sky-100 via-slate-50 to-emerald-50 border border-slate-100 flex items-center justify-center">
                   <img
-                    src={settings.logoUrl || '/hatch logo.png'}
+                    src={settings.logoUrl || '/hatch-logo.png'}
                     alt="Brokerage logo"
                     className="h-16 object-contain drop-shadow-sm"
                     onError={(e) => {
                       if (settings.logoUrl) {
-                        setSettings((prev) => ({ ...prev, logoUrl: '/hatch logo.png' }))
+                        setSettings((prev) => ({ ...prev, logoUrl: '/hatch-logo.png' }))
                       }
-                      e.currentTarget.src = '/hatch logo.png'
+                      e.currentTarget.src = '/hatch-logo.png'
                     }}
                   />
                 </div>
