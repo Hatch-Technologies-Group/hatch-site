@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { AgentInviteStatus, OrgEventType, UserRole } from '@hatch/db';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { AgentInviteStatus, OrgEventType, Prisma, UserRole } from '@hatch/db';
 import { randomUUID } from 'crypto';
 import { OrgEventsService } from '../org-events/org-events.service';
 import { MailService } from '../mail/mail.service';
@@ -20,6 +20,13 @@ export class OrganizationsService {
     private readonly mail: MailService,
     private readonly cognito: CognitoService
   ) {}
+
+  private isMissingSchemaError(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === 'P2021' || error.code === 'P2022' || error.code === '42P01')
+    );
+  }
 
   async createOrganizationForBroker(userId: string, dto: CreateOrganizationDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -213,9 +220,18 @@ export class OrganizationsService {
   async getAgentPortalConfig(orgId: string, userId: string) {
     await this.ensureUserInOrg(orgId, userId);
 
-    const config = await this.prisma.agentPortalConfig.findUnique({
-      where: { organizationId: orgId }
-    });
+    let config: { allowedPaths: string[]; landingPath: string | null; createdAt: Date; updatedAt: Date } | null = null;
+    try {
+      config = await this.prisma.agentPortalConfig.findUnique({
+        where: { organizationId: orgId }
+      });
+    } catch (error) {
+      if (!this.isMissingSchemaError(error)) {
+        throw error;
+      }
+      // Allow older DBs (or local dev) to function without this optional table.
+      this.logger.warn(`AgentPortalConfig table missing; returning defaults for orgId=${orgId}`);
+    }
 
     const allowedPaths =
       config && Array.isArray(config.allowedPaths) && config.allowedPaths.length > 0
@@ -250,18 +266,28 @@ export class OrganizationsService {
 
     const landingPath = this.normalizeLandingPath(dto.landingPath, allowedPaths);
 
-    const config = await this.prisma.agentPortalConfig.upsert({
-      where: { organizationId: orgId },
-      create: {
-        organizationId: orgId,
-        allowedPaths,
-        landingPath
-      },
-      update: {
-        allowedPaths,
-        landingPath
+    let config: { organizationId: string; allowedPaths: string[]; landingPath: string | null; createdAt: Date; updatedAt: Date };
+    try {
+      config = await this.prisma.agentPortalConfig.upsert({
+        where: { organizationId: orgId },
+        create: {
+          organizationId: orgId,
+          allowedPaths,
+          landingPath
+        },
+        update: {
+          allowedPaths,
+          landingPath
+        }
+      });
+    } catch (error) {
+      if (this.isMissingSchemaError(error)) {
+        throw new ServiceUnavailableException(
+          'Agent portal config storage is unavailable on this database. Apply migrations and try again.'
+        );
       }
-    });
+      throw error;
+    }
 
     return {
       organizationId: config.organizationId,
