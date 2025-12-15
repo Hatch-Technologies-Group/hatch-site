@@ -4,9 +4,10 @@ import type { PersonaId } from '@/lib/ai/aiPersonas';
 
 const ensureTrailingSlash = (value: string) => (value.endsWith('/') ? value : `${value}/`);
 const DEFAULT_API_PREFIX = '/api/v1';
+const ALLOW_CROSS_ORIGIN_API = (import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API ?? 'false').toLowerCase() === 'true';
 
 const resolveApiBaseUrl = (value?: string) => {
-  const fallback = `http://localhost:4000${DEFAULT_API_PREFIX}`;
+  const fallback = DEFAULT_API_PREFIX;
   const candidate = value?.trim() || fallback;
 
   if (candidate.startsWith('/')) {
@@ -36,7 +37,14 @@ const resolveApiBaseUrl = (value?: string) => {
   }
 };
 
-export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+const effectiveApiBaseUrl =
+  RAW_API_BASE_URL &&
+  (RAW_API_BASE_URL.startsWith('/') || typeof window === 'undefined' || ALLOW_CROSS_ORIGIN_API)
+    ? RAW_API_BASE_URL
+    : undefined;
+
+export const API_BASE_URL = resolveApiBaseUrl(effectiveApiBaseUrl);
 const CHAOS_MODE = (import.meta.env.VITE_CHAOS_MODE ?? 'false').toLowerCase() === 'true';
 interface FetchOptions extends RequestInit {
   token?: string;

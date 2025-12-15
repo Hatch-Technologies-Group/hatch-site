@@ -11,12 +11,29 @@ const withApiPrefix = (base: string, prefix: string) => {
 
 const apiPrefix = ensurePrefix(import.meta.env.VITE_API_PREFIX || '/api/v1')
 
-const baseApiUrl =
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  (typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000')
+const allowCrossOriginApi = (import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API ?? 'false').toLowerCase() === 'true'
+const configuredApiUrl = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '').trim()
+
+const defaultBrowserBase =
+  typeof window !== 'undefined'
+    ? window.location.origin
+    : 'http://localhost:4000'
+
+const baseApiUrl = (() => {
+  if (configuredApiUrl) {
+    if (configuredApiUrl.startsWith('/')) {
+      return configuredApiUrl
+    }
+
+    // Absolute API URLs in the browser create cross-site cookie issues (Safari/ITP).
+    // Prefer same-origin unless explicitly opted in.
+    if (typeof window === 'undefined' || allowCrossOriginApi) {
+      return configuredApiUrl
+    }
+  }
+
+  return defaultBrowserBase
+})()
 
 export const apiBaseUrl = withApiPrefix(baseApiUrl, apiPrefix).replace(/\/$/, '')
 

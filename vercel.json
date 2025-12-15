@@ -4,5 +4,11 @@
   "installCommand": "cd workspace/shadcn-ui && pnpm install --frozen-lockfile",
   "buildCommand": "cd workspace/shadcn-ui && pnpm run build",
   "outputDirectory": "workspace/shadcn-ui/dist",
-  "ignoreCommand": "echo \"using Vite site only\""
+  "ignoreCommand": "echo \"using Vite site only\"",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://hatch-site-production.up.railway.app/api/:path*"
+    }
+  ]
 }

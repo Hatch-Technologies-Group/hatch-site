@@ -1,4 +1,11 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const allowCrossOriginApi = (import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API ?? 'false').toLowerCase() === 'true';
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+const API_BASE =
+  (configuredApiBase &&
+  (configuredApiBase.startsWith('/') || typeof window === 'undefined' || allowCrossOriginApi)
+    ? configuredApiBase
+    : '/api/v1'
+  ).replace(/\/$/, '');
 
 export type LeadScoreV2Factors = {
   rules: {
