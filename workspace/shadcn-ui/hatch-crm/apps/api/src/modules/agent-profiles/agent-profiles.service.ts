@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import { AgentLifecycleStage, AgentRiskLevel, UserRole, WorkflowTaskTrigger } from '@hatch/db';
+import { AgentLifecycleStage, AgentRiskLevel, Prisma, UserRole, WorkflowTaskTrigger } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
@@ -118,8 +118,24 @@ export class AgentProfilesService {
     await this.assertBrokerInOrg(brokerUserId, orgId);
     await this.assertUserInOrg(dto.userId, orgId);
 
+    const existing = await this.prisma.agentProfile.findUnique({
+      where: { organizationId_userId: { organizationId: orgId, userId: dto.userId } },
+      select: { metadata: true }
+    });
+
     const tagsString = dto.tags?.length ? dto.tags.join(',') : undefined;
     const licenseExpiresAt = dto.licenseExpiresAt ? new Date(dto.licenseExpiresAt) : undefined;
+    const existingMetadata =
+      existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+        ? (existing.metadata as Prisma.InputJsonObject)
+        : {};
+    const metadata =
+      dto.routingProfile !== undefined
+        ? {
+            ...existingMetadata,
+            routingProfile: dto.routingProfile as Prisma.InputJsonObject
+          }
+        : undefined;
 
     const data = {
       licenseNumber: dto.licenseNumber ?? undefined,
@@ -129,15 +145,16 @@ export class AgentProfilesService {
       isResidential: dto.isResidential ?? undefined,
       title: dto.title ?? undefined,
       bio: dto.bio ?? undefined,
-      tags: tagsString
+      tags: tagsString,
+      metadata
     };
 
     const profile = await this.prisma.agentProfile.upsert({
       where: { organizationId_userId: { organizationId: orgId, userId: dto.userId } },
       update: data,
       create: {
-        organizationId: orgId,
-        userId: dto.userId,
+        organization: { connect: { id: orgId } },
+        user: { connect: { id: dto.userId } },
         ...data
       }
     });
@@ -228,13 +245,26 @@ export class AgentProfilesService {
         .filter((tag) => tag.length > 0) ?? [];
     const tagsString = dto.tags !== undefined ? (sanitizedTags.length ? sanitizedTags.join(',') : null) : undefined;
 
+    const baseMetadata =
+      profile.metadata && typeof profile.metadata === 'object' && !Array.isArray(profile.metadata)
+        ? (profile.metadata as Prisma.InputJsonObject)
+        : {};
+    const metadata =
+      dto.routingProfile !== undefined
+        ? {
+            ...baseMetadata,
+            routingProfile: dto.routingProfile === null ? null : (dto.routingProfile as Prisma.InputJsonObject)
+          }
+        : undefined;
+
     const updated = await this.prisma.agentProfile.update({
       where: { id: agentProfileId },
       data: {
         lifecycleStage: nextLifecycleStage,
         officeId: normalizeNullableId(dto.officeId),
         teamId: normalizeNullableId(dto.teamId),
-        tags: tagsString
+        tags: tagsString,
+        metadata
       }
     });
 

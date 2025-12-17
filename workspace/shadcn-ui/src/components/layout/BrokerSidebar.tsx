@@ -19,6 +19,7 @@ import {
   NotebookPen,
   Percent,
   Radar,
+  Sparkles,
   Settings,
   ShieldCheck,
   Shuffle,
@@ -130,7 +131,7 @@ const NAV_SECTIONS: NavSection[] = [
         children: [
           { icon: UserCheck, label: 'Agents & Teams', path: '/broker/team', roles: ['BROKER', 'ADMIN'] },
           { icon: GitBranch, label: 'Lead Routing', path: '/broker/lead-routing', roles: ['BROKER', 'ADMIN'] },
-          { icon: ShieldCheck, label: 'Compliance Hub', path: '/broker/compliance', roles: ['BROKER', 'AGENT', 'ADMIN'] }
+          { icon: ShieldCheck, label: 'Risk Center', path: '/broker/compliance', roles: ['BROKER', 'AGENT', 'ADMIN'] }
         ]
       }
     ]
@@ -144,6 +145,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: TrendingUp,
         roles: ['BROKER', 'AGENT', 'ADMIN'],
         children: [
+          { icon: Sparkles, label: 'Lead Generation (Beta)', path: '/broker/marketing/lead-gen', roles: ['BROKER', 'ADMIN'] },
           { icon: Megaphone, label: 'Marketing', path: '/broker/marketing', roles: ['BROKER', 'ADMIN'] },
           { icon: BarChart3, label: 'Analytics', path: '/broker/analytics', roles: ['BROKER', 'AGENT', 'ADMIN'] },
           { icon: Activity, label: 'Live Activity', path: '/broker/live-activity', roles: ['BROKER', 'AGENT', 'ADMIN'] }

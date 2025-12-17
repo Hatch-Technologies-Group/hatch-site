@@ -102,6 +102,41 @@ export class AiPersonasService {
     private readonly s3: S3Service
   ) {}
 
+  isFormsSearchQuery(messageText: string): boolean {
+    const lowerText = (messageText ?? '').toLowerCase();
+
+    const hasFormSignals =
+      /\b(forms?|pdf|document|documents|paperwork|addendum|agreement)\b/.test(lowerText) ||
+      /\b(far\/bar|far bar|far-bar|nabor)\b/.test(lowerText) ||
+      /\bnab\d{2,}\b/.test(lowerText);
+
+    if (!hasFormSignals && !/\bcontracts?\b/.test(lowerText)) {
+      return false;
+    }
+
+    const isTimelineOrChecklistIntent =
+      /\b(date|dates|timeline|deadlines?|closing|inspection|contingenc(?:y|ies)|milestone|checklist|overdue|missing|next)\b/.test(
+        lowerText
+      ) || lowerText.includes('transaction coordinator');
+
+    const explicitFormsRequest =
+      /\b(pdf|download|template)\b/.test(lowerText) ||
+      /\b(which|what)\s+form\b/.test(lowerText) ||
+      /\b(what|which)\s+contract\s+(should|do)\s+i\s+use\b/.test(lowerText) ||
+      /\b(far\/bar|far bar|far-bar|nabor)\b/.test(lowerText) ||
+      /\bnab\d{2,}\b/.test(lowerText);
+
+    if (explicitFormsRequest) {
+      return true;
+    }
+
+    if (isTimelineOrChecklistIntent) {
+      return false;
+    }
+
+    return /\b(forms?|pdf|document|documents|paperwork|addendum|agreement)\b/.test(lowerText);
+  }
+
   async handleChatMessage(input: {
     tenantId: string;
     orgId: string;
@@ -112,9 +147,7 @@ export class AiPersonasService {
   }): Promise<PersonaChatResponse> {
     const { text, currentPersonaId, history, tenantId, orgId, forceCurrentPersona } = input;
     const lowerText = text.toLowerCase();
-    const hasContractKeyword = ['form', 'forms', 'contract', 'contracts', 'document', 'documents', 'paperwork'].some((kw) =>
-      lowerText.includes(kw)
-    );
+    const hasContractKeyword = this.isFormsSearchQuery(text);
     const hasGeography = lowerText.includes('naples') || lowerText.includes('florida') || /\bfl\b/.test(lowerText);
 
     this.log.debug(`[SERVICE] Query: "${text}"`);
@@ -135,9 +168,7 @@ export class AiPersonasService {
     this.log.debug(`[SERVICE] Routing result: ${routing.targetPersonaId} - ${routing.reason}`);
 
     const persona = PERSONAS.find((candidate) => candidate.id === routing.targetPersonaId) ?? PERSONAS[0];
-    const wantsForms =
-      persona.id === 'hatch_assistant' &&
-      ['nabor', 'far-bar', 'far bar', 'contract', 'form'].some((keyword) => lowerText.includes(keyword));
+    const wantsForms = persona.id === 'hatch_assistant' && this.isFormsSearchQuery(text);
 
     // Check if user is asking about metrics/performance
     const wantsMetrics = this.isMetricsQuery(text);

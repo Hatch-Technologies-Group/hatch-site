@@ -1,114 +1,352 @@
-import { Injectable } from '@nestjs/common'
-import { PrismaService } from '@/modules/prisma/prisma.service'
-import { AiEmployeesService } from '@/modules/ai-employees/ai-employees.service'
+import { Injectable, Logger } from '@nestjs/common';
+import { LeadScoreTier, SavedViewScope } from '@hatch/db';
 
-// Local fallback while generated client is updated
-type InsightType =
-  | 'BROKER'
-  | 'TEAM'
-  | 'AGENT'
-  | 'LISTING'
-  | 'TRANSACTION'
-  | 'LEAD'
-  | 'RENTAL'
-  | 'COMPLIANCE'
-  | 'RISK'
-  | 'PRODUCTIVITY'
+import { PrismaService } from '@/modules/prisma/prisma.service';
 
-type AiInsightPayload = {
-  type?: string
-  targetId?: string | null
-  summary: string
-  details?: Record<string, unknown>
+import type { RequestContext } from '../common/request-context';
+import { INSIGHTS_ACTIVITY_FILTERS, type GetInsightsQueryDto, type InsightsActivityFilter } from './dto';
+
+export const INSIGHTS_RESPONSE_VERSION = 3;
+
+type InsightsPeriod = {
+  label: string;
+  days: number;
+  start: Date;
+  end: Date;
+};
+
+type InsightsCacheKeyInput = {
+  tenantId: string;
+  period: InsightsPeriod;
+  dormantDays: number;
+  limit: number;
+  version: number;
+  ownerId?: string;
+  teamId?: string;
+  stageIds?: string[];
+  tier?: string;
+  activity?: InsightsActivityFilter;
+  viewId?: string;
+};
+
+export function buildInsightsCacheKey(input: InsightsCacheKeyInput): string {
+  const stageIds = normalizeStringList(input.stageIds);
+  const stageKey = stageIds.length ? stageIds.join(',') : '*';
+  const ownerKey = input.ownerId?.trim() || '*';
+  const teamKey = input.teamId?.trim() || '*';
+  const tierKey = input.tier?.trim().toUpperCase() || '*';
+  const activityKey = input.activity ?? '*';
+  const viewKey = input.viewId?.trim() || '*';
+
+  return [
+    `v=${input.version}`,
+    `tenant=${input.tenantId}`,
+    // Cache is TTL-based; avoid embedding volatile timestamps so equivalent requests share keys.
+    `period=${input.period.days}`,
+    `dormant=${input.dormantDays}`,
+    `limit=${input.limit}`,
+    `owner=${ownerKey}`,
+    `team=${teamKey}`,
+    `tier=${tierKey}`,
+    `activity=${activityKey}`,
+    `view=${viewKey}`,
+    `stages=${stageKey}`
+  ].join('|');
 }
 
-// Local typed accessors to avoid missing client typings during migration
-const PrismaModels = {
-  aiInsight: 'aiInsight'
-} as const
+type InsightFilterOption = {
+  id: string;
+  label: string;
+  avatarUrl?: string | null;
+  meta?: Record<string, unknown>;
+};
+
+type InsightsResponse = {
+  v: number;
+  period: {
+    label: string;
+    days: number;
+    start: string;
+    end: string;
+  };
+  summary: {
+    activeLeads: number;
+    avgStageTimeHours: number | null;
+    conversionPct: number | null;
+    deltaWoW?: { conversionPct?: number | null } | null;
+  };
+  dataAge?: string | null;
+  filters: {
+    owners: InsightFilterOption[];
+    tiers: InsightFilterOption[];
+    activities: InsightFilterOption[];
+    savedViews: InsightFilterOption[];
+  };
+  heatmap: { stage: string; engaged: number; inactive: number }[];
+  engagement: {
+    byStage: any[];
+    byOwner: any[];
+    byTier: any[];
+  };
+  bottlenecks: any[];
+  leaderboard: any[];
+  feed: any[];
+  activityFeed?: any[];
+  reengagementQueue: any[];
+  queues: { reengage: any[]; breaches: any[] };
+  trendCards: any[];
+  copilotInsights: { message: string }[];
+};
+
+type CacheEntry = {
+  tenantId: string;
+  cachedAtMs: number;
+  payload: InsightsResponse;
+};
+
+const DAY_MS = 86_400_000;
+const DEFAULT_PERIOD_DAYS = 7;
+const DEFAULT_DORMANT_DAYS = 7;
+const DEFAULT_LIMIT = 50;
+const CACHE_TTL_MS = 60_000;
+const DEFAULT_PERIOD_LABEL = (days: number) => `${days} days`;
+
+const normalizeStringList = (value?: string[]): string[] => {
+  if (!value) return [];
+  const items = value
+    .map((entry) => (entry ?? '').trim())
+    .filter((entry) => entry.length > 0);
+  return Array.from(new Set(items)).sort((a, b) => a.localeCompare(b));
+};
+
+const parsePeriodDays = (value?: string): number => {
+  if (!value) return DEFAULT_PERIOD_DAYS;
+  const match = value.match(/^(\d+)d$/i);
+  if (!match) return DEFAULT_PERIOD_DAYS;
+  const parsed = Number.parseInt(match[1]!, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_PERIOD_DAYS;
+  return Math.min(Math.max(parsed, 1), 90);
+};
+
+const resolvePeriod = (period?: string): InsightsPeriod => {
+  const days = parsePeriodDays(period);
+  const end = new Date();
+  const start = new Date(end.getTime() - days * DAY_MS);
+  return {
+    label: DEFAULT_PERIOD_LABEL(days),
+    days,
+    start,
+    end
+  };
+};
+
+const toNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (typeof value === 'object' && value && 'toString' in value) {
+    const parsed = Number(String((value as any).toString()));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
 
 @Injectable()
 export class InsightsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly aiEmployees: AiEmployeesService
-  ) {}
+  private readonly log = new Logger(InsightsService.name);
 
-  // Compatibility stub for legacy callers
-  purgeTenantCache(_tenantId: string) {
-    // no-op in this simplified implementation
+  private readonly responseCache: Map<string, CacheEntry> = new Map();
+  private readonly responseCacheKeysByTenant: Map<string, Set<string>> = new Map();
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  purgeTenantCache(tenantId: string) {
+    const keys = this.responseCacheKeysByTenant.get(tenantId);
+    if (!keys || keys.size === 0) {
+      return;
+    }
+
+    for (const key of keys) {
+      this.responseCache.delete(key);
+    }
+
+    this.responseCacheKeysByTenant.delete(tenantId);
+    this.logMetric(`metric=insights.cache.evictions tenant=${tenantId} value=${keys.size}`);
   }
 
-  // Compatibility stub for legacy controllers/tests
-  async getInsights(ctx: { tenantId?: string }, _query?: any) {
-    if (!ctx?.tenantId) return []
-    return this.list(ctx.tenantId, undefined, undefined, 50)
-  }
+  async getInsights(ctx: RequestContext, query: GetInsightsQueryDto): Promise<InsightsResponse> {
+    const tenantId = ctx.tenantId;
+    const period = resolvePeriod(query.period);
+    const dormantDays = query.dormantDays ?? DEFAULT_DORMANT_DAYS;
+    const limit = query.limit ?? DEFAULT_LIMIT;
+    const stageIds = normalizeStringList(query.stage);
 
-  async generateDailyInsights(orgId: string, userId: string) {
-    const ai = await this.aiEmployees.runPersona('brokerCoach' as any, {
-      organizationId: orgId,
-      userId
-    })
-    const insights = this.normalize(ai?.structured ?? (ai as any)?.aiResponse?.insights ?? (ai as any)?.rawJson ?? [])
-    const created = []
-    for (const insight of insights) {
-      const type = this.parseType(insight.type)
-      const record = await (this.prisma as any).aiInsight.create({
-        data: {
-          organizationId: orgId,
-          type,
-          targetId: insight.targetId ?? null,
-          summary: insight.summary,
-          details: insight.details ?? {}
+    const cacheKey = buildInsightsCacheKey({
+      tenantId,
+      period,
+      dormantDays,
+      limit,
+      version: INSIGHTS_RESPONSE_VERSION,
+      ownerId: query.ownerId,
+      teamId: query.teamId,
+      stageIds,
+      tier: query.tier,
+      activity: query.activity,
+      viewId: query.viewId
+    });
+
+    const cached = this.responseCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAtMs <= CACHE_TTL_MS) {
+      return cached.payload;
+    }
+
+    const ownerId = query.ownerId?.trim() || undefined;
+    const tier = query.tier?.trim()?.toUpperCase() || undefined;
+
+    const [people, analytics, savedViews] = await Promise.all([
+      this.prisma.person.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          ...(ownerId ? { ownerId } : {}),
+          ...(stageIds.length ? { stageId: { in: stageIds } } : {}),
+          ...(tier ? { scoreTier: tier as LeadScoreTier } : {})
+        },
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          owner: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+          pipelineStage: { select: { id: true, name: true, order: true } }
         }
+      }),
+      this.prisma.leadAnalyticsView.findMany({
+        where: {
+          tenantId,
+          ...(ownerId ? { ownerId } : {}),
+          ...(stageIds.length ? { stageId: { in: stageIds } } : {}),
+          ...(tier ? { scoreTier: tier as LeadScoreTier } : {})
+        }
+      }),
+      this.prisma.savedView.findMany({
+        where: {
+          tenantId
+        },
+        orderBy: { name: 'asc' }
       })
-      created.push(record)
-    }
-    return created
-  }
+    ]);
 
-  async list(orgId: string, type?: InsightType, targetId?: string, limit = 50) {
-    return (this.prisma as any).aiInsight.findMany({
-      where: {
-        organizationId: orgId,
-        ...(type ? { type } : {}),
-        ...(targetId ? { targetId } : {})
+    const activeLeads = people.length;
+
+    const avgStageDurationMs = analytics.length
+      ? analytics
+          .map((row: any) => toNumber(row.avgStageDurationMs))
+          .filter((value: number | null): value is number => value !== null)
+          .reduce((sum, value) => sum + value, 0) / Math.max(1, analytics.length)
+      : null;
+
+    const avgStageTimeHours =
+      avgStageDurationMs === null ? null : Math.round((avgStageDurationMs / (60 * 60 * 1000)) * 10) / 10;
+
+    const totalMoves = analytics.reduce((sum: number, row: any) => sum + (toNumber(row.stageMovesTotal) ?? 0), 0);
+    const forwardMoves = analytics.reduce((sum: number, row: any) => sum + (toNumber(row.stageMovesForward) ?? 0), 0);
+    const conversionPct = totalMoves > 0 ? Math.round((forwardMoves / totalMoves) * 1000) / 10 : null;
+
+    const owners = normalizeOwners(people);
+    const tiers = buildTierFilters();
+    const activities = buildActivityFilters();
+    const savedViewsFilter = savedViews.map((view: any) => ({
+      id: view.id,
+      label: view.name,
+      meta: {
+        scope: view.scope as SavedViewScope,
+        teamId: view.teamId ?? null,
+        userId: view.userId ?? null
+      }
+    }));
+
+    const response: InsightsResponse = {
+      v: INSIGHTS_RESPONSE_VERSION,
+      period: {
+        label: period.label,
+        days: period.days,
+        start: period.start.toISOString(),
+        end: period.end.toISOString()
       },
-      orderBy: { createdAt: 'desc' },
-      take: limit
-    })
+      summary: {
+        activeLeads,
+        avgStageTimeHours,
+        conversionPct,
+        deltaWoW: null
+      },
+      dataAge: new Date().toISOString(),
+      filters: {
+        owners,
+        tiers,
+        activities,
+        savedViews: savedViewsFilter
+      },
+      heatmap: [],
+      engagement: {
+        byStage: [],
+        byOwner: [],
+        byTier: []
+      },
+      bottlenecks: [],
+      leaderboard: [],
+      feed: [],
+      activityFeed: [],
+      reengagementQueue: [],
+      queues: { reengage: [], breaches: [] },
+      trendCards: [],
+      copilotInsights: []
+    };
+
+    this.cacheResponse(cacheKey, tenantId, response);
+    return response;
   }
 
-  private normalize(value: unknown): AiInsightPayload[] {
-    if (!Array.isArray(value)) return []
-    return value
-      .filter((item) => item && typeof item.summary === 'string')
-      .map((item) => ({
-        type: (item as any).type,
-        targetId: (item as any).targetId ?? null,
-        summary: (item as any).summary as string,
-        details: (item as any).details ?? {}
-      }))
+  private cacheResponse(cacheKey: string, tenantId: string, payload: InsightsResponse) {
+    this.responseCache.set(cacheKey, { tenantId, payload, cachedAtMs: Date.now() });
+    const set = this.responseCacheKeysByTenant.get(tenantId) ?? new Set<string>();
+    set.add(cacheKey);
+    this.responseCacheKeysByTenant.set(tenantId, set);
   }
 
-  private parseType(input?: string): InsightType {
-    const upper = (input ?? 'BROKER').toUpperCase()
-    const allowed: InsightType[] = [
-      'BROKER',
-      'TEAM',
-      'AGENT',
-      'LISTING',
-      'TRANSACTION',
-      'LEAD',
-      'RENTAL',
-      'COMPLIANCE',
-      'RISK',
-      'PRODUCTIVITY'
-    ]
-    if (allowed.includes(upper as InsightType)) {
-      return upper as InsightType
-    }
-    return 'BROKER'
+  private logMetric(message: string) {
+    this.log.debug(message);
   }
+}
+
+function normalizeOwners(people: any[]): InsightFilterOption[] {
+  const owners = new Map<string, InsightFilterOption>();
+  for (const person of people) {
+    const owner = person?.owner;
+    if (!owner?.id) continue;
+    const name = [owner.firstName, owner.lastName].filter(Boolean).join(' ').trim();
+    owners.set(owner.id, {
+      id: owner.id,
+      label: name || owner.id,
+      avatarUrl: owner.avatarUrl ?? null
+    });
+  }
+  return Array.from(owners.values()).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function buildTierFilters(): InsightFilterOption[] {
+  return ['A', 'B', 'C', 'D'].map((tier) => ({
+    id: tier,
+    label: tier,
+    meta: { tier }
+  }));
+}
+
+function buildActivityFilters(): InsightFilterOption[] {
+  return INSIGHTS_ACTIVITY_FILTERS.map((activity) => ({
+    id: activity,
+    label: activity
+  }));
 }

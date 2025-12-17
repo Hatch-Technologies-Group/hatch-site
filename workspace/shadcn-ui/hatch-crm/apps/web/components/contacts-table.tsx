@@ -264,7 +264,7 @@ export function ContactsTable({
                   <td key={field.field} className="px-4 py-3" style={field.width ? { width: field.width } : undefined}>
                     {field.field === 'firstName' || field.field === 'lastName' ? (
                       <Link
-                        href={`/people/${contact.id}`}
+                        href={`/contacts/${contact.id}`}
                         className="text-brand-600 hover:underline"
                         onClick={(event) => event.stopPropagation()}
                       >

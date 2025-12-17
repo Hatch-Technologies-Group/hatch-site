@@ -69,6 +69,17 @@ export class OrgTransactionsService {
     return listing;
   }
 
+  private async assertPerson(personId: string, orgId: string) {
+    const person = await this.prisma.person.findFirst({
+      where: { id: personId, organizationId: orgId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true }
+    });
+    if (!person) {
+      throw new NotFoundException('Contact not found');
+    }
+    return person;
+  }
+
   async createTransaction(orgId: string, creatorUserId: string, dto: CreateTransactionDto) {
     await this.assertUserInOrg(creatorUserId, orgId);
     let listingId = dto.listingId ?? undefined;
@@ -80,13 +91,31 @@ export class OrgTransactionsService {
       await this.assertAgentProfile(agentProfileId, orgId);
     }
 
+    let buyerPersonId = dto.buyerPersonId ?? undefined;
+    let sellerPersonId = dto.sellerPersonId ?? undefined;
+    let buyerName = dto.buyerName ?? undefined;
+    let sellerName = dto.sellerName ?? undefined;
+
+    if (buyerPersonId) {
+      const buyer = await this.assertPerson(buyerPersonId, orgId);
+      buyerPersonId = buyer.id;
+      buyerName ??= `${buyer.firstName} ${buyer.lastName}`.trim();
+    }
+    if (sellerPersonId) {
+      const seller = await this.assertPerson(sellerPersonId, orgId);
+      sellerPersonId = seller.id;
+      sellerName ??= `${seller.firstName} ${seller.lastName}`.trim();
+    }
+
     return this.prisma.orgTransaction.create({
       data: {
         organizationId: orgId,
         listingId,
         agentProfileId,
-        buyerName: dto.buyerName ?? undefined,
-        sellerName: dto.sellerName ?? undefined,
+        buyerPersonId,
+        sellerPersonId,
+        buyerName,
+        sellerName,
         contractSignedAt: dto.contractSignedAt ? new Date(dto.contractSignedAt) : undefined,
         inspectionDate: dto.inspectionDate ? new Date(dto.inspectionDate) : undefined,
         financingDate: dto.financingDate ? new Date(dto.financingDate) : undefined,
@@ -116,13 +145,37 @@ export class OrgTransactionsService {
     }
 
     const data: Record<string, unknown> = {
-      buyerName: dto.buyerName ?? undefined,
-      sellerName: dto.sellerName ?? undefined,
+      buyerName: dto.buyerName === null ? null : dto.buyerName ?? undefined,
+      sellerName: dto.sellerName === null ? null : dto.sellerName ?? undefined,
       contractSignedAt: dto.contractSignedAt === null ? null : dto.contractSignedAt ? new Date(dto.contractSignedAt) : undefined,
       inspectionDate: dto.inspectionDate === null ? null : dto.inspectionDate ? new Date(dto.inspectionDate) : undefined,
       financingDate: dto.financingDate === null ? null : dto.financingDate ? new Date(dto.financingDate) : undefined,
       closingDate: dto.closingDate === null ? null : dto.closingDate ? new Date(dto.closingDate) : undefined
     };
+
+    if (dto.buyerPersonId !== undefined) {
+      if (dto.buyerPersonId === null) {
+        data.buyerPersonId = null;
+      } else {
+        const buyer = await this.assertPerson(dto.buyerPersonId, orgId);
+        data.buyerPersonId = buyer.id;
+        if (dto.buyerName === undefined) {
+          data.buyerName = `${buyer.firstName} ${buyer.lastName}`.trim();
+        }
+      }
+    }
+
+    if (dto.sellerPersonId !== undefined) {
+      if (dto.sellerPersonId === null) {
+        data.sellerPersonId = null;
+      } else {
+        const seller = await this.assertPerson(dto.sellerPersonId, orgId);
+        data.sellerPersonId = seller.id;
+        if (dto.sellerName === undefined) {
+          data.sellerName = `${seller.firstName} ${seller.lastName}`.trim();
+        }
+      }
+    }
 
     if (isBroker) {
       data.status = dto.status ? (dto.status as OrgTransactionStatus) : undefined;
@@ -183,6 +236,8 @@ export class OrgTransactionsService {
       where: { organizationId: orgId },
       include: {
         listing: true,
+        buyerPerson: { select: { id: true, firstName: true, lastName: true, primaryEmail: true, primaryPhone: true } },
+        sellerPerson: { select: { id: true, firstName: true, lastName: true, primaryEmail: true, primaryPhone: true } },
         agentProfile: {
           include: {
             user: { select: { firstName: true, lastName: true, email: true } }

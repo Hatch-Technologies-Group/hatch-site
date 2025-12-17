@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException
 } from '@nestjs/common';
-import { OrgListingStatus, PlaybookTriggerType, UserRole } from '@hatch/db';
+import { OrgListingContactType, OrgListingStatus, PlaybookTriggerType, UserRole } from '@hatch/db';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { DocumentsAiService } from '@/modules/documents-ai/documents-ai.service';
@@ -267,5 +267,89 @@ export class OrgListingsService {
       throw new NotFoundException('Listing not available');
     }
     return listing;
+  }
+
+  async listListingContacts(orgId: string, userId: string, listingId: string, type?: OrgListingContactType) {
+    await this.assertUserInOrg(userId, orgId);
+
+    const listing = await this.prisma.orgListing.findUnique({ where: { id: listingId } });
+    if (!listing || listing.organizationId !== orgId) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    return this.prisma.orgListingContact.findMany({
+      where: {
+        listingId: listing.id,
+        type: type ?? undefined
+      },
+      include: {
+        person: { select: { id: true, firstName: true, lastName: true, primaryEmail: true, primaryPhone: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async attachListingContact(
+    orgId: string,
+    userId: string,
+    listingId: string,
+    personId: string,
+    type: OrgListingContactType
+  ) {
+    await this.assertUserInOrg(userId, orgId);
+
+    const listing = await this.prisma.orgListing.findUnique({ where: { id: listingId } });
+    if (!listing || listing.organizationId !== orgId) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    const person = await this.prisma.person.findFirst({
+      where: { id: personId, organizationId: orgId, deletedAt: null },
+      select: { id: true }
+    });
+    if (!person) {
+      throw new NotFoundException('Contact not found in this organization');
+    }
+
+    const existing = await this.prisma.orgListingContact.findFirst({
+      where: { listingId: listing.id, personId: person.id, type }
+    });
+    if (existing) return existing;
+
+    return this.prisma.orgListingContact.create({
+      data: {
+        listingId: listing.id,
+        personId: person.id,
+        type
+      }
+    });
+  }
+
+  async detachListingContact(
+    orgId: string,
+    userId: string,
+    listingId: string,
+    personId: string,
+    type?: OrgListingContactType
+  ) {
+    await this.assertUserInOrg(userId, orgId);
+
+    const listing = await this.prisma.orgListing.findUnique({ where: { id: listingId } });
+    if (!listing || listing.organizationId !== orgId) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    const person = await this.prisma.person.findFirst({
+      where: { id: personId, organizationId: orgId },
+      select: { id: true }
+    });
+    if (!person) {
+      throw new NotFoundException('Contact not found in this organization');
+    }
+
+    const result = await this.prisma.orgListingContact.deleteMany({
+      where: { listingId: listing.id, personId: person.id, type: type ?? undefined }
+    });
+    return { deleted: result.count };
   }
 }

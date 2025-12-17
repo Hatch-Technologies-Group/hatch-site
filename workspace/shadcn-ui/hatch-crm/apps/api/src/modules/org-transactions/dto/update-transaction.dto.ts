@@ -18,6 +18,16 @@ export class UpdateTransactionDto {
   @IsString()
   sellerName?: string | null;
 
+  @ApiPropertyOptional({ description: 'CRM contact/person id for the buyer (or null to clear)' })
+  @IsOptional()
+  @IsString()
+  buyerPersonId?: string | null;
+
+  @ApiPropertyOptional({ description: 'CRM contact/person id for the seller (or null to clear)' })
+  @IsOptional()
+  @IsString()
+  sellerPersonId?: string | null;
+
   @ApiPropertyOptional({ description: 'ISO date or null to clear' })
   @IsOptional()
   @IsString()

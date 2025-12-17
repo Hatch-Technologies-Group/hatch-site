@@ -15,7 +15,9 @@ import type { FastifyRequest } from 'fastify';
 
 import { ApiModule, ApiStandardErrors, resolveRequestContext } from '../common';
 import { CreateRoutingRuleDto } from './dto/create-routing-rule.dto';
+import { RoutingRuleDraftDto, RoutingRuleDraftRequestDto } from './dto/routing-ai.dto';
 import { UpdateRoutingRuleDto } from './dto/update-routing-rule.dto';
+import { RoutingAiService } from './routing-ai.service';
 import { RoutingService } from './routing.service';
 import {
   RoutingCapacityEntryDto,
@@ -45,7 +47,10 @@ const parseMaybeJson = (value: unknown) => {
 @ApiStandardErrors()
 @Controller('routing')
 export class RoutingController {
-  constructor(private readonly routing: RoutingService) {}
+  constructor(
+    private readonly routing: RoutingService,
+    private readonly routingAi: RoutingAiService
+  ) {}
 
   @Get('rules')
   @ApiQuery({ name: 'tenantId', required: false })
@@ -92,6 +97,30 @@ export class RoutingController {
       slaKeptAppointmentMinutes: dto.slaKeptAppointmentMinutes
     };
     return this.routing.createRule(scopedTenantId, ctx.userId, payload);
+  }
+
+  @Post('rules/draft')
+  @ApiBody({ type: RoutingRuleDraftRequestDto })
+  @ApiQuery({ name: 'tenantId', required: false })
+  @ApiOkResponse({ type: RoutingRuleDraftDto })
+  async draftRule(
+    @Body() dto: RoutingRuleDraftRequestDto,
+    @Query('tenantId') tenantId: string | undefined,
+    @Req() req: FastifyRequest
+  ): Promise<RoutingRuleDraftDto> {
+    const ctx = resolveRequestContext(req);
+    const scopedTenantId = this.resolveTenantId(ctx, tenantId);
+
+    const draft = await this.routingAi.draftRule({
+      tenantId: scopedTenantId,
+      prompt: dto.prompt,
+      mode: dto.mode,
+      defaultTeamId: dto.defaultTeamId,
+      fallbackTeamId: dto.fallbackTeamId,
+      relaxAgentFilters: dto.relaxAgentFilters
+    });
+
+    return draft as RoutingRuleDraftDto;
   }
 
   @Patch('rules/:id')

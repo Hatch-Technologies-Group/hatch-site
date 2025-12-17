@@ -475,7 +475,7 @@ function TeamRow({ orgId, agent }: { orgId: string; agent: MissionControlAgentRo
             <Link to={`/broker/mission-control?agent=${agent.agentProfileId}`}>Mission Control</Link>
           </Button>
           <Button size="sm" variant="ghost" asChild>
-            <Link to={`/broker/compliance?agent=${agent.agentProfileId}`}>Compliance</Link>
+            <Link to={`/broker/compliance?agent=${agent.agentProfileId}`}>Risk Center</Link>
           </Button>
         </div>
       </td>
@@ -737,7 +737,7 @@ function AgentManageSheet({ orgId, agent }: { orgId: string; agent: MissionContr
                 <Link to={`/broker/mission-control?agent=${agent.agentProfileId}`}>Mission Control</Link>
               </Button>
               <Button size="sm" variant="secondary" asChild>
-                <Link to={`/broker/compliance?agent=${agent.agentProfileId}`}>Compliance</Link>
+                <Link to={`/broker/compliance?agent=${agent.agentProfileId}`}>Risk Center</Link>
               </Button>
             </div>
             <p className="mt-2 text-xs text-slate-500">

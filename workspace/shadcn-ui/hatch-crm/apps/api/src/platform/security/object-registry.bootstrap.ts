@@ -66,4 +66,54 @@ export function bootstrapObjectRegistry() {
   register('search', ['person']);
   register('ai_employees', ['aiEmployeeInstance']);
   register('ai_actions', ['aiProposedAction']);
+
+  ObjectRegistry.register('lead_gen', {
+    loadRecordCtx: async (prisma: PrismaService, id: string) => {
+      const campaign = await prisma.leadGenCampaign.findUnique({
+        where: { id },
+        select: { organizationId: true, createdByUserId: true }
+      });
+      if (campaign) {
+        return { orgId: campaign.organizationId, ownerId: campaign.createdByUserId ?? null };
+      }
+
+      const landingPage = await prisma.leadGenLandingPage.findUnique({
+        where: { id },
+        select: { organizationId: true, createdByUserId: true }
+      });
+      if (landingPage) {
+        return { orgId: landingPage.organizationId, ownerId: landingPage.createdByUserId ?? null };
+      }
+
+      const exportBatch = await prisma.leadGenExportBatch.findUnique({
+        where: { id },
+        select: { organizationId: true, requestedByUserId: true }
+      });
+      if (exportBatch) {
+        return { orgId: exportBatch.organizationId, ownerId: exportBatch.requestedByUserId ?? null };
+      }
+
+      const conversion = await prisma.leadGenConversionEvent.findUnique({
+        where: { id },
+        select: { organizationId: true }
+      });
+      if (conversion) {
+        return { orgId: conversion.organizationId, ownerId: null };
+      }
+
+      const audience = await prisma.leadGenAudience.findUnique({
+        where: { id },
+        select: { tenantId: true }
+      });
+      if (audience) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: audience.tenantId },
+          select: { organizationId: true }
+        });
+        return tenant?.organizationId ? { orgId: tenant.organizationId, ownerId: null } : null;
+      }
+
+      return null;
+    }
+  });
 }

@@ -4,6 +4,7 @@ import { listRoutingRules } from '@/lib/api/routing';
 export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 25;
+const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? process.env.VITE_TENANT_ID ?? 'tenant-hatch';
 
 interface RoutingPageProps {
   searchParams?: {
@@ -21,6 +22,7 @@ export default async function RoutingPage({ searchParams }: RoutingPageProps) {
       : 'all';
 
   const initial = await listRoutingRules({
+    tenantId: TENANT_ID,
     limit: PAGE_SIZE,
     q: initialQuery || undefined,
     mode: initialModeParam === 'all' ? undefined : initialModeParam
@@ -36,6 +38,7 @@ export default async function RoutingPage({ searchParams }: RoutingPageProps) {
       </div>
 
       <RoutingRulesTable
+        tenantId={TENANT_ID}
         initialItems={initial.items}
         initialNextCursor={initial.nextCursor}
         initialQuery={initialQuery}

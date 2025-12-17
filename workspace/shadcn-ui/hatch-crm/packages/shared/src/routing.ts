@@ -3,6 +3,16 @@ import { z } from 'zod';
 export const leadRoutingModeSchema = z.enum(['FIRST_MATCH', 'SCORE_AND_ASSIGN']);
 export type LeadRoutingMode = z.infer<typeof leadRoutingModeSchema>;
 
+export const routingMatchModeSchema = z.enum(['ANY', 'ALL']);
+export type RoutingMatchMode = z.infer<typeof routingMatchModeSchema>;
+
+export const routingStringSetFilterSchema = z.object({
+  include: z.array(z.string()).optional(),
+  exclude: z.array(z.string()).optional(),
+  match: routingMatchModeSchema.optional()
+});
+export type RoutingStringSetFilter = z.infer<typeof routingStringSetFilterSchema>;
+
 export const leadRoutingConsentStateSchema = z.enum(['GRANTED', 'REVOKED', 'UNKNOWN']);
 export type LeadRoutingConsentState = z.infer<typeof leadRoutingConsentStateSchema>;
 
@@ -65,27 +75,74 @@ export const leadRoutingConsentConditionSchema = z
   .optional();
 export type LeadRoutingConsentCondition = z.infer<typeof leadRoutingConsentConditionSchema>;
 
+export const leadRoutingDemographicsSchema = z
+  .object({
+    minAge: z.number().int().min(0).optional(),
+    maxAge: z.number().int().min(0).optional(),
+    tags: routingStringSetFilterSchema.optional(),
+    languages: routingStringSetFilterSchema.optional(),
+    ethnicities: routingStringSetFilterSchema.optional()
+  })
+  .optional();
+export type LeadRoutingDemographicsCondition = z.infer<typeof leadRoutingDemographicsSchema>;
+
+export const leadRoutingCustomFieldOperatorSchema = z.enum([
+  'EQUALS',
+  'NOT_EQUALS',
+  'IN',
+  'NOT_IN',
+  'GT',
+  'GTE',
+  'LT',
+  'LTE',
+  'CONTAINS',
+  'NOT_CONTAINS',
+  'EXISTS',
+  'NOT_EXISTS'
+]);
+export type LeadRoutingCustomFieldOperator = z.infer<typeof leadRoutingCustomFieldOperatorSchema>;
+
+export const leadRoutingCustomFieldConditionSchema = z.object({
+  key: z.string().min(1),
+  operator: leadRoutingCustomFieldOperatorSchema,
+  value: z.any().optional()
+});
+export type LeadRoutingCustomFieldCondition = z.infer<typeof leadRoutingCustomFieldConditionSchema>;
+
 export const leadRoutingConditionsSchema = z.object({
   geography: leadRoutingGeographySchema,
   priceBand: leadRoutingPriceBandSchema,
   sources: leadRoutingSourceSchema,
   consent: leadRoutingConsentConditionSchema,
   buyerRep: leadRoutingBuyerRepRequirementSchema.optional(),
-  timeWindows: z.array(leadRoutingTimeWindowSchema).optional()
+  timeWindows: z.array(leadRoutingTimeWindowSchema).optional(),
+  demographics: leadRoutingDemographicsSchema,
+  customFields: z.array(leadRoutingCustomFieldConditionSchema).optional()
 });
 export type LeadRoutingConditions = z.infer<typeof leadRoutingConditionsSchema>;
+
+export const leadRoutingAgentFilterSchema = z.object({
+  tags: routingStringSetFilterSchema.optional(),
+  languages: routingStringSetFilterSchema.optional(),
+  specialties: routingStringSetFilterSchema.optional(),
+  minKeptApptRate: z.number().min(0).max(1).optional(),
+  minCapacityRemaining: z.number().int().min(0).optional()
+});
+export type LeadRoutingAgentFilter = z.infer<typeof leadRoutingAgentFilterSchema>;
 
 export const leadRoutingTargetSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('AGENT'),
     id: z.string(),
-    label: z.string().optional()
+    label: z.string().optional(),
+    agentFilter: leadRoutingAgentFilterSchema.optional()
   }),
   z.object({
     type: z.literal('TEAM'),
     id: z.string(),
     strategy: z.enum(['BEST_FIT', 'ROUND_ROBIN']).default('BEST_FIT'),
-    includeRoles: z.array(z.string()).optional()
+    includeRoles: z.array(z.string()).optional(),
+    agentFilter: leadRoutingAgentFilterSchema.optional()
   }),
   z.object({
     type: z.literal('POND'),
@@ -99,7 +156,8 @@ export const leadRoutingFallbackSchema = z
   .object({
     teamId: z.string(),
     label: z.string().optional(),
-    escalationChannels: z.array(z.enum(['EMAIL', 'SMS', 'IN_APP'])).optional()
+    escalationChannels: z.array(z.enum(['EMAIL', 'SMS', 'IN_APP'])).optional(),
+    relaxAgentFilters: z.boolean().optional()
   })
   .optional();
 export type LeadRoutingFallback = z.infer<typeof leadRoutingFallbackSchema>;
@@ -114,6 +172,11 @@ export type LeadRoutingRuleConfig = z.infer<typeof leadRoutingRuleConfigSchema>;
 export interface LeadRoutingPersonContext {
   source?: string | null;
   buyerRepStatus?: string | null;
+  tags?: string[] | null;
+  age?: number | null;
+  languages?: string[] | null;
+  ethnicities?: string[] | null;
+  customFields?: Record<string, unknown> | null;
   consent: {
     sms: LeadRoutingConsentState;
     email: LeadRoutingConsentState;
@@ -356,6 +419,178 @@ const matchTimeWindows = (windows: LeadRoutingTimeWindow[], context: LeadRouting
   };
 };
 
+const normalizeStringSet = (values: Array<string | null | undefined> | null | undefined) =>
+  (values ?? [])
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .map((value) => value!.toLowerCase());
+
+const matchStringSetFilter = (
+  label: string,
+  filter: RoutingStringSetFilter,
+  haystack: string[]
+) => {
+  const includes = normalizeStringSet(filter.include);
+  const excludes = normalizeStringSet(filter.exclude);
+  const mode = filter.match ?? 'ANY';
+
+  if (excludes.length > 0) {
+    const blocked = excludes.find((value) => haystack.includes(value));
+    if (blocked) {
+      return { passed: false, detail: `${label} ${blocked} explicitly excluded` };
+    }
+  }
+
+  if (includes.length > 0) {
+    const matched = mode === 'ALL'
+      ? includes.every((value) => haystack.includes(value))
+      : includes.some((value) => haystack.includes(value));
+    if (!matched) {
+      return { passed: false, detail: `${label} missing required values (${mode})` };
+    }
+  }
+
+  return { passed: true, detail: undefined as string | undefined };
+};
+
+const matchDemographics = (
+  condition: NonNullable<LeadRoutingConditions['demographics']>,
+  person: LeadRoutingPersonContext
+) => {
+  const tags = normalizeStringSet(person.tags);
+  const languages = [...normalizeStringSet(person.languages), ...tags];
+  const ethnicities = [...normalizeStringSet(person.ethnicities), ...tags];
+
+  if (condition.minAge !== undefined || condition.maxAge !== undefined) {
+    const age = person.age ?? null;
+    if (age === null) {
+      return { passed: false, detail: 'Age unavailable' };
+    }
+    if (condition.minAge !== undefined && age < condition.minAge) {
+      return { passed: false, detail: `Age ${age} below minimum ${condition.minAge}` };
+    }
+    if (condition.maxAge !== undefined && age > condition.maxAge) {
+      return { passed: false, detail: `Age ${age} above maximum ${condition.maxAge}` };
+    }
+  }
+
+  if (condition.tags) {
+    const result = matchStringSetFilter('Tag', condition.tags, tags);
+    if (!result.passed) return result;
+  }
+
+  if (condition.languages) {
+    const result = matchStringSetFilter('Language', condition.languages, languages);
+    if (!result.passed) return result;
+  }
+
+  if (condition.ethnicities) {
+    const result = matchStringSetFilter('Ethnicity', condition.ethnicities, ethnicities);
+    if (!result.passed) return result;
+  }
+
+  return { passed: true, detail: undefined as string | undefined };
+};
+
+const isNil = (value: unknown) => value === null || value === undefined;
+
+const equalsValue = (left: unknown, right: unknown) => {
+  if (typeof left === 'number' && typeof right === 'number') return left === right;
+  if (typeof left === 'string' && typeof right === 'string') return left.toLowerCase() === right.toLowerCase();
+  if (typeof left === 'boolean' && typeof right === 'boolean') return left === right;
+  return JSON.stringify(left) === JSON.stringify(right);
+};
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const toArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : value === undefined ? [] : [value]);
+
+const matchCustomFieldCondition = (
+  condition: LeadRoutingCustomFieldCondition,
+  fields: Record<string, unknown>
+) => {
+  const value = fields[condition.key];
+  const operator = condition.operator;
+  const expected = condition.value;
+
+  if (operator === 'EXISTS') {
+    return { passed: !isNil(value), detail: !isNil(value) ? undefined : `Custom field ${condition.key} missing` };
+  }
+  if (operator === 'NOT_EXISTS') {
+    return { passed: isNil(value), detail: isNil(value) ? undefined : `Custom field ${condition.key} present` };
+  }
+
+  if (isNil(value)) {
+    return { passed: false, detail: `Custom field ${condition.key} missing` };
+  }
+
+  if (operator === 'EQUALS') {
+    const passed = equalsValue(value, expected);
+    return { passed, detail: passed ? undefined : `Custom field ${condition.key} does not equal expected value` };
+  }
+
+  if (operator === 'NOT_EQUALS') {
+    const passed = !equalsValue(value, expected);
+    return { passed, detail: passed ? undefined : `Custom field ${condition.key} equals excluded value` };
+  }
+
+  if (operator === 'IN' || operator === 'NOT_IN') {
+    const expectedValues = toArray(expected);
+    const valueValues = toArray(value);
+    const matched = valueValues.some((candidate) =>
+      expectedValues.some((entry) => equalsValue(candidate, entry))
+    );
+    const passed = operator === 'IN' ? matched : !matched;
+    return {
+      passed,
+      detail: passed ? undefined : `Custom field ${condition.key} ${operator === 'IN' ? 'not in' : 'in'} expected set`
+    };
+  }
+
+  if (operator === 'CONTAINS' || operator === 'NOT_CONTAINS') {
+    let matched = false;
+    if (typeof value === 'string' && typeof expected === 'string') {
+      matched = value.toLowerCase().includes(expected.toLowerCase());
+    } else if (Array.isArray(value)) {
+      matched = value.some((entry) => equalsValue(entry, expected));
+    }
+    const passed = operator === 'CONTAINS' ? matched : !matched;
+    return {
+      passed,
+      detail: passed ? undefined : `Custom field ${condition.key} ${operator === 'CONTAINS' ? 'missing' : 'contains'} expected value`
+    };
+  }
+
+  const valueNumber = toNumber(value);
+  const expectedNumber = toNumber(expected);
+  if (valueNumber === null || expectedNumber === null) {
+    return { passed: false, detail: `Custom field ${condition.key} not comparable` };
+  }
+
+  const passed =
+    operator === 'GT'
+      ? valueNumber > expectedNumber
+      : operator === 'GTE'
+        ? valueNumber >= expectedNumber
+        : operator === 'LT'
+          ? valueNumber < expectedNumber
+          : operator === 'LTE'
+            ? valueNumber <= expectedNumber
+            : false;
+
+  return {
+    passed,
+    detail: passed ? undefined : `Custom field ${condition.key} comparison failed`
+  };
+};
+
 export const evaluateLeadRoutingConditions = (
   conditions: LeadRoutingConditions | null | undefined,
   context: LeadRoutingContext
@@ -398,6 +633,23 @@ export const evaluateLeadRoutingConditions = (
   if (parsed.timeWindows && parsed.timeWindows.length > 0) {
     const result = matchTimeWindows(parsed.timeWindows, context);
     checks.push({ key: 'timeWindows', passed: result.passed, detail: result.detail });
+  }
+
+  if (parsed.demographics) {
+    const result = matchDemographics(parsed.demographics, context.person);
+    checks.push({ key: 'demographics', passed: result.passed, detail: result.detail });
+  }
+
+  if (parsed.customFields && parsed.customFields.length > 0) {
+    const fields = (context.person.customFields ?? {}) as Record<string, unknown>;
+    const failures = parsed.customFields
+      .map((condition) => matchCustomFieldCondition(condition, fields))
+      .filter((result) => !result.passed);
+    checks.push({
+      key: 'customFields',
+      passed: failures.length === 0,
+      detail: failures[0]?.detail
+    });
   }
 
   const matched = checks.every((check) => check.passed);
@@ -538,4 +790,3 @@ export const routeLead = (payload: RoutingInput): RoutingResult => {
     quietHours: payload.quietHours
   };
 };
-

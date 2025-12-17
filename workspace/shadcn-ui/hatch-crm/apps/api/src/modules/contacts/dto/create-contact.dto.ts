@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsISO8601,
   IsIn,
+  IsObject,
   IsOptional,
   IsPhoneNumber,
   IsString,
@@ -112,6 +113,10 @@ export class CreateContactDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 
   @IsOptional()
   @ValidateNested({ each: true })

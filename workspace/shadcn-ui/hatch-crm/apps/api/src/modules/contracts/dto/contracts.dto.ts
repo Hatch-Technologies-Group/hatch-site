@@ -41,6 +41,10 @@ export class ListInstancesQueryDto {
   transactionId?: string;
 
   @IsOptional()
+  @IsString()
+  contactId?: string;
+
+  @IsOptional()
   @IsEnum(ContractInstanceStatus)
   status?: ContractInstanceStatus;
 }
@@ -56,6 +60,14 @@ export class CreateContractInstanceDto {
   @IsOptional()
   @IsString()
   transactionId?: string;
+
+  @IsOptional()
+  @IsString()
+  buyerPersonId?: string;
+
+  @IsOptional()
+  @IsString()
+  sellerPersonId?: string;
 
   @IsOptional()
   @IsString()

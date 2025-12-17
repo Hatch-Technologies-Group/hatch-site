@@ -127,9 +127,9 @@ export function PropertiesView({ orgId }: PropertiesViewProps) {
                 filteredListings.map((listing) => (
                   <tr key={listing.id} className="border-t border-slate-100">
                     <td className="py-3 pr-4">
-                      <div className="font-medium text-slate-900">
+                      <Link href={`/dashboard/properties/${listing.id}`} className="font-medium text-brand-600 hover:underline">
                         {listing.addressLine1}, {listing.city}
-                      </div>
+                      </Link>
                       <div className="text-xs text-slate-500">
                         {listing.state} {listing.postalCode}
                       </div>

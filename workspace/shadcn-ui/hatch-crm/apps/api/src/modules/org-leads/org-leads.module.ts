@@ -3,11 +3,14 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { OrgEventsModule } from '../org-events/org-events.module';
 import { PlaybooksModule } from '../playbooks/playbooks.module';
+import { RoutingModule } from '../routing/routing.module';
+import { TrackingModule } from '../tracking/tracking.module';
+import { ConsentsModule } from '../consents/consents.module';
 import { OrgLeadsService } from './org-leads.service';
 import { OrgLeadsController } from './org-leads.controller';
 
 @Module({
-  imports: [PrismaModule, OrgEventsModule, PlaybooksModule],
+  imports: [PrismaModule, OrgEventsModule, PlaybooksModule, RoutingModule, TrackingModule, ConsentsModule],
   controllers: [OrgLeadsController],
   providers: [OrgLeadsService],
   exports: [OrgLeadsService]

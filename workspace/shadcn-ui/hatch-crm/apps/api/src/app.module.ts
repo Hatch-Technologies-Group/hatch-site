@@ -56,6 +56,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AiBrokerModule } from './modules/ai-broker/ai-broker.module';
 import { AiCopilotModule } from './modules/ai-copilot/ai-copilot.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
+import { MarketingStudioModule } from './modules/marketing-studio/marketing-studio.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { OutreachModule } from './modules/outreach/outreach.module';
 import { InsightsModule } from './modules/insights/insights.module';
@@ -85,6 +86,8 @@ import { OrgLoisModule } from './modules/org-lois/org-lois.module';
 import { AgentProfilesModule } from './modules/agent-profiles/agent-profiles.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AgentInvitesModule } from './modules/agent-invites/agent-invites.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
+import { LeadGenModule } from './modules/lead-gen/lead-gen.module';
 
 const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
 const throttlerEnabled =
@@ -158,8 +161,15 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
         generateKey: (context: ExecutionContext, suffix?: string) => {
           const request = context.switchToHttp().getRequest();
           const tenant = (request?.headers?.['x-tenant-id'] as string | undefined) ?? 'no-tenant';
-          const user = (request?.headers?.['x-user-id'] as string | undefined) ?? 'anon';
-          return `throttle:${tenant}:${user}:${suffix ?? 'global'}`;
+          const user = (request?.headers?.['x-user-id'] as string | undefined) ?? '';
+          const forwardedFor = request?.headers?.['x-forwarded-for'];
+          const forwardedIp =
+            typeof forwardedFor === 'string' && forwardedFor.length > 0
+              ? forwardedFor.split(',')[0]?.trim()
+              : undefined;
+          const ip = forwardedIp ?? request?.ip ?? undefined;
+          const actor = `${user || 'anon'}:${ip || 'no-ip'}`;
+          return `throttle:${tenant}:${actor}:${suffix ?? 'global'}`;
         }
       }
     ]),
@@ -214,6 +224,7 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
     AiBrokerModule,
     AiCopilotModule,
     MarketingModule,
+    MarketingStudioModule,
     SmsModule,
     AiEmployeesModule,
     AnalyticsModule,
@@ -240,7 +251,9 @@ const throttlerTtl = Number(process.env.THROTTLER_TTL_MS ?? 60_000);
     AccountingModule,
     AgentProfilesModule,
     OrganizationsModule,
-    AgentInvitesModule
+    AgentInvitesModule,
+    TrackingModule,
+    LeadGenModule
   ],
   controllers: [],
   providers: [

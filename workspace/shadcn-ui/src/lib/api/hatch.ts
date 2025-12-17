@@ -2276,14 +2276,33 @@ export type ContractInstance = {
   templateId: string | null;
   orgListingId: string | null;
   orgTransactionId: string | null;
+  buyerPersonId?: string | null;
+  sellerPersonId?: string | null;
   title: string;
   status: string;
+  editableKeys?: string[] | null;
   fieldValues: Record<string, unknown>;
   draftS3Key?: string | null;
   signedS3Key?: string | null;
   draftUrl?: string | null;
   signedUrl?: string | null;
   recommendationReason?: string | null;
+  buyerPerson?: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    fullName?: string | null;
+    primaryEmail?: string | null;
+    primaryPhone?: string | null;
+  } | null;
+  sellerPerson?: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    fullName?: string | null;
+    primaryEmail?: string | null;
+    primaryPhone?: string | null;
+  } | null;
   template?: {
     id: string;
     name: string;

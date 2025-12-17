@@ -2,6 +2,8 @@ import { apiFetch } from './api';
 
 export interface LeadRecord {
   id: string;
+  tenantId?: string | null;
+  personId?: string | null;
   status: string;
   source: string;
   name?: string | null;
@@ -47,6 +49,18 @@ export interface CreateLeadPayload {
   budgetMax?: number;
   bedrooms?: number;
   bathrooms?: number;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  gclid?: string;
+  fbclid?: string;
+  anonymousId?: string;
+  pageUrl?: string;
+  referrer?: string;
+  website?: string;
+  metadata?: Record<string, unknown>;
+  marketingConsentEmail?: boolean;
+  marketingConsentSms?: boolean;
 }
 
 export async function createPublicLead(orgId: string, payload: CreateLeadPayload): Promise<LeadRecord> {

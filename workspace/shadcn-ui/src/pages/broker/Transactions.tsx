@@ -331,7 +331,7 @@ function TransactionsView({ orgId, onAskHatch }: { orgId: string; onAskHatch: (t
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
                           <Button size="sm" variant="secondary" asChild>
-                            <Link to="/broker/compliance">Compliance</Link>
+                            <Link to="/broker/compliance">Risk Center</Link>
                           </Button>
                           <Button size="sm" variant="ghost" asChild>
                             <Link to="/broker/mission-control">Mission Control</Link>

@@ -13,6 +13,7 @@ import DemoLanding from './pages/DemoLanding'
 import PerfBenchPage from './pages/dev/PerfBench'
 import TermsPage from './pages/Terms'
 import Portal from './pages/Portal'
+import LeadGenLandingPage from './pages/LeadGenLandingPage'
 
 // Layout Components
 import BrokerLayout from './components/layout/BrokerLayout'
@@ -29,11 +30,18 @@ import CommissionPlansPage from './pages/broker/CommissionPlans'
 import LeadRoutingDesk from './pages/broker/LeadRoutingDesk'
 import DraftListingsPage from './pages/broker/DraftListings'
 import BrokerMarketingPage from './pages/broker/Marketing'
+import BrokerMarketingCampaignCenterPage from './pages/broker/MarketingCampaignCenter'
+import BrokerMarketingStudioPage from './pages/broker/MarketingStudio'
 import DripCampaignsPage from './pages/broker/DripCampaigns'
+import LeadGenOverviewPage from './pages/broker/lead-gen/LeadGenOverview'
+import LeadGenCampaignsPage from './pages/broker/lead-gen/LeadGenCampaigns'
+import LeadGenLandingPagesPage from './pages/broker/lead-gen/LeadGenLandingPages'
+import LeadGenAudiencesPage from './pages/broker/lead-gen/LeadGenAudiences'
+import LeadGenConversionsPage from './pages/broker/lead-gen/LeadGenConversions'
 import Pricing from './pages/broker/Pricing'
 import Payment from './pages/broker/Payment'
 import BrokerSettingsPage from './pages/broker/Settings'
-import ComplianceCenter from './pages/broker/Compliance'
+import RiskCenterPage from './pages/broker/RiskCenter'
 import Messages from './pages/Messages'
 import BrokerMissionControl from './pages/broker/MissionControl'
 import BrokerTransactions from './pages/broker/Transactions'
@@ -82,6 +90,7 @@ function App() {
               <Route path="/demo" element={<DemoLanding />} />
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/dev/perf" element={<PerfBenchPage />} />
+              <Route path="/lp/:orgId/:slug" element={<LeadGenLandingPage />} />
 
               {/* Broker Routes with Layout */}
               <Route path="/broker" element={<BrokerLayout />}>
@@ -93,13 +102,20 @@ function App() {
                 <Route path="transactions" element={<BrokerTransactions />} />
                 <Route path="leads" element={<BrokerLeads />} />
                 <Route path="team" element={<BrokerTeam />} />
-                <Route path="compliance" element={<ComplianceCenter />} />
+                <Route path="compliance" element={<RiskCenterPage />} />
                 <Route path="team-advanced" element={<BrokerTeamAdvanced />} />
                 <Route path="calendar" element={<BrokerCalendar />} />
                 <Route path="analytics" element={<BrokerAnalytics />} />
                 <Route path="accounts" element={<BrokerAccountsPage />} />
                 <Route path="marketing" element={<BrokerMarketingPage />} />
+                <Route path="marketing/studio" element={<BrokerMarketingStudioPage />} />
+                <Route path="marketing/campaign-center" element={<BrokerMarketingCampaignCenterPage />} />
                 <Route path="marketing/campaigns" element={<DripCampaignsPage />} />
+                <Route path="marketing/lead-gen" element={<LeadGenOverviewPage />} />
+                <Route path="marketing/lead-gen/campaigns" element={<LeadGenCampaignsPage />} />
+                <Route path="marketing/lead-gen/landing-pages" element={<LeadGenLandingPagesPage />} />
+                <Route path="marketing/lead-gen/audiences" element={<LeadGenAudiencesPage />} />
+                <Route path="marketing/lead-gen/conversions" element={<LeadGenConversionsPage />} />
                 <Route path="notifications" element={<BrokerNotificationsPage />} />
                 <Route path="opportunities" element={<BrokerOpportunitiesPage />} />
                 <Route path="audit-log" element={<BrokerAuditLogPage />} />

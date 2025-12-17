@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Card } from '@/components/ui/card';
@@ -91,6 +92,11 @@ export function DashboardLeadsView({ orgId }: DashboardLeadsViewProps) {
                   <td className="px-4 py-3">
                     <div className="font-medium text-slate-900">{lead.name ?? lead.email ?? 'Unspecified'}</div>
                     <div className="text-xs text-slate-500">{lead.email ?? 'No email'}</div>
+                    {lead.personId ? (
+                      <Link href={`/people/${lead.personId}`} className="text-xs text-brand-600">
+                        View in CRM
+                      </Link>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-medium text-slate-900">{lead.listing?.addressLine1 ?? 'General inquiry'}</div>

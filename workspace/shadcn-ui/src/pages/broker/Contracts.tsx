@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type HTMLInputTypeAttribute } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { PdfDraftEditor, normalizePdfOverlay, type PdfOverlay } from '@/components/contracts/PdfDraftEditor';
 import {
   listContractInstances,
   recommendContractTemplates,
   searchContractTemplates,
   createContractInstance,
   getContractInstance,
+  updateContractInstance,
   sendContractForSignature,
   deleteContractInstance,
   deleteContractInstances,
+  API_BASE_URL,
   type ContractInstance,
   type ContractTemplate
 } from '@/lib/api/hatch';
@@ -395,9 +399,77 @@ function InstanceDetail({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const editableKeys = useMemo(() => instance.editableKeys ?? [], [instance.editableKeys]);
+  const [title, setTitle] = useState(instance.title);
+  const [draftFields, setDraftFields] = useState<Record<string, string>>({});
+  const [pdfOverlay, setPdfOverlay] = useState<PdfOverlay>(() =>
+    normalizePdfOverlay((instance.fieldValues as any)?.__overlay)
+  );
   const [signerName, setSignerName] = useState('');
   const [signerEmail, setSignerEmail] = useState('');
   const [signerRole, setSignerRole] = useState('buyer');
+
+  useEffect(() => {
+    setTitle(instance.title);
+
+    const next: Record<string, string> = {};
+    for (const key of editableKeys) {
+      const raw = instance.fieldValues?.[key];
+      next[key] = raw === null || raw === undefined ? '' : String(raw);
+    }
+    setDraftFields(next);
+
+    setPdfOverlay(normalizePdfOverlay((instance.fieldValues as any)?.__overlay));
+  }, [instance.id, instance.title, instance.fieldValues, editableKeys]);
+
+  const overlaySaveMutation = useMutation({
+    mutationFn: async () =>
+      updateContractInstance(orgId, instance.id, {
+        fieldValues: {
+          __overlay: pdfOverlay
+        }
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['contracts', 'instances', orgId] });
+      await queryClient.invalidateQueries({ queryKey: ['contracts', 'instance', instance.id] });
+      toast({ title: 'PDF updated', description: 'Draft PDF regenerated with your edits.' });
+    },
+    onError: (error) => {
+      toast({
+        variant: 'destructive',
+        title: 'PDF save failed',
+        description: error instanceof Error ? error.message : 'Unable to regenerate the draft PDF right now.'
+      });
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(draftFields)) {
+        const trimmed = value.trim();
+        payload[key] = trimmed.length === 0 ? null : trimmed;
+      }
+
+      return updateContractInstance(orgId, instance.id, {
+        title: title.trim().length ? title.trim() : undefined,
+        fieldValues: payload
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['contracts', 'instances', orgId] });
+      await queryClient.invalidateQueries({ queryKey: ['contracts', 'instance', instance.id] });
+      toast({ title: 'Draft updated', description: 'Contract field values saved.' });
+    },
+    onError: (error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Unable to save contract fields right now.'
+      });
+    }
+  });
 
   const sendMutation = useMutation({
     mutationFn: async () =>
@@ -428,13 +500,14 @@ function InstanceDetail({
   const draftIsPdf = Boolean(instance.draftUrl && instance.draftUrl.toLowerCase().includes('.pdf'));
   const viewSrc = instance.signedUrl ?? (draftIsPdf ? instance.draftUrl : undefined) ?? fallbackTemplateUrl;
   const hasPdf = Boolean(viewSrc);
+  const templatePdfUrl = `${API_BASE_URL}organizations/${orgId}/contracts/instances/${instance.id}/pdf?kind=template`;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
       <div
         className="flex w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-full space-y-4 p-5">
+        <div className="w-full max-h-[90vh] space-y-4 overflow-y-auto p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-slate-500">{instance.template?.code ?? 'CONTRACT'}</p>
@@ -449,21 +522,104 @@ function InstanceDetail({
             </div>
           </div>
 
-          {hasPdf ? (
-            <div className="h-[480px] overflow-hidden rounded-xl border border-slate-200">
-              <iframe title="Contract PDF" src={viewSrc} className="h-full w-full" />
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-500">PDF</p>
+                <h4 className="text-base font-semibold text-slate-900">Edit on the document</h4>
+                <p className="text-xs text-slate-500">Add boxes and type directly on the PDF, then save to regenerate the draft.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasPdf ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={viewSrc} target="_blank" rel="noreferrer">
+                      Open PDF
+                    </a>
+                  </Button>
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPdfOverlay(normalizePdfOverlay((instance.fieldValues as any)?.__overlay))}
+                  disabled={overlaySaveMutation.isLoading || instance.status !== 'DRAFT'}
+                >
+                  Reset boxes
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => overlaySaveMutation.mutate()}
+                  disabled={overlaySaveMutation.isLoading || instance.status !== 'DRAFT'}
+                >
+                  {overlaySaveMutation.isLoading ? 'Saving…' : 'Save PDF'}
+                </Button>
+              </div>
             </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-              No preview available.
-            </div>
-          )}
+
+            <PdfDraftEditor
+              pdfUrl={templatePdfUrl}
+              overlay={pdfOverlay}
+              onChange={setPdfOverlay}
+              fieldValues={instance.fieldValues}
+              availableKeys={editableKeys}
+              disabled={instance.status !== 'DRAFT'}
+            />
+          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <InfoRow label="Template" value={instance.template?.name ?? 'Ad-hoc'} />
             <InfoRow label="Last updated" value={new Date(instance.updatedAt).toLocaleString()} />
             <InfoRow label="Listing" value={instance.orgListingId ?? 'Not linked'} />
             <InfoRow label="Transaction" value={instance.orgTransactionId ?? 'Not linked'} />
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Draft</p>
+                <h4 className="text-base font-semibold text-slate-900">Editable fields</h4>
+                <p className="text-xs text-slate-500">Update the auto-filled values before sending for signature.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => queryClient.invalidateQueries({ queryKey: ['contracts', 'instance', instance.id] })}
+                  disabled={updateMutation.isLoading}
+                >
+                  Reset
+                </Button>
+                <Button size="sm" onClick={() => updateMutation.mutate()} disabled={updateMutation.isLoading}>
+                  {updateMutation.isLoading ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Title</label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+              </div>
+
+              {editableKeys.length === 0 ? (
+                <p className="text-sm text-slate-500">No editable keys were provided for this template.</p>
+              ) : (
+                editableKeys.map((key) => (
+                  <div key={key} className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{key}</label>
+                    <Input
+                      type={inputTypeForKey(key)}
+                      value={draftFields[key] ?? ''}
+                      onChange={(e) =>
+                        setDraftFields((prev) => ({
+                          ...prev,
+                          [key]: e.target.value
+                        }))
+                      }
+                    />
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -527,4 +683,13 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <p className="text-sm font-medium text-slate-900">{value}</p>
     </div>
   );
+}
+
+function inputTypeForKey(key: string): HTMLInputTypeAttribute {
+  const normalized = key.toUpperCase();
+  if (normalized.includes('EMAIL')) return 'email';
+  if (normalized.includes('PHONE')) return 'tel';
+  if (normalized.includes('DATE')) return 'date';
+  if (normalized.includes('PRICE') || normalized.includes('AMOUNT')) return 'number';
+  return 'text';
 }

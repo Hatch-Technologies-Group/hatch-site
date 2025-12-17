@@ -124,6 +124,10 @@ const DEFAULT_BROKERAGE_ID =
   process.env.NEXT_PUBLIC_ORG_ID ??
   'tenant-hatch';
 
+export function getApiBaseUrl() {
+  return API_URL;
+}
+
 interface FetchOptions extends RequestInit {
   token?: string;
 }
@@ -205,6 +209,81 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function apiFetchText(path: string, options: FetchOptions = {}): Promise<string> {
+  const sanitizedPath = path.replace(/^[\s/]+/, '');
+  const versionedPath =
+    sanitizedPath.length === 0 ||
+    sanitizedPath.startsWith('v1/') ||
+    sanitizedPath.startsWith('api/') ||
+    sanitizedPath.startsWith('http://') ||
+    sanitizedPath.startsWith('https://')
+      ? sanitizedPath
+      : `v1/${sanitizedPath}`;
+  const url =
+    versionedPath.startsWith('http://') || versionedPath.startsWith('https://')
+      ? versionedPath
+      : `${API_URL}${versionedPath}`;
+  const headers = new Headers(options.headers);
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+  if (!headers.has('x-user-role')) {
+    headers.set('x-user-role', 'BROKER');
+  }
+  if (!headers.has('x-user-id')) {
+    const defaultUserId =
+      process.env.NEXT_PUBLIC_DEFAULT_USER_ID?.trim() ??
+      process.env.DEFAULT_USER_ID?.trim() ??
+      process.env.NEXT_PUBLIC_USER_ID?.trim() ??
+      'user-broker';
+    headers.set('x-user-id', defaultUserId);
+  }
+  if (!headers.has('x-tenant-id')) {
+    headers.set('x-tenant-id', process.env.NEXT_PUBLIC_TENANT_ID ?? process.env.VITE_TENANT_ID ?? 'tenant-hatch');
+  }
+  if (!headers.has('x-org-id')) {
+    headers.set('x-org-id', process.env.NEXT_PUBLIC_ORG_ID ?? 'org-hatch');
+  }
+
+  if (options.body && !headers.has('Content-Type') && !isFormData) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (options.token) {
+    headers.set('Authorization', `Bearer ${options.token}`);
+  }
+
+  const isRefreshEndpoint = versionedPath === 'v1/auth/refresh';
+
+  const doFetch = () =>
+    fetch(url, {
+      ...options,
+      headers,
+      cache: 'no-store',
+      credentials: 'include'
+    });
+
+  let response = await doFetch();
+
+  if (response.status === 401 && typeof window !== 'undefined' && !options.token && !isRefreshEndpoint) {
+    const refreshed = await fetch(`${API_URL}v1/auth/refresh`, {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'include'
+    }).then((res) => res.ok).catch(() => false);
+
+    if (refreshed) {
+      response = await doFetch();
+    }
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined);
+    throw toApiError(payload, response.status, payload);
+  }
+
+  return response.text();
 }
 
 export type PipelineStage = {
@@ -429,6 +508,7 @@ export type ContactListItem = {
 export type ContactDetails = ContactListItem & {
   organizationId: string;
   notes?: string | null;
+  customFields?: Record<string, unknown> | null;
   consents: Array<{
     id: string;
     channel: string;
@@ -832,6 +912,7 @@ export interface UpdateContactPayload {
   tenantId: string;
   ownerId?: string;
   notes?: string;
+  customFields?: Record<string, unknown>;
 }
 
 export async function updateContact(personId: string, payload: UpdateContactPayload) {

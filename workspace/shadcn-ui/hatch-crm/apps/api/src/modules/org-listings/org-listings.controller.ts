@@ -1,15 +1,19 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '@/auth/optional-jwt-auth.guard';
 import { RolesGuard } from '@/auth/roles.guard';
+import { OrgListingContactType } from '@hatch/db';
 import { OrgListingsService } from './org-listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { AttachListingDocumentDto } from './dto/attach-listing-document.dto';
+import { AttachListingContactDto } from './dto/attach-listing-contact.dto';
 
 interface AuthedRequest {
   user?: { userId?: string };
+  headers?: Record<string, string | undefined>;
 }
 
 @ApiTags('org-listings')
@@ -84,6 +88,55 @@ export class OrgListingsController {
     return this.svc.attachListingDocument(orgId, userId, listingId, dto);
   }
 
+  @Get(':listingId/contacts')
+  @UseGuards(OptionalJwtAuthGuard)
+  listContacts(
+    @Param('orgId') orgId: string,
+    @Param('listingId') listingId: string,
+    @Req() req: AuthedRequest,
+    @Query('type') type?: string
+  ) {
+    const headerUser =
+      (req.headers?.['x-user-id'] as string | undefined) ??
+      (req.headers?.['x-user'] as string | undefined) ??
+      undefined;
+    const userId = req.user?.userId ?? headerUser ?? 'demo-user';
+    return this.svc.listListingContacts(orgId, userId, listingId, parseContactType(type));
+  }
+
+  @Post(':listingId/contacts')
+  @UseGuards(OptionalJwtAuthGuard)
+  attachContact(
+    @Param('orgId') orgId: string,
+    @Param('listingId') listingId: string,
+    @Req() req: AuthedRequest,
+    @Body() dto: AttachListingContactDto
+  ) {
+    const headerUser =
+      (req.headers?.['x-user-id'] as string | undefined) ??
+      (req.headers?.['x-user'] as string | undefined) ??
+      undefined;
+    const userId = req.user?.userId ?? headerUser ?? 'demo-user';
+    return this.svc.attachListingContact(orgId, userId, listingId, dto.personId, dto.type);
+  }
+
+  @Delete(':listingId/contacts/:personId')
+  @UseGuards(OptionalJwtAuthGuard)
+  detachContact(
+    @Param('orgId') orgId: string,
+    @Param('listingId') listingId: string,
+    @Param('personId') personId: string,
+    @Req() req: AuthedRequest,
+    @Query('type') type?: string
+  ) {
+    const headerUser =
+      (req.headers?.['x-user-id'] as string | undefined) ??
+      (req.headers?.['x-user'] as string | undefined) ??
+      undefined;
+    const userId = req.user?.userId ?? headerUser ?? 'demo-user';
+    return this.svc.detachListingContact(orgId, userId, listingId, personId, parseContactType(type));
+  }
+
   @Get()
   list(@Param('orgId') orgId: string, @Req() req: AuthedRequest & { headers?: Record<string, string> }) {
     // Allow reads in local/demo by falling back to header-provided user id when JWT is absent
@@ -94,4 +147,15 @@ export class OrgListingsController {
     const userId = req.user?.userId ?? headerUser ?? 'demo-user';
     return this.svc.listListingsForOrg(orgId, userId);
   }
+}
+
+function parseContactType(raw?: string): OrgListingContactType | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.trim().toUpperCase();
+  if (!normalized) return undefined;
+  const match = (OrgListingContactType as Record<string, OrgListingContactType>)[normalized];
+  if (!match) {
+    throw new BadRequestException(`Invalid contact type "${raw}"`);
+  }
+  return match;
 }

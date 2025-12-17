@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { resolveRequestContext } from '../common';
 import { ContractsService } from './contracts.service';
@@ -47,6 +47,19 @@ export class ContractsController {
   @Get('instances/:id')
   getInstance(@Param('orgId') orgId: string, @Param('id') id: string) {
     return this.contracts.getInstance(orgId, id);
+  }
+
+  @Get('instances/:id/pdf')
+  async getInstancePdf(
+    @Param('orgId') orgId: string,
+    @Param('id') id: string,
+    @Query('kind') kind: string | undefined,
+    @Res() reply: FastifyReply
+  ) {
+    const { stream, mimeType, fileName } = await this.contracts.getInstancePdfStream(orgId, id, kind);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${fileName.replace(/"/g, '')}"`);
+    return reply.send(stream);
   }
 
   @Post('instances')

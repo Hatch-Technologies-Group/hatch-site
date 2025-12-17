@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class UpdateAgentProfileAdminDto {
   @ApiProperty({ required: false, description: 'Lifecycle stage for the agent (ONBOARDING, ACTIVE, OFFBOARDING)' })
@@ -21,5 +21,13 @@ export class UpdateAgentProfileAdminDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
-}
 
+  @ApiProperty({
+    required: false,
+    type: Object,
+    description: 'Structured routing metadata stored under agentProfile.metadata.routingProfile (nullable clears routingProfile).'
+  })
+  @IsOptional()
+  @IsObject()
+  routingProfile?: Record<string, unknown> | null;
+}

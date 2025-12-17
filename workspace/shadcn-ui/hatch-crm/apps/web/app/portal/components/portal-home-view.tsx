@@ -1,11 +1,13 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { fetchPublicListings, OrgListingSummary } from '@/lib/api/org-listings';
+import { sendEvent } from '@/lib/telemetry/sendEvent';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
@@ -19,6 +21,10 @@ export function PortalHomeView({ orgId }: PortalHomeViewProps) {
     queryFn: () => fetchPublicListings(orgId),
     staleTime: 60_000
   });
+
+  useEffect(() => {
+    sendEvent('page.viewed', { page: 'portal_home' });
+  }, []);
 
   return (
     <section className="mx-auto max-w-5xl space-y-6 px-4 py-8">

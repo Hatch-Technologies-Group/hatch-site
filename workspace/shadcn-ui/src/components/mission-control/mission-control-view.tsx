@@ -454,9 +454,9 @@ export function MissionControlView({ orgId }: MissionControlViewProps) {
           </MissionControlSectionCard>
 
           <MissionControlSectionCard
-            title="Compliance"
+            title="Risk Center"
             subtitle="Training, CE, and checks."
-            actionLabel="Open compliance"
+            actionLabel="Open Risk Center"
             actionHref="/broker/compliance"
           >
             {overviewLoading ? (

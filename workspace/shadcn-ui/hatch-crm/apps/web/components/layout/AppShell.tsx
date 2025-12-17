@@ -18,6 +18,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const debug = debugParam === '1' || debugParam === 'true';
   const [queryClient] = useState(() => new QueryClient());
 
+  const isPublicLandingPage = pathname.startsWith('/lp/');
+
+  if (isPublicLandingPage) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-10 md:px-8">
+          {children}
+        </main>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <SidebarProvider>
       <ClientSidebarWidthVar />

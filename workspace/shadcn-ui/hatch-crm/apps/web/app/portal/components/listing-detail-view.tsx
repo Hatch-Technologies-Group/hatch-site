@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 
@@ -12,6 +12,10 @@ import { ApiError } from '@/lib/api/errors';
 import { createAuthenticatedLead, createPublicLead } from '@/lib/api/leads';
 import { createAuthenticatedOfferIntent, createPublicOfferIntent } from '@/lib/api/lois';
 import type { OrgListingDetail } from '@/lib/api/org-listings';
+import { getAttribution } from '@/lib/telemetry/attribution';
+import { getAnonymousId } from '@/lib/telemetry/identity';
+import { getSessionId } from '@/lib/telemetry/session';
+import { sendEvent } from '@/lib/telemetry/sendEvent';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const financingOptions = ['CASH', 'CONVENTIONAL', 'FHA', 'VA', 'OTHER'];
@@ -26,7 +30,10 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
     name: '',
     email: '',
     phone: '',
-    message: ''
+    message: '',
+    website: '',
+    marketingConsentEmail: false,
+    marketingConsentSms: false
   });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [offerForm, setOfferForm] = useState({
@@ -38,11 +45,35 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
   });
   const [offerStatusMessage, setOfferStatusMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    sendEvent('listing.viewed', { listingId: listing.id });
+  }, [listing.id]);
+
   const mutation = useMutation({
     mutationFn: async () => {
+      const attribution = getAttribution();
+      const anonymousId = getAnonymousId();
+      const { sessionId } = getSessionId();
+      const pageUrl = typeof window !== 'undefined' ? window.location.href : undefined;
+      const referrer = typeof document !== 'undefined' ? (document.referrer || undefined) : undefined;
+
       const payload = {
         listingId: listing.id,
-        ...formState
+        ...formState,
+        utmSource: attribution.utmSource ?? undefined,
+        utmMedium: attribution.utmMedium ?? undefined,
+        utmCampaign: attribution.utmCampaign ?? undefined,
+        gclid: attribution.gclid ?? undefined,
+        fbclid: attribution.fbclid ?? undefined,
+        anonymousId,
+        pageUrl,
+        referrer,
+        metadata: {
+          sessionId,
+          landingPage: attribution.landingPage,
+          landingReferrer: attribution.referrer,
+          attributionCapturedAt: attribution.capturedAt
+        }
       };
       try {
         return await createAuthenticatedLead(orgId, payload);
@@ -55,7 +86,16 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
     },
     onSuccess: () => {
       setStatusMessage('Thanks! Our team will be in touch shortly.');
-      setFormState({ name: '', email: '', phone: '', message: '' });
+      sendEvent('lead.form_submitted', { listingId: listing.id });
+      setFormState({
+        name: '',
+        email: '',
+        phone: '',
+        message: '',
+        website: '',
+        marketingConsentEmail: false,
+        marketingConsentSms: false
+      });
     },
     onError: (error) => {
       const message = error instanceof ApiError ? error.message : 'Unable to submit request. Please try again.';
@@ -63,7 +103,7 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
     }
   });
 
-  const handleChange = (field: keyof typeof formState, value: string) => {
+  const handleChange = (field: keyof typeof formState, value: string | boolean) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -141,9 +181,30 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
       <div className="flex-1 space-y-4">
         <Card id="inquiry" className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">Request info</h2>
-            <p className="text-sm text-slate-500">Tell us how to reach you and what you&apos;re looking for.</p>
-          </div>
+          <h2 className="text-xl font-semibold text-slate-900">Request info</h2>
+          <p className="text-sm text-slate-500">Tell us how to reach you and what you&apos;re looking for.</p>
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: '-10000px',
+            top: 'auto',
+            width: '1px',
+            height: '1px',
+            overflow: 'hidden'
+          }}
+          aria-hidden="true"
+        >
+          <label htmlFor="website">Website</label>
+          <input
+            id="website"
+            type="text"
+            value={formState.website}
+            onChange={(event) => handleChange('website', event.target.value)}
+            autoComplete="off"
+            tabIndex={-1}
+          />
+        </div>
           <Input
             placeholder="Your name"
             value={formState.name}
@@ -165,6 +226,29 @@ export function ListingDetailView({ orgId, listing }: ListingDetailViewProps) {
             value={formState.message}
             onChange={(event) => handleChange('message', event.target.value)}
           />
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                checked={formState.marketingConsentEmail}
+                onChange={(event) => handleChange('marketingConsentEmail', event.target.checked)}
+              />
+              <span>Send me helpful market updates by email.</span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                checked={formState.marketingConsentSms}
+                onChange={(event) => handleChange('marketingConsentSms', event.target.checked)}
+              />
+              <span>Send me helpful market updates by text message.</span>
+            </label>
+            <p className="text-[11px] leading-snug text-slate-500">
+              Optional. Opting in lets the brokerage send promotional updates. Standard messaging rates may apply.
+            </p>
+          </div>
           {statusMessage ? <p className="text-sm text-slate-500">{statusMessage}</p> : null}
           <Button className="w-full" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
             {mutation.isPending ? 'Sending...' : 'Submit request'}

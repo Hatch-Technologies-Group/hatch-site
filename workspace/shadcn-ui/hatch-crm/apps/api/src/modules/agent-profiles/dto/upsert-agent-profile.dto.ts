@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsISO8601, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpsertAgentProfileDto {
   @ApiProperty({ description: 'Agent user ID within the org' })
@@ -49,5 +49,13 @@ export class UpsertAgentProfileDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
-}
 
+  @ApiProperty({
+    required: false,
+    type: Object,
+    description: 'Structured routing metadata stored under agentProfile.metadata.routingProfile.'
+  })
+  @IsOptional()
+  @IsObject()
+  routingProfile?: Record<string, unknown>;
+}

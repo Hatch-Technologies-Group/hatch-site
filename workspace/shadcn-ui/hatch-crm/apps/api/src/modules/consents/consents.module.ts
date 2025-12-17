@@ -7,6 +7,7 @@ import { ConsentsService } from './consents.service';
 @Module({
   imports: [OutboxModule],
   controllers: [ConsentsController],
-  providers: [ConsentsService]
+  providers: [ConsentsService],
+  exports: [ConsentsService]
 })
 export class ConsentsModule {}

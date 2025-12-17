@@ -24,6 +24,7 @@ import type {
   AgentSnapshot,
   LeadRoutingContext,
   LeadRoutingEvaluationResult,
+  LeadRoutingAgentFilter,
   LeadRoutingFallback,
   LeadRoutingListingContext,
   LeadRoutingRuleConfig,
@@ -68,6 +69,7 @@ type AgentWithRelations = Prisma.UserGetPayload<{
       };
     };
     memberships: true;
+    agentProfilesForOrgs: true;
   };
 }>;
 
@@ -98,6 +100,11 @@ type CandidateSnapshot = {
   capacityRemaining: number;
   gatingReasons: string[];
   teamIds: string[];
+  attributes: {
+    tags: string[];
+    languages: string[];
+    specialties: string[];
+  };
 };
 
 const MINUTES = 60 * 1000;
@@ -142,6 +149,81 @@ const toListingContext = (payload: AssignPayload): LeadRoutingListingContext | u
 
 const minutesFromNow = (minutes: number, now: Date) => new Date(now.getTime() + minutes * MINUTES);
 
+type CustomFieldValueRow = {
+  field?: { key?: string | null } | null;
+  value?: unknown;
+};
+
+const parseCommaSeparated = (value: string | null | undefined) =>
+  (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const normalizeStringTokens = (values: unknown): string[] => {
+  if (Array.isArray(values)) {
+    return values
+      .flatMap((value) => (typeof value === 'string' ? [value] : []))
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (typeof values === 'string') {
+    return values
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normalizeLowerUnique = (values: string[]) =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+
+const toNumberMaybe = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const buildCustomFieldsMap = (values: CustomFieldValueRow[]) => {
+  const customFields: Record<string, unknown> = {};
+  const seen = new Set<string>();
+
+  for (const entry of values) {
+    const key = entry.field?.key ?? null;
+    if (!key || seen.has(key)) continue;
+    customFields[key] = (entry as any).value ?? null;
+    seen.add(key);
+  }
+
+  return customFields;
+};
+
+const extractConventionalDemographics = (customFields: Record<string, unknown>) => {
+  const age = toNumberMaybe(customFields.age);
+  const languages = normalizeStringTokens(
+    customFields.languages ?? customFields.language ?? customFields.preferredLanguage ?? customFields.preferredLanguages
+  );
+  const ethnicities = normalizeStringTokens(
+    customFields.ethnicities ?? customFields.ethnicity ?? customFields.demographic ?? customFields.demographics
+  );
+
+  return {
+    age: age === null ? undefined : age,
+    languages: languages.length > 0 ? languages : undefined,
+    ethnicities: ethnicities.length > 0 ? ethnicities : undefined
+  };
+};
+
 @Injectable()
 export class RoutingService {
   private readonly logger = new Logger(RoutingService.name);
@@ -157,7 +239,7 @@ export class RoutingService {
       where: { id: payload.tenantId }
     });
 
-    const [rules, agents, consents] = await Promise.all([
+    const [rules, agents, consents, customFieldValues] = await Promise.all([
       this.prisma.routingRule.findMany({
         where: { tenantId: payload.tenantId, enabled: true },
         orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }]
@@ -178,7 +260,8 @@ export class RoutingService {
             },
             include: { listing: true }
           },
-          memberships: true
+          memberships: true,
+          agentProfilesForOrgs: true
         }
       }),
       this.prisma.consent.findMany({
@@ -190,6 +273,14 @@ export class RoutingService {
           }
         },
         orderBy: { capturedAt: 'desc' }
+      }),
+      this.prisma.customFieldValue.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          personId: payload.person.id
+        },
+        include: { field: { select: { key: true } } },
+        orderBy: { updatedAt: 'desc' }
       })
     ]);
 
@@ -197,12 +288,20 @@ export class RoutingService {
     const listingContext = toListingContext(payload);
     const quietHours = this.isQuietHours(now, tenant);
 
+    const customFields = buildCustomFieldsMap(customFieldValues as unknown as CustomFieldValueRow[]);
+    const demographics = extractConventionalDemographics(customFields);
+
     const context: LeadRoutingContext = {
       now,
       tenantTimezone: tenant.timezone ?? 'America/New_York',
       person: {
         source: payload.person.source,
         buyerRepStatus: payload.person.buyerRepStatus,
+        tags: payload.person.tags ?? [],
+        age: demographics.age ?? null,
+        languages: demographics.languages ?? null,
+        ethnicities: demographics.ethnicities ?? null,
+        customFields,
         consent: consentState
       },
       listing: listingContext
@@ -440,7 +539,8 @@ export class RoutingService {
           },
           include: { listing: true }
         },
-        memberships: true
+        memberships: true,
+        agentProfilesForOrgs: true
       }
     });
 
@@ -1156,7 +1256,7 @@ export class RoutingService {
       const config = leadRoutingRuleConfigSchema.parse({
         conditions: rule.conditions ?? {},
         targets: rule.targets ?? [],
-        fallback: rule.fallback ?? null
+        fallback: rule.fallback == null ? undefined : rule.fallback
       });
       return config;
     } catch (error) {
@@ -1169,7 +1269,7 @@ export class RoutingService {
     return leadRoutingRuleConfigSchema.parse({
       conditions: conditions ?? {},
       targets: targets ?? [],
-      fallback: fallback ?? null
+      fallback: fallback == null ? undefined : fallback
     }) as LeadRoutingRuleConfig;
   }
 
@@ -1183,6 +1283,62 @@ export class RoutingService {
       }
     }
     return teamMembers;
+  }
+
+  private evaluateStringSetFilter(
+    label: string,
+    filter: { include?: string[]; exclude?: string[]; match?: 'ANY' | 'ALL' },
+    values: string[]
+  ) {
+    const reasons: string[] = [];
+    const include = normalizeLowerUnique(filter.include ?? []);
+    const exclude = normalizeLowerUnique(filter.exclude ?? []);
+    const mode = filter.match ?? 'ANY';
+
+    const excludedHit = exclude.find((item) => values.includes(item));
+    if (excludedHit) {
+      reasons.push(`${label} ${excludedHit} excluded`);
+      return reasons;
+    }
+
+    if (include.length > 0) {
+      const matched = mode === 'ALL'
+        ? include.every((item) => values.includes(item))
+        : include.some((item) => values.includes(item));
+
+      if (!matched) {
+        reasons.push(`${label} missing required (${mode}) values: ${include.join(', ')}`);
+      }
+    }
+
+    return reasons;
+  }
+
+  private evaluateAgentFilter(candidate: CandidateSnapshot, filter?: LeadRoutingAgentFilter | null) {
+    if (!filter) return [];
+
+    const reasons: string[] = [];
+    if (filter.tags) {
+      reasons.push(...this.evaluateStringSetFilter('Tag', filter.tags, candidate.attributes.tags));
+    }
+    if (filter.languages) {
+      reasons.push(...this.evaluateStringSetFilter('Language', filter.languages, candidate.attributes.languages));
+    }
+    if (filter.specialties) {
+      reasons.push(...this.evaluateStringSetFilter('Specialty', filter.specialties, candidate.attributes.specialties));
+    }
+
+    if (filter.minKeptApptRate !== undefined && candidate.snapshot.keptApptRate < filter.minKeptApptRate) {
+      reasons.push(
+        `Kept appointment rate ${(candidate.snapshot.keptApptRate * 100).toFixed(0)}% below ${(filter.minKeptApptRate * 100).toFixed(0)}%`
+      );
+    }
+
+    if (filter.minCapacityRemaining !== undefined && candidate.capacityRemaining < filter.minCapacityRemaining) {
+      reasons.push(`Capacity remaining ${candidate.capacityRemaining} below ${filter.minCapacityRemaining}`);
+    }
+
+    return reasons;
   }
 
   private async applyRule(params: {
@@ -1227,11 +1383,43 @@ export class RoutingService {
   }) {
     const reasonCodes = ['RULE_MATCHED'];
     const targets = this.safeParse(leadRoutingTargetSchema.array(), params.rule.targets) ?? [];
+    const relaxAgentFilters = params.fallback?.relaxAgentFilters ?? false;
+    const considered = new Map<string, CandidateSnapshot>();
+    const eligibility = new Map<string, { eligible: boolean; reasons: Set<string> }>();
+
+    const recordEligibility = (candidate: CandidateSnapshot, filter?: LeadRoutingAgentFilter | null) => {
+      const entry = eligibility.get(candidate.snapshot.userId) ?? { eligible: false, reasons: new Set<string>() };
+      const filterReasons = this.evaluateAgentFilter(candidate, filter);
+      if (filterReasons.length === 0) {
+        entry.eligible = true;
+      } else {
+        for (const reason of filterReasons) entry.reasons.add(reason);
+      }
+      eligibility.set(candidate.snapshot.userId, entry);
+    };
+
+    for (const target of targets) {
+      if (target.type === 'AGENT') {
+        const candidate = params.agentSnapshots.get(target.id);
+        if (!candidate) continue;
+        considered.set(candidate.snapshot.userId, candidate);
+        recordEligibility(candidate, target.agentFilter);
+      }
+
+      if (target.type === 'TEAM') {
+        const members = params.teamMembers.get(target.id) ?? [];
+        for (const member of members) {
+          considered.set(member.snapshot.userId, member);
+          recordEligibility(member, target.agentFilter);
+        }
+      }
+    }
 
     let assigned: CandidateSnapshot | undefined;
     let selectedScore: AgentScore | null = null;
     let fallbackTeamId = params.fallback?.teamId ?? undefined;
     let usedFallback = false;
+    let relaxed = false;
 
     for (const target of targets) {
       if (target.type === 'AGENT') {
@@ -1240,6 +1428,9 @@ export class RoutingService {
           continue;
         }
         if (candidate.gatingReasons.length > 0) {
+          continue;
+        }
+        if (this.evaluateAgentFilter(candidate, target.agentFilter).length > 0) {
           continue;
         }
         const score = this.computeScore(candidate.snapshot);
@@ -1254,7 +1445,11 @@ export class RoutingService {
 
       if (target.type === 'TEAM') {
         const members = params.teamMembers.get(target.id) ?? [];
-        const available = members.filter((candidate) => candidate.gatingReasons.length === 0);
+        const available = members.filter(
+          (candidate) =>
+            candidate.gatingReasons.length === 0 &&
+            this.evaluateAgentFilter(candidate, target.agentFilter).length === 0
+        );
         if (available.length === 0) {
           continue;
         }
@@ -1282,9 +1477,72 @@ export class RoutingService {
       }
     }
 
-    const candidates = Array.from(params.agentSnapshots.values()).map((candidate) =>
-      this.toDecisionCandidate(candidate, assigned, selectedScore)
+    if (!assigned && relaxAgentFilters && !usedFallback) {
+      for (const target of targets) {
+        if (target.type === 'AGENT') {
+          const candidate = params.agentSnapshots.get(target.id);
+          if (!candidate) continue;
+          if (candidate.gatingReasons.length > 0) continue;
+          const score = this.computeScore(candidate.snapshot);
+          if (!score) continue;
+          assigned = candidate;
+          selectedScore = score;
+          reasonCodes.push('DIRECT_AGENT', 'RELAXED_AGENT_FILTERS');
+          relaxed = true;
+          break;
+        }
+
+        if (target.type === 'TEAM') {
+          const members = params.teamMembers.get(target.id) ?? [];
+          const available = members.filter((candidate) => candidate.gatingReasons.length === 0);
+          if (available.length === 0) continue;
+          const scored = available
+            .map((candidate) => ({
+              candidate,
+              score: this.computeScore(candidate.snapshot)
+            }))
+            .filter((entry): entry is { candidate: CandidateSnapshot; score: AgentScore } => entry.score !== null)
+            .sort((a, b) => b.score.score - a.score.score);
+          if (scored.length === 0) continue;
+          assigned = scored[0].candidate;
+          selectedScore = scored[0].score;
+          reasonCodes.push(target.strategy === 'ROUND_ROBIN' ? 'ROUND_ROBIN' : 'BEST_FIT', 'RELAXED_AGENT_FILTERS');
+          relaxed = true;
+          break;
+        }
+
+        if (target.type === 'POND') {
+          fallbackTeamId = target.id;
+          usedFallback = true;
+          reasonCodes.push('TEAM_POND');
+          break;
+        }
+      }
+    }
+
+    const scoreMapAll = new Map(
+      Array.from(considered.values()).map((candidate) => [candidate.snapshot.userId, this.computeScore(candidate.snapshot)] as const)
     );
+
+    const candidates = Array.from(considered.values()).map((candidate) => {
+      const entry = eligibility.get(candidate.snapshot.userId);
+      const filterReasons = entry && !entry.eligible ? Array.from(entry.reasons) : [];
+      const disqualifying = relaxed ? [...candidate.gatingReasons] : [...candidate.gatingReasons, ...filterReasons];
+      const extraReasons = relaxed && filterReasons.length > 0 ? filterReasons.map((reason) => `Relaxed filter: ${reason}`) : undefined;
+      const score = relaxed
+        ? scoreMapAll.get(candidate.snapshot.userId) ?? null
+        : (entry?.eligible ?? true)
+          ? scoreMapAll.get(candidate.snapshot.userId) ?? null
+          : null;
+
+      return this.toDecisionCandidate(
+        candidate,
+        assigned,
+        score,
+        disqualifying.length > 0 ? disqualifying : undefined,
+        extraReasons
+      );
+    });
 
     return {
       selectedAgent: selectedScore ?? undefined,
@@ -1292,7 +1550,7 @@ export class RoutingService {
       fallbackTeamId,
       usedFallback: usedFallback || !assigned,
       candidates,
-      candidateSnapshots: Array.from(params.agentSnapshots.values()),
+      candidateSnapshots: Array.from(considered.values()),
       reasonCodes
     };
   }
@@ -1308,16 +1566,32 @@ export class RoutingService {
   }) {
     const reasonCodes = ['RULE_MATCHED'];
     const targets = this.safeParse(leadRoutingTargetSchema.array(), params.rule.targets) ?? [];
+    const relaxAgentFilters = params.fallback?.relaxAgentFilters ?? false;
     const considered = new Map<string, CandidateSnapshot>();
+    const eligibility = new Map<string, { eligible: boolean; reasons: Set<string> }>();
+
+    const recordEligibility = (candidate: CandidateSnapshot, filter?: LeadRoutingAgentFilter | null) => {
+      const entry = eligibility.get(candidate.snapshot.userId) ?? { eligible: false, reasons: new Set<string>() };
+      const filterReasons = this.evaluateAgentFilter(candidate, filter);
+      if (filterReasons.length === 0) {
+        entry.eligible = true;
+      } else {
+        for (const reason of filterReasons) entry.reasons.add(reason);
+      }
+      eligibility.set(candidate.snapshot.userId, entry);
+    };
 
     for (const target of targets) {
       if (target.type === 'AGENT') {
         const candidate = params.agentSnapshots.get(target.id);
-        if (candidate) considered.set(candidate.snapshot.userId, candidate);
+        if (!candidate) continue;
+        considered.set(candidate.snapshot.userId, candidate);
+        recordEligibility(candidate, target.agentFilter);
       } else if (target.type === 'TEAM') {
         const members = params.teamMembers.get(target.id) ?? [];
         for (const member of members) {
           considered.set(member.snapshot.userId, member);
+          recordEligibility(member, target.agentFilter);
         }
       }
     }
@@ -1328,34 +1602,72 @@ export class RoutingService {
     }
 
     const scoreConfig = defaultScoreConfig;
-    const snapshots = Array.from(considered.values()).map((candidate) => candidate.snapshot);
-    const scoreMap = new Map(
-      snapshots.map((snapshot) => [snapshot.userId, scoreAgent(snapshot, scoreConfig)] as const)
+    const gatingCandidates = Array.from(considered.values()).filter((candidate) => candidate.gatingReasons.length === 0);
+    const strictCandidates = gatingCandidates.filter((candidate) => eligibility.get(candidate.snapshot.userId)?.eligible ?? true);
+
+    const scoreMapAll = new Map(
+      gatingCandidates.map((candidate) => [candidate.snapshot.userId, scoreAgent(candidate.snapshot, scoreConfig)] as const)
     );
 
-    const result = routeLead({
+    const strictResult = routeLead({
       leadId: params.rule.id,
       tenantId: params.rule.tenantId,
       geographyImportance: params.listing?.city ? 0.3 : 0.15,
       priceBandImportance: params.listing?.price ? 0.2 : 0.1,
-      agents: snapshots,
+      agents: strictCandidates.map((candidate) => candidate.snapshot),
       config: scoreConfig,
       fallbackTeamId: params.fallback?.teamId,
       quietHours: params.quietHours
     });
 
-    const selectedAgent = result.selectedAgents[0];
-    const assignedCandidate = selectedAgent ? considered.get(selectedAgent.userId) : undefined;
-    const usedFallback = result.usedFallback || !selectedAgent;
+    const strictSelectedAgent = strictResult.selectedAgents[0];
+    const needsRelax = relaxAgentFilters && !strictSelectedAgent;
 
-    const candidates = Array.from(considered.values()).map((candidate) =>
-      this.toDecisionCandidate(candidate, assignedCandidate, scoreMap.get(candidate.snapshot.userId) ?? null)
-    );
+    const relaxedResult = needsRelax
+      ? routeLead({
+          leadId: params.rule.id,
+          tenantId: params.rule.tenantId,
+          geographyImportance: params.listing?.city ? 0.3 : 0.15,
+          priceBandImportance: params.listing?.price ? 0.2 : 0.1,
+          agents: gatingCandidates.map((candidate) => candidate.snapshot),
+          config: scoreConfig,
+          fallbackTeamId: params.fallback?.teamId,
+          quietHours: params.quietHours
+        })
+      : null;
+
+    const selectedAgent = strictSelectedAgent ?? relaxedResult?.selectedAgents[0];
+    const assignedCandidate = selectedAgent ? considered.get(selectedAgent.userId) : undefined;
+    const effectiveResult = strictSelectedAgent ? strictResult : relaxedResult ?? strictResult;
+    const relaxed = Boolean(needsRelax && selectedAgent && relaxedResult && !relaxedResult.usedFallback);
+    if (relaxed) {
+      reasonCodes.push('RELAXED_AGENT_FILTERS');
+    }
+    const usedFallback = effectiveResult.usedFallback || !selectedAgent;
+
+    const candidates = Array.from(considered.values()).map((candidate) => {
+      const entry = eligibility.get(candidate.snapshot.userId);
+      const filterReasons = entry && !entry.eligible ? Array.from(entry.reasons) : [];
+      const disqualifying = relaxed ? [...candidate.gatingReasons] : [...candidate.gatingReasons, ...filterReasons];
+      const extraReasons = relaxed && filterReasons.length > 0 ? filterReasons.map((reason) => `Relaxed filter: ${reason}`) : undefined;
+      const score = relaxed
+        ? scoreMapAll.get(candidate.snapshot.userId) ?? null
+        : (entry?.eligible ?? true) && candidate.gatingReasons.length === 0
+          ? scoreMapAll.get(candidate.snapshot.userId) ?? null
+          : null;
+      return this.toDecisionCandidate(
+        candidate,
+        assignedCandidate,
+        score,
+        disqualifying.length > 0 ? disqualifying : undefined,
+        extraReasons
+      );
+    });
 
     return {
       selectedAgent: selectedAgent ?? undefined,
       assignedAgentId: selectedAgent?.userId,
-      fallbackTeamId: result.fallbackTeamId ?? params.fallback?.teamId ?? undefined,
+      fallbackTeamId: effectiveResult.fallbackTeamId ?? params.fallback?.teamId ?? undefined,
       usedFallback,
       candidates,
       candidateSnapshots: Array.from(considered.values()),
@@ -1366,13 +1678,21 @@ export class RoutingService {
   private toDecisionCandidate(
     candidate: CandidateSnapshot,
     assigned?: CandidateSnapshot,
-    score?: AgentScore | null
+    score?: AgentScore | null,
+    disqualifyingReasons?: string[],
+    extraReasons?: string[]
   ): RoutingDecisionCandidate {
-    const status = assigned && assigned.snapshot.userId === candidate.snapshot.userId ? 'SELECTED' : score ? 'REJECTED' : 'DISQUALIFIED';
-    const reasons =
+    const status =
+      assigned && assigned.snapshot.userId === candidate.snapshot.userId
+        ? 'SELECTED'
+        : score
+          ? 'REJECTED'
+          : 'DISQUALIFIED';
+    const reasonsBase =
       status === 'DISQUALIFIED'
-        ? candidate.gatingReasons
+        ? disqualifyingReasons ?? candidate.gatingReasons
         : score?.reasons.map((reason) => reason.description) ?? [];
+    const reasons = extraReasons && extraReasons.length > 0 ? [...reasonsBase, ...extraReasons] : reasonsBase;
 
     return {
       agentId: candidate.snapshot.userId,
@@ -1389,6 +1709,32 @@ export class RoutingService {
 
   private computeScore(snapshot: AgentSnapshot): AgentScore | null {
     return scoreAgent(snapshot, defaultScoreConfig);
+  }
+
+  private resolveAgentRoutingProfile(agent: AgentWithRelations) {
+    const profile =
+      agent.agentProfilesForOrgs?.find((candidate) => candidate.organizationId === agent.organizationId) ??
+      agent.agentProfilesForOrgs?.[0] ??
+      null;
+
+    const metadata = (profile?.metadata ?? {}) as Record<string, unknown>;
+    const routingProfile =
+      (metadata as any).routingProfile ??
+      (metadata as any).routing ??
+      {};
+
+    const capacityTarget = toNumberMaybe((routingProfile as any).capacityTarget);
+    const rawTags = [
+      ...parseCommaSeparated(profile?.tags ?? null),
+      ...normalizeStringTokens((routingProfile as any).tags)
+    ];
+
+    return {
+      capacityTarget: capacityTarget && capacityTarget > 0 ? Math.round(capacityTarget) : 8,
+      tags: normalizeLowerUnique(rawTags),
+      languages: normalizeLowerUnique(normalizeStringTokens((routingProfile as any).languages)),
+      specialties: normalizeLowerUnique(normalizeStringTokens((routingProfile as any).specialties))
+    };
   }
 
   private async buildCandidateSnapshots(params: {
@@ -1422,17 +1768,17 @@ export class RoutingService {
 
     const snapshots = new Map<string, CandidateSnapshot>();
     for (const agent of params.agents) {
+      const routingProfile = this.resolveAgentRoutingProfile(agent);
       const performance = performanceByAgent.get(agent.id) ?? { kept: 0, total: 0 };
       const keptRate = performance.total === 0 ? 0.5 : performance.kept / performance.total;
       const geographyFit = this.computeGeographyFit(agent, params.listing);
       const priceBandFit = this.computePriceBandFit(agent, params.listing);
-      const capacityTarget = 8;
       const activePipeline = agent.tours.length;
 
       const snapshot: AgentSnapshot = {
         userId: agent.id,
         fullName: `${agent.firstName} ${agent.lastName}`.trim(),
-        capacityTarget,
+        capacityTarget: routingProfile.capacityTarget,
         activePipeline,
         geographyFit,
         priceBandFit,
@@ -1452,7 +1798,12 @@ export class RoutingService {
         snapshot,
         capacityRemaining: Math.max(snapshot.capacityTarget - snapshot.activePipeline, 0),
         gatingReasons,
-        teamIds: agent.memberships?.map((membership) => membership.teamId) ?? []
+        teamIds: agent.memberships?.map((membership) => membership.teamId) ?? [],
+        attributes: {
+          tags: routingProfile.tags,
+          languages: routingProfile.languages,
+          specialties: routingProfile.specialties
+        }
       });
     }
 

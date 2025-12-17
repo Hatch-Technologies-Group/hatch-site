@@ -8,6 +8,8 @@ import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
 
 interface AuthedRequest {
   user?: { userId?: string; sub?: string };
+  ip?: string;
+  headers?: Record<string, unknown>;
 }
 
 const getUserId = (req: AuthedRequest) => req.user?.userId ?? req.user?.sub ?? null;
@@ -19,8 +21,8 @@ export class OrgLeadsController {
   constructor(private readonly leads: OrgLeadsService) {}
 
   @Post('organizations/:orgId/leads/public')
-  async createLeadPublic(@Param('orgId') orgId: string, @Body() dto: CreateLeadDto) {
-    return this.leads.createLeadFromPortal(orgId, null, dto);
+  async createLeadPublic(@Param('orgId') orgId: string, @Body() dto: CreateLeadDto, @Req() req: AuthedRequest) {
+    return this.leads.createLeadFromPortal(orgId, null, dto, req);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -30,7 +32,7 @@ export class OrgLeadsController {
     if (!userId) {
       throw new Error('Missing user context');
     }
-    return this.leads.createLeadFromPortal(orgId, userId, dto);
+    return this.leads.createLeadFromPortal(orgId, userId, dto, req);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -62,9 +62,9 @@ export function MissionControlCompliancePanel({ orgId }: MissionControlComplianc
 
   return (
     <MissionControlSectionCard
-      title="Compliance"
+      title="Risk Center"
       subtitle="Training, CE, and checks."
-      actionLabel="Open compliance"
+      actionLabel="Open Risk Center"
       actionHref="/broker/compliance"
       data-testid="mission-control-compliance"
     >

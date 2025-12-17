@@ -183,6 +183,9 @@ export class ContactDetailsDto extends ContactSummaryDto {
   @ApiPropertyOptional()
   notes?: string | null;
 
+  @ApiPropertyOptional({ type: Object, description: 'Flexible client profile fields (key/value map)' })
+  customFields?: Record<string, unknown> | null;
+
   @ApiPropertyOptional({ type: ContactTimelineEntryDto, isArray: true })
   timeline?: ContactTimelineEntryDto[];
 }

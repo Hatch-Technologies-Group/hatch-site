@@ -6,6 +6,7 @@ import clsx from 'clsx';
 
 import { ErrorBanner } from '@/components/error-banner';
 import { LoadMoreButton } from '@/components/load-more-button';
+import { RoutingRuleCreateSheet } from '@/components/routing-rule-create-sheet';
 import { useApiError } from '@/hooks/use-api-error';
 import {
   listRoutingRules,
@@ -16,6 +17,7 @@ import { useCursorPager } from '@/lib/pagination/useCursorPager';
 type RoutingModeFilter = 'all' | 'FIRST_MATCH' | 'SCORE_AND_ASSIGN';
 
 interface RoutingRulesTableProps {
+  tenantId: string;
   initialItems: RoutingRule[];
   initialNextCursor: string | null;
   pageSize: number;
@@ -30,6 +32,7 @@ const modeToLabel: Record<RoutingModeFilter, string> = {
 };
 
 export function RoutingRulesTable({
+  tenantId,
   initialItems,
   initialNextCursor,
   pageSize,
@@ -44,6 +47,7 @@ export function RoutingRulesTable({
   const fetcher = useCallback(
     (cursor: string | null, signal?: AbortSignal) => {
       return listRoutingRules({
+        tenantId,
         cursor,
         limit: pageSize,
         q: query.trim() ? query.trim() : undefined,
@@ -51,7 +55,7 @@ export function RoutingRulesTable({
         signal
       });
     },
-    [query, mode, pageSize]
+    [tenantId, query, mode, pageSize]
   );
 
   const { items, nextCursor, load, reset, loading, error } = useCursorPager(fetcher, {
@@ -125,21 +129,32 @@ export function RoutingRulesTable({
             Search
           </button>
         </form>
-        <label className="flex items-center gap-2 text-sm text-slate-500">
-          Mode
-          <select
-            value={mode}
-            onChange={onModeChange}
-            className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none"
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-500">
+            Mode
+            <select
+              value={mode}
+              onChange={onModeChange}
+              className="rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none"
+              disabled={loading}
+            >
+              {(['all', 'FIRST_MATCH', 'SCORE_AND_ASSIGN'] as RoutingModeFilter[]).map((value) => (
+                <option key={value} value={value}>
+                  {modeToLabel[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <RoutingRuleCreateSheet
+            tenantId={tenantId}
             disabled={loading}
-          >
-            {(['all', 'FIRST_MATCH', 'SCORE_AND_ASSIGN'] as RoutingModeFilter[]).map((value) => (
-              <option key={value} value={value}>
-                {modeToLabel[value]}
-              </option>
-            ))}
-          </select>
-        </label>
+            onCreated={() => {
+              reset([], null);
+              clearError();
+              void load();
+            }}
+          />
+        </div>
       </div>
 
   <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">

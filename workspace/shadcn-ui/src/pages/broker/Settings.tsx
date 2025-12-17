@@ -48,7 +48,7 @@ const AGENT_PORTAL_MODULES: Array<{ path: string; label: string; description: st
   { path: '/broker/financials', label: 'Financials', description: 'Commissions and earnings snapshots.' },
   { path: '/broker/analytics', label: 'Analytics', description: 'Performance dashboards and KPIs.' },
   { path: '/broker/live-activity', label: 'Live Activity', description: 'Live presence and activity feed.' },
-  { path: '/broker/compliance', label: 'Compliance Hub', description: 'Compliance workflows and audits.' },
+  { path: '/broker/compliance', label: 'Risk Center', description: 'Risk scoring, compliance workflows, and audits.' },
   { path: '/broker/settings', label: 'Settings', description: 'Preferences and notifications.' }
 ]
 

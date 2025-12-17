@@ -1,8 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.routeLead = exports.scoreAgent = exports.routingConfigSchema = exports.evaluateLeadRoutingConditions = exports.leadRoutingRuleConfigSchema = exports.leadRoutingFallbackSchema = exports.leadRoutingTargetSchema = exports.leadRoutingConditionsSchema = exports.leadRoutingConsentConditionSchema = exports.leadRoutingSourceSchema = exports.leadRoutingPriceBandSchema = exports.leadRoutingGeographySchema = exports.leadRoutingTimeWindowSchema = exports.leadRoutingDaysOfWeekSchema = exports.leadRoutingBuyerRepRequirementSchema = exports.leadRoutingConsentRequirementSchema = exports.leadRoutingConsentStateSchema = exports.leadRoutingModeSchema = void 0;
+exports.routeLead = exports.scoreAgent = exports.routingConfigSchema = exports.evaluateLeadRoutingConditions = exports.leadRoutingRuleConfigSchema = exports.leadRoutingFallbackSchema = exports.leadRoutingTargetSchema = exports.leadRoutingAgentFilterSchema = exports.leadRoutingConditionsSchema = exports.leadRoutingCustomFieldConditionSchema = exports.leadRoutingCustomFieldOperatorSchema = exports.leadRoutingDemographicsSchema = exports.leadRoutingConsentConditionSchema = exports.leadRoutingSourceSchema = exports.leadRoutingPriceBandSchema = exports.leadRoutingGeographySchema = exports.leadRoutingTimeWindowSchema = exports.leadRoutingDaysOfWeekSchema = exports.leadRoutingBuyerRepRequirementSchema = exports.leadRoutingConsentRequirementSchema = exports.leadRoutingConsentStateSchema = exports.routingStringSetFilterSchema = exports.routingMatchModeSchema = exports.leadRoutingModeSchema = void 0;
 const zod_1 = require("zod");
 exports.leadRoutingModeSchema = zod_1.z.enum(['FIRST_MATCH', 'SCORE_AND_ASSIGN']);
+exports.routingMatchModeSchema = zod_1.z.enum(['ANY', 'ALL']);
+exports.routingStringSetFilterSchema = zod_1.z.object({
+    include: zod_1.z.array(zod_1.z.string()).optional(),
+    exclude: zod_1.z.array(zod_1.z.string()).optional(),
+    match: exports.routingMatchModeSchema.optional()
+});
 exports.leadRoutingConsentStateSchema = zod_1.z.enum(['GRANTED', 'REVOKED', 'UNKNOWN']);
 exports.leadRoutingConsentRequirementSchema = zod_1.z.enum(['OPTIONAL', 'GRANTED', 'NOT_REVOKED']);
 exports.leadRoutingBuyerRepRequirementSchema = zod_1.z.enum(['ANY', 'REQUIRED_ACTIVE', 'PROHIBIT_ACTIVE']);
@@ -47,25 +53,64 @@ exports.leadRoutingConsentConditionSchema = zod_1.z
     email: exports.leadRoutingConsentRequirementSchema.optional()
 })
     .optional();
+exports.leadRoutingDemographicsSchema = zod_1.z
+    .object({
+    minAge: zod_1.z.number().int().min(0).optional(),
+    maxAge: zod_1.z.number().int().min(0).optional(),
+    tags: exports.routingStringSetFilterSchema.optional(),
+    languages: exports.routingStringSetFilterSchema.optional(),
+    ethnicities: exports.routingStringSetFilterSchema.optional()
+})
+    .optional();
+exports.leadRoutingCustomFieldOperatorSchema = zod_1.z.enum([
+    'EQUALS',
+    'NOT_EQUALS',
+    'IN',
+    'NOT_IN',
+    'GT',
+    'GTE',
+    'LT',
+    'LTE',
+    'CONTAINS',
+    'NOT_CONTAINS',
+    'EXISTS',
+    'NOT_EXISTS'
+]);
+exports.leadRoutingCustomFieldConditionSchema = zod_1.z.object({
+    key: zod_1.z.string().min(1),
+    operator: exports.leadRoutingCustomFieldOperatorSchema,
+    value: zod_1.z.any().optional()
+});
 exports.leadRoutingConditionsSchema = zod_1.z.object({
     geography: exports.leadRoutingGeographySchema,
     priceBand: exports.leadRoutingPriceBandSchema,
     sources: exports.leadRoutingSourceSchema,
     consent: exports.leadRoutingConsentConditionSchema,
     buyerRep: exports.leadRoutingBuyerRepRequirementSchema.optional(),
-    timeWindows: zod_1.z.array(exports.leadRoutingTimeWindowSchema).optional()
+    timeWindows: zod_1.z.array(exports.leadRoutingTimeWindowSchema).optional(),
+    demographics: exports.leadRoutingDemographicsSchema,
+    customFields: zod_1.z.array(exports.leadRoutingCustomFieldConditionSchema).optional()
+});
+exports.leadRoutingAgentFilterSchema = zod_1.z.object({
+    tags: exports.routingStringSetFilterSchema.optional(),
+    languages: exports.routingStringSetFilterSchema.optional(),
+    specialties: exports.routingStringSetFilterSchema.optional(),
+    minKeptApptRate: zod_1.z.number().min(0).max(1).optional(),
+    minCapacityRemaining: zod_1.z.number().int().min(0).optional()
 });
 exports.leadRoutingTargetSchema = zod_1.z.discriminatedUnion('type', [
     zod_1.z.object({
         type: zod_1.z.literal('AGENT'),
         id: zod_1.z.string(),
-        label: zod_1.z.string().optional()
+        label: zod_1.z.string().optional(),
+        agentFilter: exports.leadRoutingAgentFilterSchema.optional()
     }),
     zod_1.z.object({
         type: zod_1.z.literal('TEAM'),
         id: zod_1.z.string(),
         strategy: zod_1.z.enum(['BEST_FIT', 'ROUND_ROBIN']).default('BEST_FIT'),
-        includeRoles: zod_1.z.array(zod_1.z.string()).optional()
+        includeRoles: zod_1.z.array(zod_1.z.string()).optional(),
+        agentFilter: exports.leadRoutingAgentFilterSchema.optional()
     }),
     zod_1.z.object({
         type: zod_1.z.literal('POND'),
@@ -77,7 +122,8 @@ exports.leadRoutingFallbackSchema = zod_1.z
     .object({
     teamId: zod_1.z.string(),
     label: zod_1.z.string().optional(),
-    escalationChannels: zod_1.z.array(zod_1.z.enum(['EMAIL', 'SMS', 'IN_APP'])).optional()
+    escalationChannels: zod_1.z.array(zod_1.z.enum(['EMAIL', 'SMS', 'IN_APP'])).optional(),
+    relaxAgentFilters: zod_1.z.boolean().optional()
 })
     .optional();
 exports.leadRoutingRuleConfigSchema = zod_1.z.object({
@@ -261,6 +307,147 @@ const matchTimeWindows = (windows, context) => {
         detail: matched ? undefined : `Outside allowed windows: ${details.join('; ')}`
     };
 };
+const normalizeStringSet = (values) => (values ?? [])
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+const matchStringSetFilter = (label, filter, haystack) => {
+    const includes = normalizeStringSet(filter.include);
+    const excludes = normalizeStringSet(filter.exclude);
+    const mode = filter.match ?? 'ANY';
+    if (excludes.length > 0) {
+        const blocked = excludes.find((value) => haystack.includes(value));
+        if (blocked) {
+            return { passed: false, detail: `${label} ${blocked} explicitly excluded` };
+        }
+    }
+    if (includes.length > 0) {
+        const matched = mode === 'ALL'
+            ? includes.every((value) => haystack.includes(value))
+            : includes.some((value) => haystack.includes(value));
+        if (!matched) {
+            return { passed: false, detail: `${label} missing required values (${mode})` };
+        }
+    }
+    return { passed: true, detail: undefined };
+};
+const matchDemographics = (condition, person) => {
+    const tags = normalizeStringSet(person.tags);
+    const languages = [...normalizeStringSet(person.languages), ...tags];
+    const ethnicities = [...normalizeStringSet(person.ethnicities), ...tags];
+    if (condition.minAge !== undefined || condition.maxAge !== undefined) {
+        const age = person.age ?? null;
+        if (age === null) {
+            return { passed: false, detail: 'Age unavailable' };
+        }
+        if (condition.minAge !== undefined && age < condition.minAge) {
+            return { passed: false, detail: `Age ${age} below minimum ${condition.minAge}` };
+        }
+        if (condition.maxAge !== undefined && age > condition.maxAge) {
+            return { passed: false, detail: `Age ${age} above maximum ${condition.maxAge}` };
+        }
+    }
+    if (condition.tags) {
+        const result = matchStringSetFilter('Tag', condition.tags, tags);
+        if (!result.passed)
+            return result;
+    }
+    if (condition.languages) {
+        const result = matchStringSetFilter('Language', condition.languages, languages);
+        if (!result.passed)
+            return result;
+    }
+    if (condition.ethnicities) {
+        const result = matchStringSetFilter('Ethnicity', condition.ethnicities, ethnicities);
+        if (!result.passed)
+            return result;
+    }
+    return { passed: true, detail: undefined };
+};
+const isNil = (value) => value === null || value === undefined;
+const equalsValue = (left, right) => {
+    if (typeof left === 'number' && typeof right === 'number')
+        return left === right;
+    if (typeof left === 'string' && typeof right === 'string')
+        return left.toLowerCase() === right.toLowerCase();
+    if (typeof left === 'boolean' && typeof right === 'boolean')
+        return left === right;
+    return JSON.stringify(left) === JSON.stringify(right);
+};
+const toNumber = (value) => {
+    if (typeof value === 'number' && Number.isFinite(value))
+        return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
+const toArray = (value) => (Array.isArray(value) ? value : value === undefined ? [] : [value]);
+const matchCustomFieldCondition = (condition, fields) => {
+    const value = fields[condition.key];
+    const operator = condition.operator;
+    const expected = condition.value;
+    if (operator === 'EXISTS') {
+        return { passed: !isNil(value), detail: !isNil(value) ? undefined : `Custom field ${condition.key} missing` };
+    }
+    if (operator === 'NOT_EXISTS') {
+        return { passed: isNil(value), detail: isNil(value) ? undefined : `Custom field ${condition.key} present` };
+    }
+    if (isNil(value)) {
+        return { passed: false, detail: `Custom field ${condition.key} missing` };
+    }
+    if (operator === 'EQUALS') {
+        const passed = equalsValue(value, expected);
+        return { passed, detail: passed ? undefined : `Custom field ${condition.key} does not equal expected value` };
+    }
+    if (operator === 'NOT_EQUALS') {
+        const passed = !equalsValue(value, expected);
+        return { passed, detail: passed ? undefined : `Custom field ${condition.key} equals excluded value` };
+    }
+    if (operator === 'IN' || operator === 'NOT_IN') {
+        const expectedValues = toArray(expected);
+        const valueValues = toArray(value);
+        const matched = valueValues.some((candidate) => expectedValues.some((entry) => equalsValue(candidate, entry)));
+        const passed = operator === 'IN' ? matched : !matched;
+        return {
+            passed,
+            detail: passed ? undefined : `Custom field ${condition.key} ${operator === 'IN' ? 'not in' : 'in'} expected set`
+        };
+    }
+    if (operator === 'CONTAINS' || operator === 'NOT_CONTAINS') {
+        let matched = false;
+        if (typeof value === 'string' && typeof expected === 'string') {
+            matched = value.toLowerCase().includes(expected.toLowerCase());
+        }
+        else if (Array.isArray(value)) {
+            matched = value.some((entry) => equalsValue(entry, expected));
+        }
+        const passed = operator === 'CONTAINS' ? matched : !matched;
+        return {
+            passed,
+            detail: passed ? undefined : `Custom field ${condition.key} ${operator === 'CONTAINS' ? 'missing' : 'contains'} expected value`
+        };
+    }
+    const valueNumber = toNumber(value);
+    const expectedNumber = toNumber(expected);
+    if (valueNumber === null || expectedNumber === null) {
+        return { passed: false, detail: `Custom field ${condition.key} not comparable` };
+    }
+    const passed = operator === 'GT'
+        ? valueNumber > expectedNumber
+        : operator === 'GTE'
+            ? valueNumber >= expectedNumber
+            : operator === 'LT'
+                ? valueNumber < expectedNumber
+                : operator === 'LTE'
+                    ? valueNumber <= expectedNumber
+                    : false;
+    return {
+        passed,
+        detail: passed ? undefined : `Custom field ${condition.key} comparison failed`
+    };
+};
 const evaluateLeadRoutingConditions = (conditions, context) => {
     if (!conditions) {
         return { matched: true, checks: [] };
@@ -293,6 +480,21 @@ const evaluateLeadRoutingConditions = (conditions, context) => {
     if (parsed.timeWindows && parsed.timeWindows.length > 0) {
         const result = matchTimeWindows(parsed.timeWindows, context);
         checks.push({ key: 'timeWindows', passed: result.passed, detail: result.detail });
+    }
+    if (parsed.demographics) {
+        const result = matchDemographics(parsed.demographics, context.person);
+        checks.push({ key: 'demographics', passed: result.passed, detail: result.detail });
+    }
+    if (parsed.customFields && parsed.customFields.length > 0) {
+        const fields = (context.person.customFields ?? {});
+        const failures = parsed.customFields
+            .map((condition) => matchCustomFieldCondition(condition, fields))
+            .filter((result) => !result.passed);
+        checks.push({
+            key: 'customFields',
+            passed: failures.length === 0,
+            detail: failures[0]?.detail
+        });
     }
     const matched = checks.every((check) => check.passed);
     return { matched, checks };

@@ -13,6 +13,8 @@ import {
   ConsentChannel,
   ConsentScope,
   ConsentStatus,
+  CustomFieldEntity,
+  CustomFieldType,
   Deal,
   DealStage,
   Listing,
@@ -29,7 +31,7 @@ import {
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { RequestContext } from '../common/request-context';
-import { toJsonValue } from '../common';
+import { toJsonValue, toNullableJson } from '../common';
 import { CreateContactDto, type ContactSource } from './dto/create-contact.dto';
 import { ContactListQueryDto } from './dto/contact-list-query.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -158,6 +160,7 @@ export interface ContactTimelineEntry {
 export type ContactDetails = ContactDetailsSummary & {
   organizationId: string;
   notes?: string | null;
+  customFields?: Record<string, unknown>;
   consents: Consent[];
   deals: Array<Deal & { listing: Listing | null }>;
   tours: Array<Tour & { listing: Listing | null; agent: User | null }>;
@@ -197,6 +200,7 @@ interface NormalizedContactInput {
   address?: string;
   doNotContact: boolean;
   notes?: string;
+  customFields?: Record<string, unknown>;
   consents: Array<
     ConsentEvidence & {
       channel: ConsentChannel;
@@ -218,6 +222,67 @@ interface OwnerScope {
   allowedOwnerIds: string[] | null;
   canManageTeam: boolean;
 }
+
+type CustomFieldValueRow = {
+  field?: { key?: string | null } | null;
+  value?: unknown;
+};
+
+const buildCustomFieldsMap = (values: CustomFieldValueRow[]) => {
+  const customFields: Record<string, unknown> = {};
+  const seen = new Set<string>();
+
+  for (const entry of values) {
+    const key = entry.field?.key ?? null;
+    if (!key || seen.has(key)) continue;
+    customFields[key] = (entry as any).value ?? null;
+    seen.add(key);
+  }
+
+  return customFields;
+};
+
+const normalizeCustomFieldKey = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return '';
+  return trimmed
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_.-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+const labelFromCustomFieldKey = (key: string) =>
+  key
+    .replace(/[_\-.]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+const inferCustomFieldType = (value: unknown): CustomFieldType => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return CustomFieldType.NUMBER;
+  }
+
+  if (value instanceof Date) {
+    return CustomFieldType.DATE;
+  }
+
+  if (typeof value === 'string') {
+    const looksLikeDate = /^\d{4}-\d{2}-\d{2}/.test(value);
+    if (looksLikeDate && Number.isFinite(Date.parse(value))) {
+      return CustomFieldType.DATE;
+    }
+    return CustomFieldType.TEXT;
+  }
+
+  if (Array.isArray(value)) {
+    return CustomFieldType.MULTI_SELECT;
+  }
+
+  return CustomFieldType.TEXT;
+};
 
 const NON_ACTIVE_DEAL_STAGES = [DealStage.CLOSED, DealStage.LOST];
 
@@ -320,6 +385,16 @@ export class ContactsService {
         lastActivityAt: new Date()
       }
     });
+
+    if (normalized.customFields && Object.keys(normalized.customFields).length > 0) {
+      await this.upsertPersonCustomFields({
+        tenantId: person.tenantId,
+        organizationId: person.organizationId,
+        personId: person.id,
+        userId: request.userId,
+        customFields: normalized.customFields
+      });
+    }
 
     if (normalized.consents.length > 0) {
       await this.captureConsents(person.id, normalized.tenantId, normalized.consents, request.userId);
@@ -430,6 +505,13 @@ export class ContactsService {
       throw new NotFoundException('Contact not found');
     }
 
+    const customFieldValues = await this.prisma.customFieldValue.findMany({
+      where: { tenantId, personId },
+      include: { field: { select: { key: true } } },
+      orderBy: { updatedAt: 'desc' }
+    });
+    const customFields = buildCustomFieldsMap(customFieldValues as unknown as CustomFieldValueRow[]);
+
     const base = this.mapPersonToSummary(person as unknown as PersonListPayload);
 
     const timeline: ContactTimelineEntry[] = person.activities.map((activity) => ({
@@ -448,6 +530,7 @@ export class ContactsService {
     return {
       ...base,
       organizationId: person.organizationId,
+      customFields,
       consents: person.consents,
       deals: person.deals,
       tours: person.tours,
@@ -586,6 +669,19 @@ export class ContactsService {
 
     if (dto.consents?.length) {
       await this.captureConsents(id, tenantId, dto.consents, ctx.userId);
+    }
+
+    if (dto.customFields) {
+      const normalizedCustomFields = this.normalizeCustomFields(dto.customFields);
+      if (normalizedCustomFields && Object.keys(normalizedCustomFields).length > 0) {
+        await this.upsertPersonCustomFields({
+          tenantId,
+          organizationId: existing.organizationId,
+          personId: id,
+          userId: ctx.userId,
+          customFields: normalizedCustomFields
+        });
+      }
     }
 
     this.refreshReadModel();
@@ -958,6 +1054,7 @@ export class ContactsService {
       address: dto.address?.trim(),
       doNotContact: dto.doNotContact ?? false,
       notes: dto.notes?.trim(),
+      customFields: this.normalizeCustomFields(dto.customFields),
       consents:
         dto.consents?.map((consent) => ({
           channel: consent.channel,
@@ -970,6 +1067,99 @@ export class ContactsService {
           evidenceUri: consent.evidenceUri
         })) ?? []
     };
+  }
+
+  private normalizeCustomFields(customFields?: Record<string, unknown>): Record<string, unknown> | undefined {
+    if (!customFields) return undefined;
+
+    const normalized: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(customFields)) {
+      const normalizedKey = normalizeCustomFieldKey(key);
+      if (!normalizedKey) continue;
+      normalized[normalizedKey] = value;
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+  }
+
+  private async upsertPersonCustomFields(input: {
+    tenantId: string;
+    organizationId: string;
+    personId: string;
+    userId: string;
+    customFields: Record<string, unknown>;
+  }): Promise<void> {
+    const entries = Object.entries(input.customFields);
+    if (entries.length === 0) return;
+
+    const fields = await Promise.all(
+      entries.map(([key, value]) =>
+        this.prisma.customField.upsert({
+          where: {
+            tenantId_entity_key: {
+              tenantId: input.tenantId,
+              entity: CustomFieldEntity.CONTACT,
+              key
+            }
+          },
+          create: {
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            entity: CustomFieldEntity.CONTACT,
+            key,
+            label: labelFromCustomFieldKey(key),
+            type: inferCustomFieldType(value),
+            createdById: input.userId,
+            updatedById: input.userId
+          },
+          update: {
+            organizationId: input.organizationId,
+            updatedById: input.userId,
+            archived: false
+          }
+        })
+      )
+    );
+
+    const fieldIds = fields.map((field) => field.id);
+    const existingValues = await this.prisma.customFieldValue.findMany({
+      where: {
+        tenantId: input.tenantId,
+        personId: input.personId,
+        fieldId: { in: fieldIds }
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, fieldId: true }
+    });
+
+    const existingByFieldId = new Map<string, string>();
+    for (const row of existingValues) {
+      if (!existingByFieldId.has(row.fieldId)) {
+        existingByFieldId.set(row.fieldId, row.id);
+      }
+    }
+
+    await Promise.all(
+      fields.map((field, index) => {
+        const value = entries[index]?.[1];
+        const existingId = existingByFieldId.get(field.id);
+        if (existingId) {
+          return this.prisma.customFieldValue.update({
+            where: { id: existingId },
+            data: { value: toNullableJson(value) }
+          });
+        }
+        return this.prisma.customFieldValue.create({
+          data: {
+            tenantId: input.tenantId,
+            fieldId: field.id,
+            personId: input.personId,
+            value: toNullableJson(value)
+          }
+        });
+      })
+    );
   }
 
   private normalizeEmail(email?: string | null): string | undefined {

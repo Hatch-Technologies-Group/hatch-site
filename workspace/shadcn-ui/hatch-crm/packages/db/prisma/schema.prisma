@@ -323,6 +323,12 @@ enum OrgTransactionDocumentType {
   OTHER
 }
 
+enum OrgListingContactType {
+  SENT
+  BUYING
+  SELLING
+}
+
 enum ContractInstanceStatus {
   DRAFT
   OUT_FOR_SIGNATURE
@@ -431,6 +437,62 @@ enum MarketingCampaignStatus {
   DRAFT
   SCHEDULED
   SENT
+  FAILED
+}
+
+enum MarketingStudioTemplateVariant {
+  HATCH_BRANDED
+  WHITE_LABEL
+}
+
+enum LeadGenChannel {
+  PAID_SOCIAL
+  PAID_SEARCH
+  SEO
+  OUTBOUND
+  DIRECT
+  OTHER
+}
+
+enum LeadGenObjective {
+  LEADS
+  TRAFFIC
+  CONVERSIONS
+}
+
+enum LeadGenCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum LeadGenLandingPageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LeadGenAudienceStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum LeadGenConversionEventType {
+  LEAD_CREATED
+  LEAD_CONTACTED
+  LEAD_QUALIFIED
+  APPOINTMENT_SET
+  OPPORTUNITY_CREATED
+  DEAL_UNDER_CONTRACT
+  DEAL_CLOSED
+}
+
+enum LeadGenExportStatus {
+  PENDING
+  EXPORTED
+  SKIPPED
   FAILED
 }
 
@@ -733,6 +795,9 @@ model Organization {
   isDemo              Boolean              @default(false)
   tenants             Tenant[]
   users               User[]
+  addons              OrganizationAddon[]
+  marketingStudioTemplates MarketingStudioTemplate[]
+  marketingStudioAssets    MarketingStudioAsset[]
   people              Person[]
   queues              Queue[]
   teamMembers         TeamMember[]
@@ -803,6 +868,25 @@ model Organization {
   auditLogs             OrgAuditLog[]
   delegatedAccesses     DelegatedAccess[]
   agentPortalConfig     AgentPortalConfig?
+  leadGenCampaigns      LeadGenCampaign[]
+  leadGenLandingPages   LeadGenLandingPage[]
+  leadGenConversionEvents LeadGenConversionEvent[]
+  leadGenExportBatches  LeadGenExportBatch[]
+}
+
+model OrganizationAddon {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  enabled        Boolean  @default(true)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
 }
 
 model Office {
@@ -921,6 +1005,11 @@ model Tenant {
   vectorChunks            VectorChunk[]
   leadScoresV2            LeadScoreV2[]
   clientAnalyticsEvents   ClientAnalyticsEvent[]
+  portalLeads             Lead[]
+  leadGenCampaigns        LeadGenCampaign[]
+  leadGenLandingPages     LeadGenLandingPage[]
+  leadGenAudiences        LeadGenAudience[]
+  leadGenConversionEvents LeadGenConversionEvent[]
 }
 
 model AiMemory {
@@ -1279,6 +1368,7 @@ model User {
   aiApprovedActions           AiProposedAction[]              @relation("AiProposedActionApprovedBy")
   aiExecutionLogs             AiExecutionLog[]
   marketingCampaigns          MarketingCampaign[]             @relation("MarketingCampaignCreatedBy")
+  marketingStudioAssets       MarketingStudioAsset[]          @relation("MarketingStudioAssetCreatedBy")
   organizationsCreated        Organization[]                  @relation("OrganizationsCreatedBy")
   agentInvitesSent            AgentInvite[]                   @relation("AgentInvitesInvitedBy")
   agentInvitesAccepted        AgentInvite[]                   @relation("AgentInvitesAcceptedBy")
@@ -1310,6 +1400,9 @@ model User {
   notifications               Notification[]
   notificationPreferences     NotificationPreference[]
   livePresences               LivePresence[]
+  leadGenCampaignsCreated     LeadGenCampaign[]              @relation("LeadGenCampaignCreatedBy")
+  leadGenLandingPagesCreated  LeadGenLandingPage[]           @relation("LeadGenLandingPageCreatedBy")
+  leadGenExportBatchesRequested LeadGenExportBatch[]         @relation("LeadGenExportRequestedBy")
 }
 
 model OrgListing {
@@ -1346,6 +1439,7 @@ model OrgListing {
   brokerApprovedByUser          User?                           @relation("OrgListing_BrokerApproval", fields: [brokerApprovedByUserId], references: [id])
   createdByUser                 User                            @relation("OrgListing_CreatedBy", fields: [createdByUserId], references: [id])
   documents                     OrgListingDocument[]
+  contacts                      OrgListingContact[]
   files                         OrgFile[]
   transactions                  OrgTransaction[]
   contractInstances             ContractInstance[]
@@ -1354,6 +1448,8 @@ model OrgListing {
   offerIntents                  OfferIntent[]
   rentalProperties              RentalProperty[]
   AiCopilotActionRecommendation AiCopilotActionRecommendation[]
+  marketingStudioAssets         MarketingStudioAsset[]
+  leadGenLandingPages           LeadGenLandingPage[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -1373,6 +1469,22 @@ model OrgListingDocument {
   @@index([listingId])
 }
 
+model OrgListingContact {
+  id        String               @id @default(cuid())
+  listingId String
+  personId  String
+  type      OrgListingContactType
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  listing OrgListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  person  Person     @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, personId, type])
+  @@index([listingId, type])
+  @@index([personId, type])
+}
+
 model OrgTransaction {
   id               String               @id @default(cuid())
   organizationId   String
@@ -1384,6 +1496,8 @@ model OrgTransaction {
   inspectionDate   DateTime?
   financingDate    DateTime?
   closingDate      DateTime?
+  buyerPersonId    String?
+  sellerPersonId   String?
   buyerName        String?
   sellerName       String?
   isCompliant      Boolean              @default(true)
@@ -1397,6 +1511,8 @@ model OrgTransaction {
   listing                       OrgListing?                     @relation(fields: [listingId], references: [id])
   office                        Office?                         @relation("TransactionsByOffice", fields: [officeId], references: [id])
   agentProfile                  AgentProfile?                   @relation(fields: [agentProfileId], references: [id])
+  buyerPerson                   Person?                         @relation("OrgTransactionBuyer", fields: [buyerPersonId], references: [id])
+  sellerPerson                  Person?                         @relation("OrgTransactionSeller", fields: [sellerPersonId], references: [id])
   createdByUser                 User                            @relation(fields: [createdByUserId], references: [id])
   documents                     OrgTransactionDocument[]
   files                         OrgFile[]
@@ -1410,6 +1526,8 @@ model OrgTransaction {
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, closingDate])
+  @@index([organizationId, buyerPersonId])
+  @@index([organizationId, sellerPersonId])
 }
 
 model OrgTransactionDocument {
@@ -1472,6 +1590,8 @@ model ContractInstance {
   templateId           String?
   orgListingId         String?
   orgTransactionId     String?
+  buyerPersonId        String?
+  sellerPersonId       String?
   createdByUserId      String
   title                String
   status               ContractInstanceStatus  @default(DRAFT)
@@ -1486,12 +1606,16 @@ model ContractInstance {
   template     ContractTemplate?   @relation(fields: [templateId], references: [id])
   listing      OrgListing?         @relation(fields: [orgListingId], references: [id])
   transaction  OrgTransaction?     @relation(fields: [orgTransactionId], references: [id])
+  buyerPerson  Person?             @relation("ContractInstanceBuyer", fields: [buyerPersonId], references: [id])
+  sellerPerson Person?             @relation("ContractInstanceSeller", fields: [sellerPersonId], references: [id])
   createdBy    User                @relation(fields: [createdByUserId], references: [id])
   envelope     SignatureEnvelope?
 
   @@index([organizationId, status])
   @@index([organizationId, orgListingId])
   @@index([organizationId, orgTransactionId])
+  @@index([organizationId, buyerPersonId])
+  @@index([organizationId, sellerPersonId])
 }
 
 model SignatureEnvelope {
@@ -2114,6 +2238,8 @@ model Lead {
   consumerId      String?
   listingId       String?
   agentProfileId  String?
+  tenantId        String?
+  personId        String?
   status          LeadStatus @default(NEW)
   source          LeadSource @default(PORTAL_SIGNUP)
   name            String?
@@ -2130,6 +2256,7 @@ model Lead {
   lastAiScoreAt       DateTime?
   createdByUserId String?
   conversationId  String?
+  metadata        Json?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -2138,13 +2265,18 @@ model Lead {
   consumer                      User?                           @relation("Lead_Consumer", fields: [consumerId], references: [id])
   listing                       OrgListing?                     @relation(fields: [listingId], references: [id])
   agentProfile                  AgentProfile?                   @relation(fields: [agentProfileId], references: [id])
+  tenant                        Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  person                        Person?                         @relation(fields: [personId], references: [id], onDelete: SetNull)
   createdByUser                 User?                           @relation("Lead_CreatedBy", fields: [createdByUserId], references: [id])
   offerIntents                  OfferIntent[]
   AiCopilotActionRecommendation AiCopilotActionRecommendation[]
   scoreHistory                  LeadScoreHistory[]
+  leadGenConversionEvents       LeadGenConversionEvent[]
 
   @@index([organizationId, status])
   @@index([organizationId, agentProfileId])
+  @@index([organizationId, tenantId])
+  @@index([organizationId, personId])
 }
 
 model LeadScoreHistory {
@@ -2698,6 +2830,7 @@ model Person {
   household               Household?                @relation("HouseholdMembers", fields: [householdId], references: [id])
   consents                Consent[]
   listings                Listing[]                 @relation("PersonListings")
+  orgListingContacts      OrgListingContact[]
   tours                   Tour[]
   agreements              Agreement[]
   deals                   Deal[]
@@ -2721,6 +2854,7 @@ model Person {
   leadTasks               LeadTask[]
   siteEvents              Event[]
   touchpoints             LeadTouchpoint[]
+  portalLeads             Lead[]
   timeline                LeadHistory[]
   consentEvents           ConsentEvent[]
   messageTouchpoints      Touchpoint[]              @relation("TouchpointPerson")
@@ -2732,8 +2866,13 @@ model Person {
   campaignEnrollments     CampaignEnrollment[]
   queueAssignments        QueueAssignment[]         @relation("QueueAssignmentPerson")
   customFieldValues       CustomFieldValue[]
+  contractInstancesAsBuyer  ContractInstance[]       @relation("ContractInstanceBuyer")
+  contractInstancesAsSeller ContractInstance[]       @relation("ContractInstanceSeller")
+  orgTransactionsAsBuyer     OrgTransaction[]         @relation("OrgTransactionBuyer")
+  orgTransactionsAsSeller    OrgTransaction[]         @relation("OrgTransactionSeller")
   JourneySimulation       JourneySimulation[]
   leadScoreV2             LeadScoreV2?
+  leadGenConversionEvents LeadGenConversionEvent[]
 
   @@unique([tenantId, primaryEmail])
   @@unique([tenantId, primaryPhone])
@@ -3761,6 +3900,222 @@ model MarketingCampaign {
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
+}
+
+model MarketingStudioTemplate {
+  id               String                      @id @default(cuid())
+  key              String?                     @unique
+  organizationId   String?
+  name             String
+  description      String?
+  variant          MarketingStudioTemplateVariant @default(HATCH_BRANDED)
+  overlayS3Key     String?
+  overlayPageIndex Int                         @default(0)
+  schema           Json
+  isSystem         Boolean                     @default(false)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  organization Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  assets       MarketingStudioAsset[]
+
+  @@index([organizationId])
+  @@index([variant])
+}
+
+model MarketingStudioAsset {
+  id              String   @id @default(cuid())
+  organizationId  String
+  listingId       String
+  templateId      String
+  createdByUserId String?
+  outputS3Key     String
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      OrgListing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  template     MarketingStudioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdBy    User?                  @relation("MarketingStudioAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, listingId, createdAt])
+  @@index([listingId])
+  @@index([templateId])
+}
+
+model LeadGenCampaign {
+  id              String               @id @default(cuid())
+  organizationId  String
+  tenantId        String?
+  createdByUserId String?
+  name            String
+  slug            String?
+  channel         LeadGenChannel       @default(OTHER)
+  objective       LeadGenObjective     @default(LEADS)
+  status          LeadGenCampaignStatus @default(DRAFT)
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  startAt         DateTime?
+  endAt           DateTime?
+  dailyBudgetCents Int?
+  totalBudgetCents Int?
+  currency        String               @default("USD")
+  targeting       Json?
+  creativeBrief   String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant         Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdBy      User?                  @relation("LeadGenCampaignCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  landingPages   LeadGenLandingPage[]
+  spend          LeadGenCampaignSpendDaily[]
+  exportBatches  LeadGenExportBatch[]
+  conversionEvents LeadGenConversionEvent[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@index([tenantId])
+}
+
+model LeadGenCampaignSpendDaily {
+  id         String   @id @default(cuid())
+  campaignId String
+  date       DateTime
+  amountCents Int
+  currency   String   @default("USD")
+  source     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign LeadGenCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@index([campaignId, date])
+}
+
+model LeadGenLandingPage {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  tenantId        String?
+  campaignId      String?
+  listingId       String?
+  createdByUserId String?
+  slug            String
+  status          LeadGenLandingPageStatus @default(DRAFT)
+  title           String
+  description     String?
+  seoTitle        String?
+  seoDescription  String?
+  layout          Json
+  formSchema      Json?
+  publishedAt     DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant        Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  campaign      LeadGenCampaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  listing       OrgListing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  createdBy     User?                @relation("LeadGenLandingPageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  conversionEvents LeadGenConversionEvent[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@index([tenantId])
+  @@index([campaignId])
+  @@index([listingId])
+}
+
+model LeadGenAudience {
+  id             String              @id @default(cuid())
+  tenantId       String
+  name           String
+  status         LeadGenAudienceStatus @default(DRAFT)
+  definition     Json
+  lastComputedAt DateTime?
+  lastCount      Int?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  snapshots LeadGenAudienceSnapshot[]
+
+  @@index([tenantId, status])
+}
+
+model LeadGenAudienceSnapshot {
+  id          String   @id @default(cuid())
+  audienceId  String
+  computedAt  DateTime @default(now())
+  memberCount Int      @default(0)
+  exportFormat String  @default("csv")
+  storageKey  String?
+  metadata    Json?
+
+  audience LeadGenAudience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@index([audienceId, computedAt])
+}
+
+model LeadGenExportBatch {
+  id                String   @id @default(cuid())
+  organizationId    String
+  campaignId        String?
+  destination       String
+  status            String   @default("PENDING")
+  requestedByUserId String?
+  from              DateTime?
+  to                DateTime?
+  itemCount         Int      @default(0)
+  storageKey        String?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign       LeadGenCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  requestedBy    User?            @relation("LeadGenExportRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  conversionEvents LeadGenConversionEvent[]
+
+  @@index([organizationId, createdAt])
+  @@index([destination, status])
+}
+
+model LeadGenConversionEvent {
+  id            String                 @id @default(cuid())
+  organizationId String
+  tenantId      String?
+  personId      String?
+  leadId        String?
+  campaignId    String?
+  landingPageId String?
+  exportBatchId String?
+  eventType     LeadGenConversionEventType
+  occurredAt    DateTime               @default(now())
+  valueCents    Int?
+  currency      String                 @default("USD")
+  attribution   Json?
+  exportStatus  LeadGenExportStatus    @default(PENDING)
+  exportedAt    DateTime?
+  createdAt     DateTime               @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant        Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  person        Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
+  lead          Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  campaign      LeadGenCampaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  landingPage   LeadGenLandingPage? @relation(fields: [landingPageId], references: [id], onDelete: SetNull)
+  exportBatch   LeadGenExportBatch? @relation(fields: [exportBatchId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, eventType, occurredAt])
+  @@index([tenantId, occurredAt])
+  @@index([personId])
+  @@index([leadId])
+  @@index([campaignId])
+  @@index([exportStatus])
 }
 
 model ComplianceStatusDaily {

@@ -1,46 +1,55 @@
-import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common'
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { BadRequestException, Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import { JwtAuthGuard } from '@/auth/jwt-auth.guard'
-import { RolesGuard } from '@/auth/roles.guard'
-import { InsightsService } from './insights.service'
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { RolesGuard } from '@/auth/roles.guard';
 
-interface AuthedRequest {
-  user?: { userId?: string }
-}
-type InsightType =
-  | 'BROKER'
-  | 'TEAM'
-  | 'AGENT'
-  | 'LISTING'
-  | 'TRANSACTION'
-  | 'LEAD'
-  | 'RENTAL'
-  | 'COMPLIANCE'
-  | 'RISK'
-  | 'PRODUCTIVITY'
+import { resolveRequestContext } from '../common/request-context';
+import { GetInsightsQueryDto } from './dto';
+import { InsightsService } from './insights.service';
 
-@ApiTags('insights')
+const STALE_AFTER_MS = 10 * 60 * 1000;
+
+@ApiTags('Insights')
 @ApiBearerAuth()
-@Controller('organizations/:orgId/insights')
+@Controller('insights')
 @UseGuards(JwtAuthGuard, RolesGuard('broker'))
 export class InsightsController {
-  constructor(private readonly svc: InsightsService) {}
+  constructor(private readonly service: InsightsService) {}
 
   @Get()
-  async list(
-    @Param('orgId') orgId: string,
-    @Query('type') type?: InsightType,
-    @Query('targetId') targetId?: string,
-    @Query('limit') limit?: string
+  @ApiOkResponse({ description: 'Lead insights payload' })
+  async getInsights(
+    @Req() req: FastifyRequest,
+    @Query() query: GetInsightsQueryDto,
+    @Res({ passthrough: true }) reply: FastifyReply
   ) {
-    const lim = limit ? Number(limit) : 50
-    return this.svc.list(orgId, type, targetId, lim)
-  }
+    const tenantHeader = (req.headers['x-tenant-id'] as string | undefined)?.trim();
+    if (!tenantHeader) {
+      throw new BadRequestException('x-tenant-id header is required');
+    }
 
-  @Post('generate')
-  async generate(@Param('orgId') orgId: string, @Req() req: AuthedRequest) {
-    const userId = req.user?.userId ?? 'system'
-    return this.svc.generateDailyInsights(orgId, userId)
+    const ctx = resolveRequestContext(req);
+    const enforcedQuery: GetInsightsQueryDto = { ...query, tenantId: tenantHeader };
+    const result = await this.service.getInsights({ ...ctx, tenantId: tenantHeader }, enforcedQuery);
+
+    const version = (result as any)?.v;
+    if (version !== undefined) {
+      reply.header('X-Insights-Version', String(version));
+    }
+
+    const dataAge = (result as any)?.dataAge;
+    if (dataAge) {
+      const dataAgeIso = String(dataAge);
+      reply.header('X-Insights-DataAge', dataAgeIso);
+      const parsed = new Date(dataAgeIso).getTime();
+      const ageMs = Date.now() - parsed;
+      const isStale = Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
+      reply.header('X-Insights-Stale', isStale ? 'true' : 'false');
+    }
+
+    return result;
   }
 }
+

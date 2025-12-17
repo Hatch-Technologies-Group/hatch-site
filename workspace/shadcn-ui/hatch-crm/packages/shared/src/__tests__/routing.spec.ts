@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { routeLead } from '../routing';
+import { evaluateLeadRoutingConditions, routeLead } from '../routing';
 
 describe('routeLead', () => {
   it('chooses agent with higher score', () => {
@@ -72,5 +72,66 @@ describe('routeLead', () => {
 
     expect(result.usedFallback).toBe(true);
     expect(result.fallbackTeamId).toBe('team-pond');
+  });
+});
+
+describe('evaluateLeadRoutingConditions', () => {
+  it('fails demographic checks when age missing', () => {
+    const result = evaluateLeadRoutingConditions(
+      { demographics: { minAge: 65 } },
+      {
+        now: new Date(),
+        tenantTimezone: 'America/New_York',
+        person: {
+          consent: { sms: 'GRANTED', email: 'UNKNOWN' }
+        }
+      }
+    );
+
+    expect(result.matched).toBe(false);
+    expect(result.checks.find((check) => check.key === 'demographics')?.passed).toBe(false);
+  });
+
+  it('matches demographic tags + age', () => {
+    const result = evaluateLeadRoutingConditions(
+      {
+        demographics: {
+          minAge: 65,
+          ethnicities: { include: ['hispanic'] }
+        }
+      },
+      {
+        now: new Date(),
+        tenantTimezone: 'America/New_York',
+        person: {
+          age: 72,
+          tags: ['Hispanic'],
+          consent: { sms: 'GRANTED', email: 'UNKNOWN' }
+        }
+      }
+    );
+
+    expect(result.matched).toBe(true);
+  });
+
+  it('matches custom field comparisons', () => {
+    const result = evaluateLeadRoutingConditions(
+      {
+        customFields: [
+          { key: 'age', operator: 'GTE', value: 65 },
+          { key: 'demographic', operator: 'IN', value: ['hispanic', 'latino'] }
+        ]
+      },
+      {
+        now: new Date(),
+        tenantTimezone: 'America/New_York',
+        person: {
+          customFields: { age: 70, demographic: 'hispanic' },
+          consent: { sms: 'GRANTED', email: 'UNKNOWN' }
+        }
+      }
+    );
+
+    expect(result.matched).toBe(true);
   });
 });

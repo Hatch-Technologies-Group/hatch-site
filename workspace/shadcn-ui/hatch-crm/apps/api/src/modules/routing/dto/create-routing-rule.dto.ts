@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 
 import { RoutingMode } from '@hatch/db';
 
@@ -16,12 +16,16 @@ export class CreateRoutingRuleDto {
   @IsBoolean()
   enabled?: boolean;
 
-  conditions!: unknown;
+  @IsOptional()
+  @IsObject()
+  conditions?: Record<string, unknown>;
 
-  targets!: unknown;
+  @IsArray()
+  targets!: Record<string, unknown>[];
 
   @IsOptional()
-  fallback?: unknown;
+  @IsObject()
+  fallback?: Record<string, unknown> | null;
 
   @IsOptional()
   @IsInt()

@@ -126,10 +126,24 @@ async function seedTestData(prisma: PrismaService) {
       }
     });
 
-    await prisma.deal.create({
+    const listing = await prisma.listing.create({
       data: {
         tenantId: TENANT_ID,
         personId: person.id,
+        addressLine1: `Reporting Listing ${dayOffset} Main St`,
+        city: 'Testville',
+        state: 'FL',
+        postalCode: '00000',
+        createdAt: day,
+        updatedAt: day
+      }
+    });
+
+    await prisma.deal.create({
+      data: {
+        tenant: { connect: { id: TENANT_ID } },
+        person: { connect: { id: person.id } },
+        listing: { connect: { id: listing.id } },
         stage: DealStage.UNDER_CONTRACT,
         forecastGci: new Prisma.Decimal(10000 + dayOffset * 1000),
         actualGci: new Prisma.Decimal(5000 + dayOffset * 500),

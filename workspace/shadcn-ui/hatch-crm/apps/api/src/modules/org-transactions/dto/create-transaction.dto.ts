@@ -23,6 +23,16 @@ export class CreateTransactionDto {
   @IsString()
   sellerName?: string;
 
+  @ApiPropertyOptional({ description: 'CRM contact/person id for the buyer (optional but preferred for contract autofill)' })
+  @IsOptional()
+  @IsString()
+  buyerPersonId?: string;
+
+  @ApiPropertyOptional({ description: 'CRM contact/person id for the seller (optional but preferred for contract autofill)' })
+  @IsOptional()
+  @IsString()
+  sellerPersonId?: string;
+
   @ApiPropertyOptional({ description: 'ISO date when contract signed' })
   @IsOptional()
   @Type(() => Date)
