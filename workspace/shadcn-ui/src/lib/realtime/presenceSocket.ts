@@ -43,6 +43,8 @@ function getSocket(orgId: string, userId: string) {
   socketIdentity = { baseUrl: API_ORIGIN, orgId, userId }
   socket = io(`${API_ORIGIN}/presence`, {
     autoConnect: false,
+    transports: ['polling'],
+    upgrade: false,
     query: { orgId, userId }
   })
   return socket

@@ -1197,7 +1197,9 @@ export function BrokerProvider({ children }: { children: React.ReactNode }) {
       setPropertiesLoading(true)
       setPropertiesError(null)
       const rows = await fetchBrokerProperties()
-      console.debug('broker properties rows', rows.map(r => ({ id: r.id, list_price: r.list_price, bedrooms_total: r.bedrooms_total })))
+      if (import.meta.env.DEV) {
+        console.debug('broker properties rows', rows.map(r => ({ id: r.id, list_price: r.list_price, bedrooms_total: r.bedrooms_total })))
+      }
       const deletedIds = getDeletedPropertyIds()
       const mappedRows = rows
         .map(mapRowToMLSProperty)
