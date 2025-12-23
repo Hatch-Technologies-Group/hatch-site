@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
@@ -226,13 +226,17 @@ export class OrgListingsController {
   }
 
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   list(@Param('orgId') orgId: string, @Req() req: AuthedRequest & { headers?: Record<string, string> }) {
     // Allow reads in local/demo by falling back to header-provided user id when JWT is absent
     const headerUser =
       (req.headers?.['x-user-id'] as string | undefined) ??
       (req.headers?.['x-user'] as string | undefined) ??
       undefined;
-    const userId = req.user?.userId ?? headerUser ?? 'demo-user';
+    const userId = req.user?.userId ?? headerUser;
+    if (!userId) {
+      throw new UnauthorizedException('Missing authenticated user');
+    }
     return this.svc.listListingsForOrg(orgId, userId);
   }
 }
