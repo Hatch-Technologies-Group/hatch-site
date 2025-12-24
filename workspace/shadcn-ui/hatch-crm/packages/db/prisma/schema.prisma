@@ -1721,6 +1721,11 @@ model User {
   leadGenCampaignsCreated       LeadGenCampaign[]               @relation("LeadGenCampaignCreatedBy")
   leadGenLandingPagesCreated    LeadGenLandingPage[]            @relation("LeadGenLandingPageCreatedBy")
   leadGenExportBatchesRequested LeadGenExportBatch[]            @relation("LeadGenExportRequestedBy")
+
+  @@index([organizationId])
+  @@index([tenantId])
+  @@index([organizationId, role])
+  @@index([tenantId, role])
 }
 
 model UserTrainingProgress {
@@ -1791,6 +1796,8 @@ model OrgListing {
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, status, expiresAt])
+  @@index([organizationId, agentProfileId])
+  @@index([organizationId, officeId])
 }
 
 model OrgListingDocument {
@@ -1865,6 +1872,9 @@ model OrgTransaction {
   @@index([organizationId, closingDate])
   @@index([organizationId, buyerPersonId])
   @@index([organizationId, sellerPersonId])
+  @@index([organizationId, agentProfileId])
+  @@index([organizationId, officeId])
+  @@index([organizationId, createdAt])
 }
 
 model OrgTransactionDocument {
@@ -2083,6 +2093,9 @@ model AgentProfile {
 
   @@unique([organizationId, userId])
   @@index([organizationId])
+  @@index([organizationId, officeId])
+  @@index([organizationId, teamId])
+  @@index([organizationId, updatedAt])
 }
 
 model AgentMembership {
@@ -2222,6 +2235,7 @@ model AgentWorkflowTask {
 
   @@index([organizationId, agentProfileId, type])
   @@index([organizationId, type, status])
+  @@index([organizationId, agentProfileId, type, status])
 }
 
 model OfferIntent {
@@ -2254,6 +2268,8 @@ model OfferIntent {
   @@index([organizationId, listingId])
   @@index([organizationId, consumerId])
   @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status, createdAt])
 }
 
 model SellerOpportunity {
@@ -2582,6 +2598,7 @@ model TransactionAccountingRecord {
   transaction  OrgTransaction @relation(fields: [transactionId], references: [id])
 
   @@index([organizationId, provider, syncStatus])
+  @@index([organizationId, syncStatus])
 }
 
 model RentalLeaseAccountingRecord {
@@ -2600,6 +2617,7 @@ model RentalLeaseAccountingRecord {
   lease        RentalLease  @relation(fields: [leaseId], references: [id])
 
   @@index([organizationId, provider, syncStatus])
+  @@index([organizationId, syncStatus])
 }
 
 model QuickBooksConnection {
@@ -3339,6 +3357,12 @@ model Person {
   @@index([tenantId, stageId])
   @@index([tenantId, companyId])
   @@index([tenantId, householdId])
+  @@index([tenantId, deletedAt, stageEnteredAt, createdAt])
+  @@index([tenantId, pipelineId, stageId, deletedAt, stageEnteredAt, createdAt], map: "person_pipeline_stage_timeline_idx")
+  @@index([organizationId, deletedAt, stageId, stage])
+  @@index([organizationId, deletedAt, stageId, leadType])
+  @@index([organizationId, ownerId, deletedAt, stage])
+  @@index([organizationId, ownerId, deletedAt, leadType])
 }
 
 model Company {
@@ -3421,6 +3445,7 @@ model Pipeline {
   @@unique([tenantId, familyId, version])
   @@index([tenantId])
   @@index([tenantId, isDefault])
+  @@index([brokerageId])
 }
 
 model Stage {

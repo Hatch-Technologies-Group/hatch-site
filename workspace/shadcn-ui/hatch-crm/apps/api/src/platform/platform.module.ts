@@ -5,6 +5,7 @@ import { PrismaModule } from '../modules/prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { AuditInterceptor } from './audit/audit.interceptor';
 import { AuditService } from './audit/audit.service';
+import { RequestContextInterceptor } from '../middleware/request-context.interceptor';
 import { CanService } from './security/can.service';
 import { FlsService } from './security/fls.service';
 import { OrgMembershipGuard } from './security/org-membership.guard';
@@ -18,11 +19,16 @@ import { TenancyModule } from './tenancy/tenancy.module';
     CanService,
     FlsService,
     AuditService,
+    RequestContextInterceptor,
     AuditInterceptor,
     OrgMembershipGuard,
     {
       provide: APP_GUARD,
       useClass: PermissionsGuard
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useExisting: RequestContextInterceptor
     },
     {
       provide: APP_INTERCEPTOR,

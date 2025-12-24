@@ -2,6 +2,8 @@ import { INestApplication, Injectable, Logger, OnModuleDestroy, OnModuleInit } f
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@hatch/db';
 
+import { getRequestContext } from '@/shared/request-context';
+
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -20,14 +22,18 @@ export class PrismaService
       log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error']
     });
 
-    const threshold = Number(process.env.PRISMA_SLOW_QUERY_MS ?? 150);
+    const threshold = Number(process.env.PRISMA_SLOW_QUERY_MS ?? 300);
     this.$use(async (params, next) => {
       const start = Date.now();
       const result = await next(params);
       const duration = Date.now() - start;
       if (duration > threshold) {
+        const ctx = getRequestContext();
+        const requestLabel = ctx
+          ? ` [${ctx.method ?? 'METHOD'} ${ctx.route ?? ctx.url ?? 'URL'} reqId=${ctx.reqId ?? 'n/a'}]`
+          : '';
         this.logger.warn(
-          `[Slow Query] ${params.model ?? 'raw'}.${params.action} took ${duration}ms`
+          `[Slow Query]${requestLabel} ${params.model ?? 'raw'}.${params.action} took ${duration}ms`
         );
       }
       return result;

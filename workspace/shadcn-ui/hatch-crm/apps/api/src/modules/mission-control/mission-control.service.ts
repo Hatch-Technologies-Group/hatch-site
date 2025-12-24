@@ -26,12 +26,67 @@ type PersonStageGroup = { stage: PersonStage; _count: { _all: number } };
 export class MissionControlService {
   private readonly logger = new Logger(MissionControlService.name);
   private readonly skipMembershipCheck = process.env.DISABLE_PERMISSIONS_GUARD === 'true';
+  private readonly cache = new Map<string, { expiresAt: number; value: Promise<any> }>();
+  private readonly membershipCache = new Map<string, { expiresAt: number; value: Promise<boolean> }>();
 
   constructor(private readonly prisma: PrismaService, private readonly presence: PresenceService) {}
 
   private isConnectionLimitError(error: unknown) {
     const message = (error as Error | undefined)?.message?.toLowerCase() ?? '';
     return message.includes('too many database connections opened') || message.includes('too many clients already');
+  }
+
+  private resolveCacheMs(envKey: string, fallbackMs: number) {
+    const raw = process.env[envKey];
+    if (!raw) return fallbackMs;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return fallbackMs;
+    return Math.max(0, Math.trunc(parsed));
+  }
+
+  private get missionControlCacheMs() {
+    return this.resolveCacheMs(
+      'MISSION_CONTROL_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 2000
+    );
+  }
+
+  private get missionControlMembershipCacheMs() {
+    return this.resolveCacheMs(
+      'MISSION_CONTROL_MEMBERSHIP_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 60_000
+    );
+  }
+
+  private scopeKey(scope?: MissionControlScope) {
+    if (!scope?.officeId && !scope?.teamId) {
+      return 'all';
+    }
+    return `office:${scope.officeId ?? ''}|team:${scope.teamId ?? ''}`;
+  }
+
+  private cachedPromise<T>(
+    store: Map<string, { expiresAt: number; value: Promise<T> }>,
+    key: string,
+    ttlMs: number,
+    compute: () => Promise<T>
+  ): Promise<T> {
+    if (ttlMs <= 0) {
+      return compute();
+    }
+    const now = Date.now();
+    const existing = store.get(key);
+    if (existing && existing.expiresAt > now) {
+      return existing.value;
+    }
+
+    const value = Promise.resolve().then(compute).catch((error) => {
+      store.delete(key);
+      throw error;
+    });
+
+    store.set(key, { expiresAt: now + ttlMs, value });
+    return value;
   }
 
   private async runInBatches<T>(tasks: Array<() => Promise<T>>, batchSize = 5): Promise<T[]> {
@@ -219,37 +274,50 @@ export class MissionControlService {
     if (this.skipMembershipCheck) {
       return;
     }
-    const membership = await this.prisma.userOrgMembership.findUnique({
-      where: { userId_orgId: { userId, orgId } },
-      select: { user: { select: { role: true } } }
-    });
-    if (!membership || membership.user?.role !== 'BROKER') {
+
+    const cacheKey = `${userId}:${orgId}`;
+    const isBroker = await this.cachedPromise(
+      this.membershipCache,
+      cacheKey,
+      this.missionControlMembershipCacheMs,
+      async () => {
+        const membership = await this.prisma.userOrgMembership.findUnique({
+          where: { userId_orgId: { userId, orgId } },
+          select: { user: { select: { role: true } } }
+        });
+        return Boolean(membership && membership.user?.role === 'BROKER');
+      }
+    );
+
+    if (!isBroker) {
       throw new ForbiddenException('Broker access required');
     }
   }
 
   async getOrgOverview(orgId: string, brokerUserId: string, scope?: MissionControlScope) {
     await this.assertBrokerInOrg(brokerUserId, orgId);
-    const overview = new MissionControlOverviewDto();
-    overview.organizationId = orgId;
+    const cacheKey = `mission-control:overview:${orgId}:${this.scopeKey(scope)}`;
+    return this.cachedPromise(this.cache, cacheKey, this.missionControlCacheMs, async () => {
+      const overview = new MissionControlOverviewDto();
+      overview.organizationId = orgId;
 
-    const listingExpiringThreshold = new Date(Date.now() + LISTING_EXPIRING_THRESHOLD_MS);
-    const aiWindowStart = new Date(Date.now() - DAYS_30_MS);
-    const now = new Date();
-    const rentalTaxWindowEnd = new Date(now.getTime() + DAYS_30_MS);
+      const listingExpiringThreshold = new Date(Date.now() + LISTING_EXPIRING_THRESHOLD_MS);
+      const aiWindowStart = new Date(Date.now() - DAYS_30_MS);
+      const now = new Date();
+      const rentalTaxWindowEnd = new Date(now.getTime() + DAYS_30_MS);
 
-    const agentProfileWhere = this.buildAgentProfileWhere(orgId, scope);
-    const listingWhere = this.buildOrgListingWhere(orgId, scope);
-    const transactionWhere = this.buildOrgTransactionWhere(orgId, scope);
-    const workflowTaskWhere = this.buildWorkflowTaskWhere(orgId, scope);
-    const offerIntentWhere = this.buildOfferIntentWhere(orgId, scope);
-    const rentalLeaseWhere = this.buildRentalLeaseWhere(orgId, scope);
-    const rentalTaxScheduleWhere = this.buildRentalTaxScheduleWhere(orgId, scope);
-    const transactionAccountingWhere = this.buildTransactionAccountingWhere(orgId, scope);
-    const rentalLeaseAccountingWhere = this.buildRentalLeaseAccountingWhere(orgId, scope);
-    const orgFileWhere = this.buildOrgFileWhere(orgId, scope);
+      const agentProfileWhere = this.buildAgentProfileWhere(orgId, scope);
+      const listingWhere = this.buildOrgListingWhere(orgId, scope);
+      const transactionWhere = this.buildOrgTransactionWhere(orgId, scope);
+      const workflowTaskWhere = this.buildWorkflowTaskWhere(orgId, scope);
+      const offerIntentWhere = this.buildOfferIntentWhere(orgId, scope);
+      const rentalLeaseWhere = this.buildRentalLeaseWhere(orgId, scope);
+      const rentalTaxScheduleWhere = this.buildRentalTaxScheduleWhere(orgId, scope);
+      const transactionAccountingWhere = this.buildTransactionAccountingWhere(orgId, scope);
+      const rentalLeaseAccountingWhere = this.buildRentalLeaseAccountingWhere(orgId, scope);
+      const orgFileWhere = this.buildOrgFileWhere(orgId, scope);
 
-    const overviewQueryTasks: Array<() => Promise<any>> = [
+      const overviewQueryTasks: Array<() => Promise<any>> = [
       () =>
         (this.prisma as any).agentProfile.groupBy({
           by: ['isCompliant', 'requiresAction', 'riskLevel'] as const,
@@ -266,9 +334,29 @@ export class MissionControlService {
           where: orgFileWhere,
           _count: { _all: true }
         }),
-      () => this.prisma.orgConversation.count({ where: { organizationId: orgId, type: 'CHANNEL' } }),
-      () => this.prisma.orgConversation.count({ where: { organizationId: orgId, type: 'DIRECT' } }),
-      () => this.prisma.orgMessage.count({ where: { organizationId: orgId, createdAt: { gte: new Date(Date.now() - DAYS_7_MS) } } }),
+      () =>
+        this.prisma.orgConversation
+          .groupBy({
+            by: ['type'] as const,
+            where: {
+              organizationId: orgId,
+              type: { in: ['CHANNEL', 'DIRECT'] }
+            },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let channelsCount = 0;
+            let directCount = 0;
+            for (const group of groups) {
+              if (group.type === 'CHANNEL') channelsCount = group._count._all;
+              if (group.type === 'DIRECT') directCount = group._count._all;
+            }
+            return { channelsCount, directCount };
+          }),
+      () =>
+        this.prisma.orgMessage.count({
+          where: { organizationId: orgId, createdAt: { gte: new Date(Date.now() - DAYS_7_MS) } }
+        }),
       () =>
         this.optionalQuery(
           () =>
@@ -280,16 +368,56 @@ export class MissionControlService {
           [],
           'orgEvent.recent'
         ),
-      () => this.prisma.agentTrainingModule.count({ where: { organizationId: orgId } }),
-      () => this.prisma.agentTrainingModule.count({ where: { organizationId: orgId, required: true } }),
-      () => this.prisma.agentTrainingProgress.count({ where: { agentProfile: agentProfileWhere } }),
       () =>
-        this.prisma.agentTrainingProgress.count({
-          where: { agentProfile: agentProfileWhere, status: 'COMPLETED' }
-        }),
-      () => this.prisma.orgListing.count({ where: listingWhere }),
-      () => this.prisma.orgListing.count({ where: { ...listingWhere, status: 'ACTIVE' } }),
-      () => this.prisma.orgListing.count({ where: { ...listingWhere, status: 'PENDING_BROKER_APPROVAL' } }),
+        this.prisma.agentTrainingModule
+          .groupBy({
+            by: ['required'] as const,
+            where: { organizationId: orgId },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let totalModules = 0;
+            let requiredModules = 0;
+            for (const group of groups) {
+              totalModules += group._count._all;
+              if (group.required) requiredModules += group._count._all;
+            }
+            return { totalModules, requiredModules };
+          }),
+      () =>
+        this.prisma.agentTrainingProgress
+          .groupBy({
+            by: ['status'] as const,
+            where: { agentProfile: agentProfileWhere },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let totalAssignments = 0;
+            let completedAssignments = 0;
+            for (const group of groups) {
+              totalAssignments += group._count._all;
+              if (group.status === 'COMPLETED') completedAssignments += group._count._all;
+            }
+            return { totalAssignments, completedAssignments };
+          }),
+      () =>
+        this.prisma.orgListing
+          .groupBy({
+            by: ['status'] as const,
+            where: listingWhere,
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let totalListings = 0;
+            let activeListings = 0;
+            let pendingApprovalListings = 0;
+            for (const group of groups) {
+              totalListings += group._count._all;
+              if (group.status === 'ACTIVE') activeListings = group._count._all;
+              if (group.status === 'PENDING_BROKER_APPROVAL') pendingApprovalListings = group._count._all;
+            }
+            return { totalListings, activeListings, pendingApprovalListings };
+          }),
       () =>
         this.prisma.orgListing.count({
           where: {
@@ -298,11 +426,22 @@ export class MissionControlService {
             expiresAt: { not: null, lte: listingExpiringThreshold }
           }
         }),
-      () => this.prisma.orgTransaction.count({ where: transactionWhere }),
       () =>
-        this.prisma.orgTransaction.count({
-          where: { ...transactionWhere, status: 'UNDER_CONTRACT' }
-        }),
+        this.prisma.orgTransaction
+          .groupBy({
+            by: ['status'] as const,
+            where: transactionWhere,
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let totalTransactions = 0;
+            let underContractTransactions = 0;
+            for (const group of groups) {
+              totalTransactions += group._count._all;
+              if (group.status === 'UNDER_CONTRACT') underContractTransactions = group._count._all;
+            }
+            return { totalTransactions, underContractTransactions };
+          }),
       () =>
         this.prisma.orgTransaction.count({
           where: {
@@ -331,32 +470,50 @@ export class MissionControlService {
           [],
           'orgEvent.aiEvaluations'
         ),
-      () => this.prisma.agentProfile.count({ where: { ...agentProfileWhere, lifecycleStage: 'ONBOARDING' } }),
-      () => this.prisma.agentProfile.count({ where: { ...agentProfileWhere, lifecycleStage: 'OFFBOARDING' } }),
       () =>
-        this.prisma.agentWorkflowTask.count({
-          where: {
-            ...workflowTaskWhere,
-            type: 'ONBOARDING',
-            status: { in: ['PENDING', 'IN_PROGRESS'] }
-          }
-        }),
+        this.prisma.agentProfile
+          .groupBy({
+            by: ['lifecycleStage'] as const,
+            where: agentProfileWhere,
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let agentsInOnboardingCount = 0;
+            let agentsInOffboardingCount = 0;
+            for (const group of groups) {
+              if (group.lifecycleStage === 'ONBOARDING') agentsInOnboardingCount = group._count._all;
+              if (group.lifecycleStage === 'OFFBOARDING') agentsInOffboardingCount = group._count._all;
+            }
+            return { agentsInOnboardingCount, agentsInOffboardingCount };
+          }),
       () =>
-        this.prisma.agentWorkflowTask.count({
-          where: {
-            ...workflowTaskWhere,
-            type: 'ONBOARDING',
-            status: 'COMPLETED'
-          }
-        }),
-      () =>
-        this.prisma.agentWorkflowTask.count({
-          where: {
-            ...workflowTaskWhere,
-            type: 'OFFBOARDING',
-            status: { in: ['PENDING', 'IN_PROGRESS'] }
-          }
-        }),
+        this.prisma.agentWorkflowTask
+          .groupBy({
+            by: ['type', 'status'] as const,
+            where: {
+              ...workflowTaskWhere,
+              type: { in: ['ONBOARDING', 'OFFBOARDING'] },
+              status: { in: ['PENDING', 'IN_PROGRESS', 'COMPLETED'] }
+            },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let onboardingTasksOpenCount = 0;
+            let onboardingTasksCompletedCount = 0;
+            let offboardingTasksOpenCount = 0;
+
+            for (const group of groups) {
+              const count = group._count._all;
+              if (group.type === 'ONBOARDING') {
+                if (group.status === 'COMPLETED') onboardingTasksCompletedCount += count;
+                else onboardingTasksOpenCount += count;
+              } else if (group.type === 'OFFBOARDING') {
+                if (group.status !== 'COMPLETED') offboardingTasksOpenCount += count;
+              }
+            }
+
+            return { onboardingTasksOpenCount, onboardingTasksCompletedCount, offboardingTasksOpenCount };
+          }),
       () =>
         (this.prisma as any).person.groupBy({
           by: ['stage'],
@@ -388,14 +545,6 @@ export class MissionControlService {
           _count: { _all: true }
         }),
       () =>
-        this.prisma.offerIntent.findMany({
-          where: offerIntentWhere,
-          select: {
-            status: true,
-            listing: { select: { agentProfileId: true } }
-          }
-        }),
-      () =>
         this.prisma.rentalProperty.count({
           where: {
             organizationId: orgId,
@@ -403,51 +552,75 @@ export class MissionControlService {
           }
         }),
       () =>
-        this.prisma.rentalLease.count({
-          where: {
-            ...rentalLeaseWhere,
-            endDate: { gte: now }
-          }
-        }),
+        this.prisma.rentalLease
+          .groupBy({
+            by: ['tenancyType'] as const,
+            where: { ...rentalLeaseWhere, endDate: { gte: now } },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let activeRentalLeases = 0;
+            let seasonalRentalLeases = 0;
+            for (const group of groups) {
+              activeRentalLeases += group._count._all;
+              if (group.tenancyType === 'SEASONAL') seasonalRentalLeases = group._count._all;
+            }
+            return { activeRentalLeases, seasonalRentalLeases };
+          }),
       () =>
-        this.prisma.rentalLease.count({
-          where: {
-            ...rentalLeaseWhere,
-            tenancyType: 'SEASONAL',
-            endDate: { gte: now }
-          }
-        }),
+        this.prisma.rentalTaxSchedule
+          .groupBy({
+            by: ['status'] as const,
+            where: {
+              ...rentalTaxScheduleWhere,
+              OR: [
+                { status: 'PENDING', dueDate: { gte: now, lte: rentalTaxWindowEnd } },
+                { status: 'OVERDUE' }
+              ]
+            },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let upcomingTaxDueCount = 0;
+            let overdueTaxCount = 0;
+            for (const group of groups) {
+              if (group.status === 'PENDING') upcomingTaxDueCount = group._count._all;
+              if (group.status === 'OVERDUE') overdueTaxCount = group._count._all;
+            }
+            return { upcomingTaxDueCount, overdueTaxCount };
+          }),
       () =>
-        this.prisma.rentalTaxSchedule.count({
-          where: {
-            ...rentalTaxScheduleWhere,
-            status: 'PENDING',
-            dueDate: { gte: now, lte: rentalTaxWindowEnd }
-          }
-        }),
+        this.prisma.transactionAccountingRecord
+          .groupBy({
+            by: ['syncStatus'] as const,
+            where: { ...transactionAccountingWhere, syncStatus: { in: ['SYNCED', 'FAILED'] } },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let transactionsSyncedCount = 0;
+            let transactionsSyncFailedCount = 0;
+            for (const group of groups) {
+              if (group.syncStatus === 'SYNCED') transactionsSyncedCount = group._count._all;
+              if (group.syncStatus === 'FAILED') transactionsSyncFailedCount = group._count._all;
+            }
+            return { transactionsSyncedCount, transactionsSyncFailedCount };
+          }),
       () =>
-        this.prisma.rentalTaxSchedule.count({
-          where: {
-            ...rentalTaxScheduleWhere,
-            status: 'OVERDUE'
-          }
-        }),
-      () =>
-        this.prisma.transactionAccountingRecord.count({
-          where: { ...transactionAccountingWhere, syncStatus: 'SYNCED' }
-        }),
-      () =>
-        this.prisma.transactionAccountingRecord.count({
-          where: { ...transactionAccountingWhere, syncStatus: 'FAILED' }
-        }),
-      () =>
-        this.prisma.rentalLeaseAccountingRecord.count({
-          where: { ...rentalLeaseAccountingWhere, syncStatus: 'SYNCED' }
-        }),
-      () =>
-        this.prisma.rentalLeaseAccountingRecord.count({
-          where: { ...rentalLeaseAccountingWhere, syncStatus: 'FAILED' }
-        }),
+        this.prisma.rentalLeaseAccountingRecord
+          .groupBy({
+            by: ['syncStatus'] as const,
+            where: { ...rentalLeaseAccountingWhere, syncStatus: { in: ['SYNCED', 'FAILED'] } },
+            _count: { _all: true }
+          })
+          .then((groups) => {
+            let rentalLeasesSyncedCount = 0;
+            let rentalLeasesSyncFailedCount = 0;
+            for (const group of groups) {
+              if (group.syncStatus === 'SYNCED') rentalLeasesSyncedCount = group._count._all;
+              if (group.syncStatus === 'FAILED') rentalLeasesSyncFailedCount = group._count._all;
+            }
+            return { rentalLeasesSyncedCount, rentalLeasesSyncFailedCount };
+          }),
       // Some older databases may not have complianceStatus on OrgFile; count documents defensively.
       () =>
         this.optionalQuery(
@@ -503,15 +676,20 @@ export class MissionControlService {
           'savedListing.count'
         ),
       () =>
-        this.prisma.orgTransaction.findMany({
-          where: { ...transactionWhere, status: 'CLOSED' },
-          select: {
-            id: true,
-            listing: {
-              select: { listPrice: true }
-            }
-          }
-        }),
+        this.prisma
+          .$queryRaw<Array<{ estimatedGci: bigint }>>(
+            Prisma.sql`
+              SELECT COALESCE(SUM(l."listPrice"), 0)::bigint AS "estimatedGci"
+              FROM "OrgTransaction" t
+              LEFT JOIN "OrgListing" l ON l."id" = t."listingId"
+              LEFT JOIN "AgentProfile" ap ON ap."id" = t."agentProfileId"
+              WHERE t."organizationId" = ${orgId}
+                AND t."status" = 'CLOSED'
+                ${scope?.officeId ? Prisma.sql`AND t."officeId" = ${scope.officeId}` : Prisma.empty}
+                ${scope?.teamId ? Prisma.sql`AND ap."teamId" = ${scope.teamId}` : Prisma.empty}
+            `
+          )
+          .then((rows) => rows[0]?.estimatedGci ?? 0n),
       () =>
         this.prisma.rentalLease.aggregate({
           where: {
@@ -544,42 +722,28 @@ export class MissionControlService {
       agentsSummary,
       pendingInvites,
       vaultSummary,
-      channelsCount,
-      directCount,
+      conversationCounts,
       messages7d,
       events,
-      totalModules,
-      requiredModules,
-      totalAssignments,
-      completedAssignments,
-      totalListings,
-      activeListings,
-      pendingApprovalListings,
+      trainingModuleCounts,
+      trainingAssignmentCounts,
+      listingStatusCounts,
       expiringListings,
-      totalTransactions,
-      underContractTransactions,
+      transactionStatusCounts,
       closingsNext30Days,
       nonCompliantTransactions,
       aiEvaluationEvents,
-      agentsInOnboardingCount,
-      agentsInOffboardingCount,
-      onboardingTasksOpenCount,
-      onboardingTasksCompletedCount,
-      offboardingTasksOpenCount,
+      lifecycleStageCounts,
+      workflowTaskCounts,
       leadStageGroups,
       appointmentsSetCount,
       leadTypeGroups,
       loiStatusGroups,
-      offerIntentAssignments,
       rentalPropertiesManaged,
-      activeRentalLeases,
-      seasonalRentalLeases,
-      upcomingTaxDueCount,
-      overdueTaxCount,
-      transactionsSyncedCount,
-      transactionsSyncFailedCount,
-      rentalLeasesSyncedCount,
-      rentalLeasesSyncFailedCount,
+      rentalLeaseCounts,
+      taxScheduleCounts,
+      transactionAccountingCounts,
+      rentalLeaseAccountingCounts,
       docStatusGroups,
       mlsConfig,
       totalIndexedListings,
@@ -587,37 +751,61 @@ export class MissionControlService {
       activeRentalListings,
       savedSearchAggregates,
       savedListingCount,
-      closedTransactionsForGci,
+      estimatedGciSum,
       activeLeaseRentAggregate,
       pendingAiActions
-	    ] = overviewResults;
+    ] = overviewResults;
 
-	    const [transactionsForDocs, totalAgents] = await Promise.all([
-	      this.prisma.orgTransaction.findMany({
-	        where: transactionWhere,
-	        select: {
-	          id: true,
-	          closingDate: true,
-	          status: true,
-	          documents: {
-	            select: {
-	              orgFile: {
-	                select: {
-	                  documentType: true,
-	                  complianceStatus: true
-	                }
-	              }
-	            }
-	          }
-	        },
-	        take: 500
-	      }),
-	      this.prisma.agentProfile.count({ where: agentProfileWhere })
-	    ]);
-	    overview.totalAgents = totalAgents;
-	    overview.activeAgents = Math.max(0, totalAgents - agentsInOnboardingCount - agentsInOffboardingCount);
-	    overview.pendingInvites = pendingInvites;
-	    overview.comms.channels = channelsCount;
+    const { channelsCount = 0, directCount = 0 } = conversationCounts ?? {};
+    const { totalModules = 0, requiredModules = 0 } = trainingModuleCounts ?? {};
+    const { totalAssignments = 0, completedAssignments = 0 } = trainingAssignmentCounts ?? {};
+    const { totalListings = 0, activeListings = 0, pendingApprovalListings = 0 } =
+      listingStatusCounts ?? {};
+    const { totalTransactions = 0, underContractTransactions = 0 } = transactionStatusCounts ?? {};
+    const { agentsInOnboardingCount = 0, agentsInOffboardingCount = 0 } = lifecycleStageCounts ?? {};
+    const {
+      onboardingTasksOpenCount = 0,
+      onboardingTasksCompletedCount = 0,
+      offboardingTasksOpenCount = 0
+    } = workflowTaskCounts ?? {};
+    const { activeRentalLeases = 0, seasonalRentalLeases = 0 } = rentalLeaseCounts ?? {};
+    const { upcomingTaxDueCount = 0, overdueTaxCount = 0 } = taxScheduleCounts ?? {};
+    const { transactionsSyncedCount = 0, transactionsSyncFailedCount = 0 } =
+      transactionAccountingCounts ?? {};
+    const { rentalLeasesSyncedCount = 0, rentalLeasesSyncFailedCount = 0 } =
+      rentalLeaseAccountingCounts ?? {};
+
+    const totalAgents = Array.isArray(agentsSummary)
+      ? agentsSummary.reduce((sum: number, group: any) => sum + (group?._count?._all ?? 0), 0)
+      : 0;
+
+    const transactionsForDocs = await this.prisma.orgTransaction.findMany({
+      where: transactionWhere,
+      select: {
+        id: true,
+        closingDate: true,
+        status: true,
+        documents: {
+          select: {
+            orgFile: {
+              select: {
+                documentType: true,
+                complianceStatus: true
+              }
+            }
+          }
+        }
+      },
+      take: 500
+    });
+
+    overview.totalAgents = totalAgents;
+    overview.activeAgents = Math.max(
+      0,
+      totalAgents - agentsInOnboardingCount - agentsInOffboardingCount
+    );
+    overview.pendingInvites = pendingInvites;
+    overview.comms.channels = channelsCount;
     overview.comms.directConversations = directCount;
     overview.comms.messagesLast7Days = messages7d;
     overview.training = {
@@ -802,9 +990,7 @@ export class MissionControlService {
       upcomingTaxDueCount,
       overdueTaxCount
     };
-    const estimatedGci = closedTransactionsForGci.reduce((sum, txn) => {
-      return sum + (txn.listing?.listPrice ?? 0);
-    }, 0);
+    const estimatedGci = Number(estimatedGciSum ?? 0n);
     const estimatedPmIncome = Number(activeLeaseRentAggregate._sum.rentAmount ?? 0);
     overview.financialStats = {
       transactionsSyncedCount,
@@ -919,17 +1105,19 @@ export class MissionControlService {
       createdAt: event.createdAt.toISOString()
     }));
 
-    return overview;
+      return overview;
+    });
   }
 
   async getAgentsDashboard(orgId: string, brokerUserId: string, scope?: MissionControlScope) {
     await this.assertBrokerInOrg(brokerUserId, orgId);
-    const aiWindowStart = new Date(Date.now() - DAYS_30_MS);
-    const agentProfileWhere = this.buildAgentProfileWhere(orgId, scope);
-    const listingWhere = this.buildOrgListingWhere(orgId, scope);
-    const transactionWhere = this.buildOrgTransactionWhere(orgId, scope);
-    const workflowTaskWhere = this.buildWorkflowTaskWhere(orgId, scope);
-    const offerIntentWhere = this.buildOfferIntentWhere(orgId, scope);
+    const cacheKey = `mission-control:agents:${orgId}:${this.scopeKey(scope)}`;
+    return this.cachedPromise(this.cache, cacheKey, this.missionControlCacheMs, async () => {
+      const aiWindowStart = new Date(Date.now() - DAYS_30_MS);
+      const agentProfileWhere = this.buildAgentProfileWhere(orgId, scope);
+      const listingWhere = this.buildOrgListingWhere(orgId, scope);
+      const transactionWhere = this.buildOrgTransactionWhere(orgId, scope);
+      const workflowTaskWhere = this.buildWorkflowTaskWhere(orgId, scope);
 
     const profiles = await this.prisma.agentProfile.findMany({
       where: agentProfileWhere,
@@ -946,12 +1134,14 @@ export class MissionControlService {
         ceCycleEndAt: true,
         lifecycleStage: true,
         user: { select: { firstName: true, lastName: true, email: true } },
-        memberships: { select: { type: true, name: true, status: true } },
-        trainingProgress: { select: { status: true, module: { select: { required: true } } } }
+        memberships: { select: { type: true, name: true, status: true } }
       }
     });
     const agentProfileIds = profiles.map((profile) => profile.id);
     const agentUserIds = profiles.map((profile) => profile.userId);
+    if (agentProfileIds.length === 0) {
+      return [];
+    }
 
     const [
       listingCounts,
@@ -962,8 +1152,10 @@ export class MissionControlService {
       complianceEvents,
       workflowTaskGroups,
       pipelineLeadStageGroups,
-      offerIntentAssignments,
-      closedTransactionSales,
+      trainingProgressGroups,
+      requiredTrainingProgressGroups,
+      offerIntentStatsRows,
+      closedTransactionSalesRows,
       clientStageGroups,
       leadTypeGroupsByOwner
     ] = await Promise.all([
@@ -1047,20 +1239,59 @@ export class MissionControlService {
         },
         _count: { _all: true }
       }),
-      this.prisma.offerIntent.findMany({
-        where: offerIntentWhere,
-        select: {
-          status: true,
-          listing: { select: { agentProfileId: true } }
-        }
+      this.prisma.agentTrainingProgress.groupBy({
+        by: ['agentProfileId', 'status'],
+        where: { agentProfileId: { in: agentProfileIds } },
+        _count: { _all: true }
       }),
-      this.prisma.orgTransaction.findMany({
-        where: { ...transactionWhere, status: 'CLOSED', agentProfileId: { in: agentProfileIds } },
-        select: {
-          agentProfileId: true,
-          listing: { select: { listPrice: true } }
-        }
+      this.prisma.agentTrainingProgress.groupBy({
+        by: ['agentProfileId', 'status'],
+        where: { agentProfileId: { in: agentProfileIds }, module: { required: true } },
+        _count: { _all: true }
       }),
+      this.prisma.$queryRaw<Array<{ agentProfileId: string; total: number; accepted: number }>>(
+        Prisma.sql`
+          SELECT
+            l."agentProfileId" AS "agentProfileId",
+            COUNT(*)::int AS "total",
+            COUNT(*) FILTER (WHERE oi."status" = ${OfferIntentStatus.ACCEPTED})::int AS "accepted"
+          FROM "OfferIntent" oi
+          JOIN "OrgListing" l ON l."id" = oi."listingId"
+          LEFT JOIN "OrgTransaction" t ON t."id" = oi."transactionId"
+          LEFT JOIN "AgentProfile" listing_ap ON listing_ap."id" = l."agentProfileId"
+          LEFT JOIN "AgentProfile" txn_ap ON txn_ap."id" = t."agentProfileId"
+          WHERE oi."organizationId" = ${orgId}
+            AND l."agentProfileId" IN (${Prisma.join(agentProfileIds)})
+            ${
+              scope?.officeId
+                ? Prisma.sql`AND (l."officeId" = ${scope.officeId} OR t."officeId" = ${scope.officeId})`
+                : Prisma.empty
+            }
+            ${
+              scope?.teamId
+                ? Prisma.sql`AND (listing_ap."teamId" = ${scope.teamId} OR txn_ap."teamId" = ${scope.teamId})`
+                : Prisma.empty
+            }
+          GROUP BY l."agentProfileId"
+        `
+      ),
+      this.prisma.$queryRaw<Array<{ agentProfileId: string; closedCount: number; closedVolume: bigint }>>(
+        Prisma.sql`
+          SELECT
+            t."agentProfileId" AS "agentProfileId",
+            COUNT(*)::int AS "closedCount",
+            COALESCE(SUM(l."listPrice"), 0)::bigint AS "closedVolume"
+          FROM "OrgTransaction" t
+          LEFT JOIN "OrgListing" l ON l."id" = t."listingId"
+          JOIN "AgentProfile" ap ON ap."id" = t."agentProfileId"
+          WHERE t."organizationId" = ${orgId}
+            AND t."status" = 'CLOSED'
+            AND t."agentProfileId" IN (${Prisma.join(agentProfileIds)})
+            ${scope?.officeId ? Prisma.sql`AND t."officeId" = ${scope.officeId}` : Prisma.empty}
+            ${scope?.teamId ? Prisma.sql`AND ap."teamId" = ${scope.teamId}` : Prisma.empty}
+          GROUP BY t."agentProfileId"
+        `
+      ),
       this.prisma.person.groupBy({
         by: ['ownerId', 'stage'],
         where: {
@@ -1186,32 +1417,39 @@ export class MissionControlService {
       leadAssignmentStats.set(ownerId, entry);
     }
 
-    const offerIntentStats = new Map<
-      string,
-      { total: number; accepted: number }
-    >();
-    for (const intent of offerIntentAssignments) {
-      const agentProfileId = intent.listing?.agentProfileId ?? null;
-      if (!agentProfileId) continue;
-      const entry = offerIntentStats.get(agentProfileId) ?? { total: 0, accepted: 0 };
-      entry.total += 1;
-      if (intent.status === OfferIntentStatus.ACCEPTED) {
-        entry.accepted += 1;
+    const trainingStats = new Map<string, { assigned: number; completed: number }>();
+    for (const group of trainingProgressGroups) {
+      const agentProfileId = group.agentProfileId;
+      const entry = trainingStats.get(agentProfileId) ?? { assigned: 0, completed: 0 };
+      entry.assigned += group._count._all;
+      if (group.status === 'COMPLETED') {
+        entry.completed += group._count._all;
       }
-      offerIntentStats.set(agentProfileId, entry);
+      trainingStats.set(agentProfileId, entry);
     }
 
-    const salesStats = new Map<
-      string,
-      { closedCount: number; closedVolume: number }
-    >();
-    for (const txn of closedTransactionSales) {
-      const agentProfileId = txn.agentProfileId ?? null;
-      if (!agentProfileId) continue;
-      const entry = salesStats.get(agentProfileId) ?? { closedCount: 0, closedVolume: 0 };
-      entry.closedCount += 1;
-      entry.closedVolume += txn.listing?.listPrice ?? 0;
-      salesStats.set(agentProfileId, entry);
+    const requiredTrainingStats = new Map<string, { assigned: number; completed: number }>();
+    for (const group of requiredTrainingProgressGroups) {
+      const agentProfileId = group.agentProfileId;
+      const entry = requiredTrainingStats.get(agentProfileId) ?? { assigned: 0, completed: 0 };
+      entry.assigned += group._count._all;
+      if (group.status === 'COMPLETED') {
+        entry.completed += group._count._all;
+      }
+      requiredTrainingStats.set(agentProfileId, entry);
+    }
+
+    const offerIntentStats = new Map<string, { total: number; accepted: number }>();
+    for (const row of offerIntentStatsRows) {
+      offerIntentStats.set(row.agentProfileId, { total: row.total, accepted: row.accepted });
+    }
+
+    const salesStats = new Map<string, { closedCount: number; closedVolume: number }>();
+    for (const row of closedTransactionSalesRows) {
+      salesStats.set(row.agentProfileId, {
+        closedCount: row.closedCount,
+        closedVolume: Number(row.closedVolume ?? 0n)
+      });
     }
 
     const clientStats = new Map<string, { current: number; past: number }>();
@@ -1264,6 +1502,8 @@ export class MissionControlService {
         new: 0,
         qualified: 0
       };
+      const training = trainingStats.get(profile.id) ?? { assigned: 0, completed: 0 };
+      const requiredTraining = requiredTrainingStats.get(profile.id) ?? { assigned: 0, completed: 0 };
       const loiStats = offerIntentStats.get(profile.id) ?? { total: 0, accepted: 0 };
       const sales = salesStats.get(profile.id) ?? { closedCount: 0, closedVolume: 0 };
       const clients = clientStats.get(profile.userId) ?? { current: 0, past: 0 };
@@ -1296,12 +1536,10 @@ export class MissionControlService {
         ceHoursCompleted: profile.ceHoursCompleted,
         ceCycleEndAt: profile.ceCycleEndAt?.toISOString() ?? null,
         memberships: profile.memberships.map((m) => ({ type: m.type, name: m.name, status: m.status })),
-        trainingAssigned: profile.trainingProgress.length,
-        trainingCompleted: profile.trainingProgress.filter((p) => p.status === 'COMPLETED').length,
-        requiredTrainingAssigned: profile.trainingProgress.filter((p) => p.module.required).length,
-        requiredTrainingCompleted: profile.trainingProgress.filter(
-          (p) => p.module.required && p.status === 'COMPLETED'
-        ).length,
+        trainingAssigned: training.assigned,
+        trainingCompleted: training.completed,
+        requiredTrainingAssigned: requiredTraining.assigned,
+        requiredTrainingCompleted: requiredTraining.completed,
         listingCount: listingCountMap.get(profile.id) ?? 0,
         activeListingCount: activeListingCountMap.get(profile.id) ?? 0,
         transactionCount: transactionCountMap.get(profile.id) ?? 0,
@@ -1325,7 +1563,8 @@ export class MissionControlService {
       };
     });
 
-    return rows;
+      return rows;
+    });
   }
 
   async getComplianceSummary(orgId: string, brokerUserId: string, scope?: MissionControlScope) {

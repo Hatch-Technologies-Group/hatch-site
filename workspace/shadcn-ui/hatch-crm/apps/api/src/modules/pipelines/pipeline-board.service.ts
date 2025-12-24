@@ -8,7 +8,7 @@ import {
   LeadScoreTier,
   LeadTaskStatus,
   type Pipeline,
-  type Prisma,
+  Prisma,
   type Stage
 } from '@hatch/db';
 
@@ -104,127 +104,221 @@ type PersonBoardRecord = Prisma.PersonGetPayload<{
 @Injectable()
 export class PipelineBoardService {
   private readonly savedViews = new Map<string, Map<string, BoardViewRecord>>();
+  private readonly cache = new Map<string, { expiresAt: number; value: Promise<any> }>();
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async getPipeline(tenantId: string, pipelineId: string): Promise<Pipeline & { stages: Stage[] }> {
-    const pipeline = await this.prisma.pipeline.findFirst({
-      where: { id: pipelineId, tenantId },
-      include: {
-        stages: {
-          orderBy: { order: 'asc' }
-        }
-      }
-    });
-    if (!pipeline) {
-      throw new NotFoundException('Pipeline not found');
+  private resolveCacheMs(envKey: string, fallbackMs: number) {
+    const raw = process.env[envKey];
+    if (!raw) return fallbackMs;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return fallbackMs;
+    return Math.max(0, Math.trunc(parsed));
+  }
+
+  private get pipelineCacheMs() {
+    return this.resolveCacheMs(
+      'PIPELINE_BOARD_PIPELINE_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 60_000
+    );
+  }
+
+  private get columnsCacheMs() {
+    return this.resolveCacheMs(
+      'PIPELINE_BOARD_COLUMNS_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 1000
+    );
+  }
+
+  private get stageMetricsCacheMs() {
+    return this.resolveCacheMs(
+      'PIPELINE_BOARD_STAGE_METRICS_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 1000
+    );
+  }
+
+  private get stageCardsCacheMs() {
+    return this.resolveCacheMs(
+      'PIPELINE_BOARD_STAGE_CARDS_CACHE_MS',
+      process.env.NODE_ENV === 'production' ? 0 : 500
+    );
+  }
+
+  private cachedPromise<T>(key: string, ttlMs: number, compute: () => Promise<T>): Promise<T> {
+    if (ttlMs <= 0) {
+      return compute();
     }
-    return pipeline;
+
+    const now = Date.now();
+    const existing = this.cache.get(key);
+    if (existing && existing.expiresAt > now) {
+      return existing.value as Promise<T>;
+    }
+    if (existing) {
+      this.cache.delete(key);
+    }
+
+    const value = Promise.resolve()
+      .then(compute)
+      .catch((error) => {
+        this.cache.delete(key);
+        throw error;
+      });
+    this.cache.set(key, { expiresAt: now + ttlMs, value });
+    return value;
+  }
+
+  private async queryStageAggregates(
+    tenantId: string,
+    pipelineId: string,
+    stageIds: string[],
+    filters: BoardFilters,
+    now: Date
+  ) {
+    if (stageIds.length === 0) {
+      return [] as Array<{
+        stageId: string;
+        total: number;
+        oldestAt: Date | null;
+        slaBreaches: number;
+      }>;
+    }
+
+    const conditions: Prisma.Sql[] = [
+      Prisma.sql`p."tenantId" = ${tenantId}`,
+      Prisma.sql`p."pipelineId" = ${pipelineId}`,
+      Prisma.sql`p."stageId" IN (${Prisma.join(stageIds)})`,
+      Prisma.sql`p."deletedAt" IS NULL`
+    ];
+
+    if (filters.queueId === 'unassigned') {
+      conditions.push(Prisma.sql`p."ownerId" IS NULL`);
+    } else if (typeof filters.ownerId === 'string' && filters.ownerId.trim()) {
+      conditions.push(Prisma.sql`p."ownerId" = ${filters.ownerId.trim()}`);
+    }
+
+    if (Array.isArray(filters.scoreTier) && filters.scoreTier.length > 0) {
+      conditions.push(Prisma.sql`p."scoreTier" IN (${Prisma.join(filters.scoreTier)})`);
+    }
+
+    if (filters.preapprovedOnly) {
+      conditions.push(
+        Prisma.sql`EXISTS (SELECT 1 FROM "LeadFit" lf WHERE lf."personId" = p."id" AND lf."preapproved" = true)`
+      );
+    }
+
+    if (filters.queueId === 'hot') {
+      conditions.push(Prisma.sql`p."leadScore" >= 80`);
+    }
+
+    if (filters.lastActivityDays && filters.lastActivityDays > 0) {
+      const threshold = subDays(now, filters.lastActivityDays);
+      conditions.push(
+        Prisma.sql`(p."lastActivityAt" >= ${threshold} OR (p."lastActivityAt" IS NULL AND p."stageEnteredAt" >= ${threshold}))`
+      );
+    }
+
+    const whereSql = Prisma.join(conditions, ' AND ');
+
+    return this.prisma.$queryRaw<
+      Array<{
+        stageId: string;
+        total: number;
+        oldestAt: Date | null;
+        slaBreaches: number;
+      }>
+    >(Prisma.sql`
+      SELECT
+        p."stageId" AS "stageId",
+        COUNT(*)::int AS "total",
+        MIN(COALESCE(p."stageEnteredAt", p."createdAt")) AS "oldestAt",
+        COUNT(*) FILTER (
+          WHERE s."slaMinutes" IS NOT NULL
+            AND (
+              (p."lastActivityAt" IS NOT NULL AND p."lastActivityAt" < (NOW() - (s."slaMinutes" * INTERVAL '1 minute')))
+              OR (p."lastActivityAt" IS NULL AND COALESCE(p."stageEnteredAt", p."createdAt") < (NOW() - (s."slaMinutes" * INTERVAL '1 minute')))
+            )
+        )::int AS "slaBreaches"
+      FROM "Person" p
+      JOIN "Stage" s ON s."id" = p."stageId"
+      WHERE ${whereSql}
+      GROUP BY p."stageId"
+    `);
+  }
+
+  async getPipeline(tenantId: string, pipelineId: string): Promise<Pipeline & { stages: Stage[] }> {
+    const cacheKey = `pipeline-board:pipeline:${tenantId}:${pipelineId}`;
+    return this.cachedPromise(cacheKey, this.pipelineCacheMs, async () => {
+      const pipeline = await this.prisma.pipeline.findFirst({
+        where: { id: pipelineId, tenantId },
+        include: {
+          stages: {
+            orderBy: { order: 'asc' }
+          }
+        }
+      });
+      if (!pipeline) {
+        throw new NotFoundException('Pipeline not found');
+      }
+      return pipeline;
+    });
   }
 
   async getColumns(tenantId: string, pipelineId: string, rawFilters?: string) {
-    const pipeline = await this.getPipeline(tenantId, pipelineId);
-    const filters = this.parseFilters(rawFilters);
-    const now = new Date();
+    const cacheKey = `pipeline-board:columns:${tenantId}:${pipelineId}:${rawFilters ?? ''}`;
+    return this.cachedPromise(cacheKey, this.columnsCacheMs, async () => {
+      const pipeline = await this.getPipeline(tenantId, pipelineId);
+      const filters = this.parseFilters(rawFilters);
+      const now = new Date();
 
-    const stageIds = pipeline.stages.map((stage) => stage.id);
-    const whereAllStages = this.buildPersonWhereForStageIds(tenantId, pipelineId, stageIds, filters, now);
+      const stageIds = pipeline.stages.map((stage) => stage.id);
+      const stageAggregates = await this.queryStageAggregates(
+        tenantId,
+        pipelineId,
+        stageIds,
+        filters,
+        now
+      );
 
-    const totalCountsPromise =
-      filters.queueId === 'overdue'
-        ? Promise.resolve([] as Array<{ stageId: string | null; _count: { _all: number } }>)
-        : this.prisma.person.groupBy({
-            by: ['stageId'],
-            where: whereAllStages,
-            _count: { _all: true }
-          });
+      const aggregateByStage = new Map<
+        string,
+        { total: number; slaBreaches: number; oldestAt: Date | null }
+      >();
+      for (const row of stageAggregates) {
+        aggregateByStage.set(row.stageId, {
+          total: row.total,
+          slaBreaches: row.slaBreaches,
+          oldestAt: row.oldestAt
+        });
+      }
 
-    const oldestRowsPromise = this.prisma.person.findMany({
-      where: whereAllStages,
-      distinct: ['stageId'],
-      orderBy: [{ stageId: 'asc' }, { stageEnteredAt: 'asc' }, { createdAt: 'asc' }],
-      select: { stageId: true, stageEnteredAt: true, createdAt: true }
-    });
+      const stages = pipeline.stages.map((stage) => {
+        const aggregates = aggregateByStage.get(stage.id) ?? {
+          total: 0,
+          slaBreaches: 0,
+          oldestAt: null
+        };
+        const count = filters.queueId === 'overdue' ? aggregates.slaBreaches : aggregates.total;
+        const oldestDate = aggregates.oldestAt;
+        const oldestHours =
+          oldestDate !== null
+            ? Math.max(0, Math.floor(differenceInMinutes(now, oldestDate) / 60))
+            : 0;
 
-    const slaStageClauses = pipeline.stages
-      .filter((stage) => stage.slaMinutes !== null && stage.slaMinutes !== undefined)
-      .map((stage) => {
-        const threshold = new Date(now.getTime() - stage.slaMinutes! * 60 * 1000);
         return {
-          stageId: stage.id,
-          OR: [
-            { lastActivityAt: { lt: threshold } },
-            {
-              AND: [{ lastActivityAt: null }, { stageEnteredAt: { lt: threshold } }]
-            }
-          ]
-        } satisfies Prisma.PersonWhereInput;
+          id: stage.id,
+          name: stage.name,
+          count,
+          slaBreaches: aggregates.slaBreaches,
+          oldestHours
+        };
       });
 
-    const slaBreachesPromise =
-      slaStageClauses.length === 0
-        ? Promise.resolve([] as Array<{ stageId: string | null; _count: { _all: number } }>)
-        : this.prisma.person.groupBy({
-            by: ['stageId'],
-            where: { AND: [whereAllStages, { OR: slaStageClauses }] },
-            _count: { _all: true }
-          });
-
-    const [totalCounts, oldestRows, slaBreaches] = await Promise.all([
-      totalCountsPromise,
-      oldestRowsPromise,
-      slaBreachesPromise
-    ]);
-
-    const totalCountByStage = new Map<string, number>();
-    for (const group of totalCounts) {
-      if (group.stageId) {
-        totalCountByStage.set(group.stageId, group._count._all);
-      }
-    }
-
-    const slaBreachesByStage = new Map<string, number>();
-    for (const group of slaBreaches) {
-      if (group.stageId) {
-        slaBreachesByStage.set(group.stageId, group._count._all);
-      }
-    }
-
-    const oldestDateByStage = new Map<string, Date>();
-    for (const row of oldestRows) {
-      if (!row.stageId) continue;
-      const date = row.stageEnteredAt ?? row.createdAt ?? null;
-      if (date) {
-        oldestDateByStage.set(row.stageId, date);
-      }
-    }
-
-    const stages = pipeline.stages.map((stage) => {
-      const slaBreachesForStage =
-        stage.slaMinutes === null || stage.slaMinutes === undefined
-          ? 0
-          : slaBreachesByStage.get(stage.id) ?? 0;
-      const count =
-        filters.queueId === 'overdue'
-          ? slaBreachesForStage
-          : totalCountByStage.get(stage.id) ?? 0;
-      const oldestDate = oldestDateByStage.get(stage.id) ?? null;
-      const oldestHours =
-        oldestDate !== null ? Math.max(0, Math.floor(differenceInMinutes(now, oldestDate) / 60)) : 0;
-
       return {
-        id: stage.id,
-        name: stage.name,
-        count,
-        slaBreaches: slaBreachesForStage,
-        oldestHours
+        pipelineId: pipeline.id,
+        stages
       };
     });
-
-    return {
-      pipelineId: pipeline.id,
-      stages
-    };
   }
 
   async getStageMetrics(
@@ -233,31 +327,36 @@ export class PipelineBoardService {
     stageId: string,
     rawFilters?: string
   ) {
-    const stage = await this.ensureStage(tenantId, pipelineId, stageId);
-    const filters = this.parseFilters(rawFilters);
-    const now = new Date();
-    const where = this.buildPersonWhere(tenantId, pipelineId, stageId, filters);
+    const cacheKey = `pipeline-board:metrics:${tenantId}:${pipelineId}:${stageId}:${rawFilters ?? ''}`;
+    return this.cachedPromise(cacheKey, this.stageMetricsCacheMs, async () => {
+      const stage = await this.ensureStage(tenantId, pipelineId, stageId);
+      const filters = this.parseFilters(rawFilters);
+      const now = new Date();
+      const where = this.buildPersonWhere(tenantId, pipelineId, stageId, filters);
 
-    const slaBreachesPromise = this.countSlaBreaches(where, stage, now);
-    const countPromise =
-      filters.queueId === 'overdue' ? Promise.resolve<number | null>(null) : this.prisma.person.count({ where });
-    const oldestPromise = this.findOldestStageDate(where);
+      const slaBreachesPromise = this.countSlaBreaches(where, stage, now);
+      const countPromise =
+        filters.queueId === 'overdue'
+          ? Promise.resolve<number | null>(null)
+          : this.prisma.person.count({ where });
+      const oldestPromise = this.findOldestStageDate(where);
 
-    const [slaBreaches, counted, oldestDate] = await Promise.all([
-      slaBreachesPromise,
-      countPromise,
-      oldestPromise
-    ]);
+      const [slaBreaches, counted, oldestDate] = await Promise.all([
+        slaBreachesPromise,
+        countPromise,
+        oldestPromise
+      ]);
 
-    const count = filters.queueId === 'overdue' ? slaBreaches : counted ?? 0;
-    const oldestHours =
-      oldestDate !== null ? Math.max(0, Math.floor(differenceInMinutes(now, oldestDate) / 60)) : 0;
+      const count = filters.queueId === 'overdue' ? slaBreaches : counted ?? 0;
+      const oldestHours =
+        oldestDate !== null ? Math.max(0, Math.floor(differenceInMinutes(now, oldestDate) / 60)) : 0;
 
-    return {
-      count,
-      slaBreaches,
-      oldestHours
-    };
+      return {
+        count,
+        slaBreaches,
+        oldestHours
+      };
+    });
   }
 
   async getStageCards(
@@ -266,75 +365,74 @@ export class PipelineBoardService {
     stageId: string,
     options?: { limit?: number; cursor?: string; filters?: string }
   ) {
-    const stage = await this.ensureStage(tenantId, pipelineId, stageId);
-    const filters = this.parseFilters(options?.filters);
-    const where = this.buildPersonWhere(tenantId, pipelineId, stageId, filters);
-    const limit =
-      typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
-        ? Math.min(Math.trunc(options.limit), 200)
-        : 200;
+    const cacheKey = `pipeline-board:cards:${tenantId}:${pipelineId}:${stageId}:${options?.cursor ?? ''}:${options?.limit ?? ''}:${options?.filters ?? ''}`;
+    return this.cachedPromise(cacheKey, this.stageCardsCacheMs, async () => {
+      const stage = await this.ensureStage(tenantId, pipelineId, stageId);
+      const filters = this.parseFilters(options?.filters);
+      const where = this.buildPersonWhere(tenantId, pipelineId, stageId, filters);
+      const limit =
+        typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
+          ? Math.min(Math.trunc(options.limit), 200)
+          : 200;
 
-    const people = await this.prisma.person.findMany({
-      where,
-      orderBy: [
-        { stageEnteredAt: 'asc' },
-        { createdAt: 'asc' },
-        { id: 'asc' }
-      ],
-      take: limit,
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        primaryEmail: true,
-        primaryPhone: true,
-        leadScore: true,
-        lastActivityAt: true,
-        stageEnteredAt: true,
-        updatedAt: true,
-        createdAt: true,
-        owner: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        },
-        leadTasks: {
-          where: { status: LeadTaskStatus.OPEN },
-          orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
-          take: 1,
-          select: {
-            dueAt: true,
-            title: true
-          }
-        },
-        consents: {
-          where: {
-            channel: { in: BADGE_CONSENT_CHANNELS },
-            status: CONSENT_STATUS_GRANTED
+      const people = await this.prisma.person.findMany({
+        where,
+        orderBy: [{ stageEnteredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        take: limit,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          primaryEmail: true,
+          primaryPhone: true,
+          leadScore: true,
+          lastActivityAt: true,
+          stageEnteredAt: true,
+          updatedAt: true,
+          createdAt: true,
+          owner: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           },
-          orderBy: { capturedAt: 'desc' },
-          select: { channel: true }
-        },
-        activityRollup: {
-          select: {
-            lastTouchpointAt: true,
-            lastReplyAt: true
+          leadTasks: {
+            where: { status: LeadTaskStatus.OPEN },
+            orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+            take: 1,
+            select: {
+              dueAt: true,
+              title: true
+            }
+          },
+          consents: {
+            where: {
+              channel: { in: BADGE_CONSENT_CHANNELS },
+              status: CONSENT_STATUS_GRANTED
+            },
+            orderBy: { capturedAt: 'desc' },
+            select: { channel: true }
+          },
+          activityRollup: {
+            select: {
+              lastTouchpointAt: true,
+              lastReplyAt: true
+            }
           }
         }
-      }
+      });
+
+      const now = new Date();
+      const cards = people.map((person) => this.mapPersonToCard(person, stage, now));
+      const filteredCards = this.applyQueueFilter(cards, filters.queueId);
+
+      return {
+        rows: filteredCards,
+        nextCursor: null
+      };
     });
-
-    const now = new Date();
-    const cards = people.map((person) => this.mapPersonToCard(person, stage, now));
-    const filteredCards = this.applyQueueFilter(cards, filters.queueId);
-
-    return {
-      rows: filteredCards,
-      nextCursor: null
-    };
   }
 
   async listViews(pipelineId: string) {
